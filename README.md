@@ -4,6 +4,7 @@
 [![YAML Lint](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/yamllint.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/yamllint.yml)
 [![Kubeconform](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/kubeconform.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/kubeconform.yml)
 [![Gitleaks](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/gitleaks.yml)
+[![CodeQL](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/codeql.yml)
 [![Node Labeler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml)
 [![Storage Autoscaler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml)
 

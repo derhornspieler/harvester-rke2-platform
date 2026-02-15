@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  # Go modules — Node Labeler
+  - package-ecosystem: gomod
+    directory: /operators/node-labeler
+    schedule:
+      interval: weekly
+    groups:
+      go-deps:
+        patterns: ["*"]
+
+  # Go modules — Storage Autoscaler
+  - package-ecosystem: gomod
+    directory: /operators/storage-autoscaler
+    schedule:
+      interval: weekly
+    groups:
+      go-deps:
+        patterns: ["*"]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Terraform providers
+  - package-ecosystem: terraform
+    directory: /cluster
+    schedule:
+      interval: weekly
+    groups:
+      terraform:
+        patterns: ["*"]
+
+  # Docker — Node Labeler
+  - package-ecosystem: docker
+    directory: /operators/node-labeler
+    schedule:
+      interval: weekly
+
+  # Docker — Storage Autoscaler
+  - package-ecosystem: docker
+    directory: /operators/storage-autoscaler
+    schedule:
+      interval: weekly

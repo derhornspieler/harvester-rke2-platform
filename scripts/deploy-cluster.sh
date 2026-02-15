@@ -753,7 +753,7 @@ phase_4_harbor() {
 
   # 4.2 MinIO (runs in parallel with 4.3 — but in a script we do sequential)
   log_step "Deploying MinIO for Harbor..."
-  kube_apply -f "${SERVICES_DIR}/harbor/minio/secret.yaml"
+  kube_apply_subst "${SERVICES_DIR}/harbor/minio/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/harbor/minio/pvc.yaml"
   kube_apply -f "${SERVICES_DIR}/harbor/minio/deployment.yaml"
   kube_apply -f "${SERVICES_DIR}/harbor/minio/service.yaml"
@@ -763,7 +763,7 @@ phase_4_harbor() {
 
   # 4.3 CNPG harbor-pg
   log_step "Deploying CNPG harbor-pg cluster..."
-  kube_apply -f "${SERVICES_DIR}/harbor/postgres/secret.yaml"
+  kube_apply_subst "${SERVICES_DIR}/harbor/postgres/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/harbor/postgres/harbor-pg-cluster.yaml"
   kube_apply -f "${SERVICES_DIR}/harbor/postgres/harbor-pg-scheduled-backup.yaml"
   wait_for_cnpg_primary database harbor-pg 600
@@ -1117,7 +1117,7 @@ EOF
   kube_apply -f "${SERVICES_DIR}/kasm/namespace.yaml"
 
   # CNPG for Kasm (PG 14)
-  kube_apply -f "${SERVICES_DIR}/kasm/postgres/secret.yaml"
+  kube_apply_subst "${SERVICES_DIR}/kasm/postgres/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/kasm/postgres/kasm-pg-cluster.yaml"
   wait_for_cnpg_primary database kasm-pg 600
 
