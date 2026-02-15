@@ -8,10 +8,10 @@
 [![Node Labeler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml)
 [![Storage Autoscaler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml)
 
-[![Harvester](https://img.shields.io/badge/Harvester-v1.4-00897B?logo=suse&logoColor=white)](https://harvesterhci.io/)
+[![Harvester](https://img.shields.io/badge/Harvester-v1.7.1-00897B?logo=suse&logoColor=white)](https://harvesterhci.io/)
 [![RKE2](https://img.shields.io/badge/RKE2-v1.34-0075A8?logo=rancher&logoColor=white)](https://docs.rke2.io/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.31-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Terraform](https://img.shields.io/badge/Terraform-v1.x-7B42BC?logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![Terraform](https://img.shields.io/badge/Terraform-v1.14-7B42BC?logo=terraform&logoColor=white)](https://www.terraform.io/)
 [![Rocky Linux](https://img.shields.io/badge/Rocky%20Linux-9-10B981?logo=rockylinux&logoColor=white)](https://rockylinux.org/)
 
 # RKE2 Cluster Platform
