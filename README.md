@@ -7,6 +7,12 @@
 [![Node Labeler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml)
 [![Storage Autoscaler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml)
 
+[![Harvester](https://img.shields.io/badge/Harvester-v1.4-00897B?logo=suse&logoColor=white)](https://harvesterhci.io/)
+[![RKE2](https://img.shields.io/badge/RKE2-v1.34-0075A8?logo=rancher&logoColor=white)](https://docs.rke2.io/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.31-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Terraform](https://img.shields.io/badge/Terraform-v1.x-7B42BC?logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![Rocky Linux](https://img.shields.io/badge/Rocky%20Linux-9-10B981?logo=rockylinux&logoColor=white)](https://rockylinux.org/)
+
 # RKE2 Cluster Platform
 
 Production-grade RKE2 Kubernetes platform on Harvester, managed via Rancher Terraform provider. Includes 8 integrated services: Vault PKI, cert-manager, full monitoring stack, Keycloak SSO, ArgoCD GitOps, Harbor container registry, Mattermost messaging, and Kasm virtual desktops.
@@ -152,14 +158,14 @@ All external services are served over HTTPS via Traefik using Gateway API (HTTPR
 | Endpoint | Namespace | Ingress Type | Auth Method |
 |----------|-----------|-------------|-------------|
 | `grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | Grafana login |
-| `prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | Basic auth (extensionRef) |
-| `hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | Basic auth (extensionRef) |
-| `traefik.<DOMAIN>` | kube-system | IngressRoute | Basic auth |
+| `prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | Keycloak SSO (oauth2-proxy) |
+| `hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | Keycloak SSO (oauth2-proxy) |
+| `traefik.<DOMAIN>` | kube-system | IngressRoute | Keycloak SSO (oauth2-proxy) |
 | `vault.<DOMAIN>` | vault | Gateway + HTTPRoute | Vault login |
 | `harbor.<DOMAIN>` | harbor | Gateway + HTTPRoute | Harbor login |
 | `keycloak.<DOMAIN>` | keycloak | Gateway + HTTPRoute | Keycloak login |
 | `argo.<DOMAIN>` | argocd | Gateway + HTTPRoute | ArgoCD login |
-| `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | Basic auth (extensionRef) |
+| `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | Keycloak SSO (oauth2-proxy) |
 | `mattermost.<DOMAIN>` | mattermost | Gateway + HTTPRoute | Mattermost login |
 | `kasm.<DOMAIN>` | kasm | IngressRoute | Kasm login |
 | `gitlab.<DOMAIN>` | gitlab | External | GitLab login |
