@@ -36,6 +36,20 @@ jobs:
       - name: Run tests
         run: make test
 
+  govulncheck:
+    runs-on: ubuntu-latest
+    # Non-blocking — reports vulnerabilities without gating the build
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: operators/storage-autoscaler
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operators/storage-autoscaler/go.mod
+
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
