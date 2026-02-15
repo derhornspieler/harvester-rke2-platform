@@ -147,7 +147,7 @@ kc_create_client() {
       local updated_json
       updated_json=$(echo "$client_json" | jq \
         --arg uri "$redirect_uri" \
-        '.redirectUris = [$uri] | .webOrigins = ["+"] | .attributes["post.logout.redirect.uris"] = "+"')
+        '.redirectUris = ($uri | split(",")) | .webOrigins = ["+"] | .attributes["post.logout.redirect.uris"] = "+"')
       echo "$updated_json" | kc_api PUT "/realms/${KC_REALM}/clients/${existing_id}" -d @- 2>/dev/null || \
         log_warn "  Could not update redirectUris for '${client_id}'" >&2
     fi
@@ -170,7 +170,7 @@ kc_create_client() {
       \"standardFlowEnabled\": true,
       \"directAccessGrantsEnabled\": false,
       \"serviceAccountsEnabled\": false,
-      \"redirectUris\": [\"${redirect_uri}\"],
+      \"redirectUris\": $(echo "$redirect_uri" | jq -R 'split(",")'),
       \"webOrigins\": [\"+\"],
       \"attributes\": {
         \"post.logout.redirect.uris\": \"+\"
@@ -460,8 +460,7 @@ clientSecret: \"${argocd_secret}\"
 requestedScopes:
   - openid
   - profile
-  - email
-  - groups"
+  - email"
 
   # Append rootCA if available (ArgoCD natively supports inline CA PEM)
   if [[ -n "${argocd_root_ca:-}" ]]; then
@@ -492,7 +491,7 @@ $(echo "$argocd_root_ca" | sed 's/^/  /')"
   log_step "Binding Harbor to Keycloak..."
   local harbor_secret harbor_admin_pass harbor_core_pod
   harbor_secret=$(jq -r '.harbor' "$OIDC_SECRETS_FILE")
-  harbor_admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  harbor_admin_pass="${HARBOR_ADMIN_PASSWORD}"
   harbor_core_pod=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
   if [[ -n "$harbor_core_pod" ]]; then

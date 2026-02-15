@@ -31,10 +31,10 @@ data:
     # Email domain: allow all (Keycloak manages access)
     email_domains = ["*"]
 
-    # Pass auth info to upstream via headers
+    # Pass auth info to upstream via headers (user/email/groups only, no tokens)
     set_xauthrequest = true
-    set_authorization_header = true
-    pass_access_token = true
+    set_authorization_header = false
+    pass_access_token = false
 
     # Scopes
     scope = "openid profile email"
@@ -44,6 +44,10 @@ data:
 
     # PKCE (recommended by Keycloak)
     code_challenge_method = "S256"
+
+    # Session — extend cookie lifetime and enable refresh
+    cookie_expire = "168h"
+    cookie_refresh = "60m"
 
     # Skip auth for the health check endpoint
     skip_auth_routes = ["/ping"]
