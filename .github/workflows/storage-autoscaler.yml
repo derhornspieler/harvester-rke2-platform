@@ -122,14 +122,14 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           format: table
           exit-code: '0'
 
       - name: Upload Trivy SARIF report
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
           format: sarif
           output: trivy-results.sarif
           exit-code: '0'

@@ -14,3 +14,7 @@ spec:
       port: 4180
       targetPort: 4180
       protocol: TCP
+    - name: auth-redirect
+      port: 4181
+      targetPort: 4181
+      protocol: TCP

@@ -22,6 +22,12 @@ data:
     cookie_samesite = "lax"
     cookie_name = "_oauth2_proxy"
 
+    # Allow rd= redirects to any subdomain
+    whitelist_domains = [".example.com"]
+
+    # Skip "Sign in with Keycloak" button — go directly to Keycloak
+    skip_provider_button = true
+
     # Email domain: allow all (Keycloak manages access)
     email_domains = ["*"]
 
@@ -31,7 +37,13 @@ data:
     pass_access_token = true
 
     # Scopes
-    scope = "openid profile email groups"
+    scope = "openid profile email"
+
+    # Audience — Keycloak sets aud=["account"] by default; accept it
+    oidc_extra_audiences = ["account"]
+
+    # PKCE (recommended by Keycloak)
+    code_challenge_method = "S256"
 
     # Skip auth for the health check endpoint
     skip_auth_routes = ["/ping"]

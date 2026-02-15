@@ -695,6 +695,20 @@ phase_4_groups() {
           }
         }" 2>/dev/null || true
       log_ok "  Group mapper added to ${client_id_name}"
+
+      # Add audience mapper so the client_id appears in the aud claim
+      kc_api POST "/realms/${KC_REALM}/clients/${internal_id}/protocol-mappers/models" \
+        -d "{
+          \"name\": \"audience-${client_id_name}\",
+          \"protocol\": \"openid-connect\",
+          \"protocolMapper\": \"oidc-audience-mapper\",
+          \"config\": {
+            \"included.client.audience\": \"${client_id_name}\",
+            \"id.token.claim\": \"true\",
+            \"access.token.claim\": \"true\"
+          }
+        }" 2>/dev/null || true
+      log_ok "  Audience mapper added to ${client_id_name}"
     fi
   done
 

@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - secret.yaml
   - configmap.yaml
+  - configmap-auth-redirect.yaml
   - deployment.yaml
   - service.yaml
   - gateway.yaml

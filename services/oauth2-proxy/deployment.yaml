@@ -64,6 +64,35 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+        - name: auth-redirect
+          image: nginx:1.27-alpine
+          ports:
+            - name: auth-redirect
+              containerPort: 4181
+              protocol: TCP
+          volumeMounts:
+            - name: auth-redirect-config
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: auth-redirect
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: auth-redirect
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       volumes:
         - name: config
           configMap:
@@ -71,3 +100,6 @@ spec:
         - name: vault-root-ca
           configMap:
             name: vault-root-ca
+        - name: auth-redirect-config
+          configMap:
+            name: oauth2-proxy-auth-redirect
