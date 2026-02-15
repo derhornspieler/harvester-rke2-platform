@@ -1,0 +1,64 @@
+# MariaDB Operator CRD — Galera HA for LibreNMS
+# Requires: mariadb-operator in mariadb-operator-system namespace
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: librenms-mariadb
+  namespace: librenms
+spec:
+  rootPasswordSecretKeyRef:
+    name: librenms-mariadb-root
+    key: password
+
+  database: librenms
+  username: librenms
+  passwordSecretKeyRef:
+    name: librenms-mariadb-credentials
+    key: password
+
+  image: mariadb:11.4
+
+  galera:
+    enabled: true
+    primary:
+      podIndex: 0
+      automaticFailover: true
+    sst: mariabackup
+    replicaThreads: 1
+    agent:
+      image: ghcr.io/mariadb-operator/mariadb-operator:v0.36.0
+      gracefulShutdownTimeout: 5s
+    recovery:
+      enabled: true
+      clusterHealthyTimeout: 3m
+      clusterBootstrapTimeout: 10m
+
+  replicas: 3
+
+  storage:
+    size: 10Gi
+    storageClassName: harvester
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  nodeSelector:
+    workload-type: database
+
+  affinity:
+    antiAffinityEnabled: true
+
+  myCnf: |
+    [mariadb]
+    bind-address=*
+    default_storage_engine=InnoDB
+    binlog_format=row
+    innodb_autoinc_lock_mode=2
+    innodb_buffer_pool_size=256M
+    max_connections=200
+    lower_case_table_names=0

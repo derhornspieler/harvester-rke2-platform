@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  # MinIO (S3-compatible storage — official image, manual deployment)
+  - minio/namespace.yaml
+  - minio/secret.yaml
+  - minio/pvc.yaml
+  - minio/deployment.yaml
+  - minio/service.yaml
+  - minio/job-create-buckets.yaml
+  # PostgreSQL (CNPG cluster in database namespace)
+  - postgres/secret.yaml
+  - postgres/harbor-pg-cluster.yaml
+  - postgres/harbor-pg-scheduled-backup.yaml
+  # Redis (Sentinel — deployed via Helm, secrets managed here)
+  - redis/secret.yaml
+  # Harbor (deployed via Helm, supplementary resources below)
+  # TLS + Ingress (Gateway API + cert-manager gateway-shim)
+  - gateway.yaml
+  - httproute.yaml
+  # HPA (Horizontal Pod Autoscalers)
+  - hpa-core.yaml
+  - hpa-registry.yaml
+  - hpa-trivy.yaml

@@ -1,0 +1,51 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+
+# Sensitive variable files
+terraform.tfvars
+*.auto.tfvars
+
+# Plan files
+*.tfplan
+tfplan_*
+PLAN.md
+
+# Kubeconfig files
+*.kubeconfig
+kubeconfig-*.yaml
+harvester-cloud-provider-kubeconfig
+
+# Vault secrets
+vault-init.json
+
+# Sensitive credentials and secrets
+cluster/credentials.txt
+scripts/.env
+scripts/oidc-client-secrets.json
+
+# Go build artifacts
+**/bin/
+cover.out
+
+# Extracted CA certificates and keys
+*-root-ca.pem
+*-root-ca-key.pem
+root-ca.pem
+root-ca-key.pem
+
+# Golden image builder
+golden-image/kubeconfig-*.yaml
+golden-image/terraform.tfvars
+golden-image/*.pem
+golden-image/.terraform/
+golden-image/.terraform.lock.hcl
+golden-image/*.tfstate
+golden-image/*.tfstate.*
+
+# OS
+.DS_Store

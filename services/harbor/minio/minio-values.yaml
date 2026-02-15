@@ -1,0 +1,50 @@
+# Bitnami MinIO Helm Chart Values
+# Chart: oci://registry-1.docker.io/bitnamicharts/minio (v17.x)
+# Purpose: S3-compatible object storage backend for Harbor registry blobs
+#
+# Install:
+#   helm install minio oci://registry-1.docker.io/bitnamicharts/minio \
+#     -n minio -f minio-values.yaml
+
+mode: standalone
+
+auth:
+  existingSecret: "minio-root-credentials"
+
+# Auto-create buckets on startup
+# - harbor: registry blob storage
+# - cnpg-backups: CloudNativePG Barman backups
+defaultBuckets: "harbor,cnpg-backups"
+
+persistence:
+  enabled: true
+  storageClass: "harvester"
+  size: 200Gi
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+# Internal cluster traffic only — TLS not needed
+tls:
+  enabled: false
+
+# Place on database worker pool (persistent storage workload)
+nodeSelector:
+  workload-type: database
+
+# Disable MinIO Console (image unavailable in free Bitnami tier)
+console:
+  enabled: false
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  # PostgreSQL (CNPG in database namespace)
+  - postgres/secret.yaml
+  - postgres/mattermost-pg-cluster.yaml
+  # MinIO (S3-compatible file storage)
+  - minio/secret.yaml
+  - minio/statefulset.yaml
+  - minio/service.yaml
+  # Mattermost
+  - mattermost/secret.yaml
+  - mattermost/configmap.yaml
+  - mattermost/deployment.yaml
+  - mattermost/service.yaml
+  - mattermost/service-metrics.yaml
+  # TLS + Ingress (Gateway API + cert-manager gateway-shim)
+  - gateway.yaml
+  - httproute.yaml

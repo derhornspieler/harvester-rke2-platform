@@ -1,0 +1,105 @@
+# Vault Helm values for RKE2 cluster (HA + Raft)
+# Chart: hashicorp/vault 0.32.0
+#
+# Deploy:
+#   helm install vault hashicorp/vault -n vault --create-namespace \
+#     -f services/vault/vault-values.yaml
+#
+# Post-deploy (IngressRoute + TLS certificate):
+#   kubectl apply -f services/vault/certificate.yaml \
+#                 -f services/vault/ingressroute.yaml
+#
+# Initialize (first time only):
+#   kubectl exec -n vault vault-0 -- vault operator init \
+#     -key-shares=5 -key-threshold=3 -format=json > vault-init.json
+#
+# Unseal each replica (required after every pod restart):
+#   for i in 0 1 2; do
+#     kubectl exec -n vault vault-$i -- vault operator unseal <key1>
+#     kubectl exec -n vault vault-$i -- vault operator unseal <key2>
+#     kubectl exec -n vault vault-$i -- vault operator unseal <key3>
+#   done
+#
+# Join replicas to Raft cluster (first time only, after unsealing vault-0):
+#   kubectl exec -n vault vault-1 -- vault operator raft join http://vault-0.vault-internal:8200
+#   kubectl exec -n vault vault-2 -- vault operator raft join http://vault-0.vault-internal:8200
+#   # Then unseal vault-1 and vault-2
+
+global:
+  enabled: true
+
+injector:
+  enabled: false
+
+server:
+  enabled: true
+
+  image:
+    repository: hashicorp/vault
+    tag: "1.19.0"
+
+  # Schedule on database pool (stateful workload)
+  nodeSelector:
+    workload-type: database
+
+  # Spread replicas across different nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vault
+                component: server
+            topologyKey: kubernetes.io/hostname
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: harvester
+
+  # HA mode with integrated Raft storage (3 replicas)
+  ha:
+    enabled: true
+    replicas: 3
+    raft:
+      enabled: true
+      config: |
+        ui = true
+
+        listener "tcp" {
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_disable = 1
+          telemetry {
+            unauthenticated_metrics_access = true
+          }
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+        }
+
+        service_registration "kubernetes" {}
+
+        telemetry {
+          prometheus_retention_time = "30s"
+          disable_hostname = true
+        }
+
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 8200
+
+ui:
+  enabled: true

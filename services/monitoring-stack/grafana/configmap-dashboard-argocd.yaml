@@ -1,0 +1,176 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-argocd
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  argocd-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Applications Total",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(argocd_app_info{job=\"argocd\"})", "refId": "A"}]
+        },
+        {
+          "title": "Apps Synced",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(argocd_app_info{job=\"argocd\",sync_status=\"Synced\"})", "refId": "A"}]
+        },
+        {
+          "title": "Apps Out of Sync",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+          "id": 3,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(argocd_app_info{job=\"argocd\",sync_status!=\"Synced\"})", "refId": "A"}]
+        },
+        {
+          "title": "Apps Healthy",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+          "id": 4,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(argocd_app_info{job=\"argocd\",health_status=\"Healthy\"})", "refId": "A"}]
+        },
+        {
+          "title": "Apps Degraded",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+          "id": 5,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(argocd_app_info{job=\"argocd\",health_status=\"Degraded\"})", "refId": "A"}]
+        },
+        {
+          "title": "Components Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+          "id": 6,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(up{job=\"argocd\"} == 1)", "refId": "A"}]
+        },
+        {
+          "title": "Application Sync Status",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+          "id": 7,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {"align": "auto", "displayMode": "auto"}
+            },
+            "overrides": [
+              {"matcher": {"id": "byName", "options": "Time"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "__name__"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "instance"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "job"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "dest_server"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "dest_namespace"}, "properties": [{"id": "custom.hidden", "value": true}]},
+              {"matcher": {"id": "byName", "options": "sync_status"}, "properties": [{"id": "custom.displayMode", "value": "color-text"}, {"id": "custom.inspect", "value": false}, {"id": "mappings", "value": [{"type": "value", "options": {"Synced": {"text": "Synced", "color": "green"}, "OutOfSync": {"text": "OutOfSync", "color": "red"}}}]}]},
+              {"matcher": {"id": "byName", "options": "health_status"}, "properties": [{"id": "custom.displayMode", "value": "color-text"}, {"id": "custom.inspect", "value": false}, {"id": "mappings", "value": [{"type": "value", "options": {"Healthy": {"text": "Healthy", "color": "green"}, "Degraded": {"text": "Degraded", "color": "red"}, "Progressing": {"text": "Progressing", "color": "yellow"}, "Missing": {"text": "Missing", "color": "orange"}, "Suspended": {"text": "Suspended", "color": "blue"}, "Unknown": {"text": "Unknown", "color": "purple"}}}]}]}
+            ]
+          },
+          "options": {"showHeader": true, "sortBy": [{"displayName": "name", "desc": false}]},
+          "targets": [{"expr": "argocd_app_info{job=\"argocd\"}", "refId": "A", "instant": true, "format": "table"}],
+          "transformations": [
+            {"id": "organize", "options": {"excludeByName": {}, "indexByName": {"name": 0, "project": 1, "namespace": 2, "sync_status": 3, "health_status": 4}, "renameByName": {}}}
+          ]
+        },
+        {
+          "title": "Sync Operations",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(argocd_app_sync_total{job=\"argocd\"}[5m])) by (name, phase)", "legendFormat": "{{name}} - {{phase}}", "refId": "A"}]
+        },
+        {
+          "title": "Reconciliation Duration p99",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(argocd_app_reconcile_bucket{job=\"argocd\"}[5m])) by (le, name))", "legendFormat": "{{name}}", "refId": "A"}]
+        },
+        {
+          "title": "Controller Workqueue Depth",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "argocd_app_controller_workqueue_depth{job=\"argocd\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "API Server Request Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(argocd_redis_request_total{job=\"argocd\"}[5m]))", "legendFormat": "{{initiator}}", "refId": "A"}]
+        },
+        {
+          "title": "Git Fetch Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(argocd_git_request_total{job=\"argocd\"}[5m])", "legendFormat": "{{repo}} - {{request_type}}", "refId": "A"}]
+        },
+        {
+          "title": "Cluster API Calls",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "id": 13,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(argocd_cluster_api_request_total{job=\"argocd\"}[5m])) by (server, response_code)", "legendFormat": "{{server}} - {{response_code}}", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["argocd", "gitops", "ci-cd"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "ArgoCD Overview",
+      "uid": "argocd-overview",
+      "version": 1,
+      "description": "ArgoCD monitoring dashboard covering application sync status, health, reconciliation performance, controller workqueue, Git fetch rates, and cluster API calls."
+    }

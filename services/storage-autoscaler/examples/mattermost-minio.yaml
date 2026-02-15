@@ -1,0 +1,14 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: mattermost-minio
+  namespace: mattermost
+spec:
+  target:
+    pvcName: data-mattermost-minio-0
+  thresholdPercent: 80
+  maxSize: 200Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

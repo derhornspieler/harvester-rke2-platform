@@ -1,0 +1,175 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-gitlab
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  gitlab-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "GitLab Components Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 12, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(up{namespace=\"gitlab\"} == 1)", "legendFormat": "Components Up", "refId": "A"}]
+        },
+        {
+          "title": "GitLab Components Down",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(up{namespace=\"gitlab\"} == 0)", "legendFormat": "Components Down", "refId": "A"}]
+        },
+        {
+          "title": "Puma Active Connections",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 3,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "puma_running{namespace=\"gitlab\"}", "legendFormat": "Running {{pod}}", "refId": "A"},
+            {"expr": "puma_pool_capacity{namespace=\"gitlab\"}", "legendFormat": "Capacity {{pod}}", "refId": "B"},
+            {"expr": "puma_max_threads{namespace=\"gitlab\"}", "legendFormat": "Max Threads {{pod}}", "refId": "C"}
+          ]
+        },
+        {
+          "title": "Rails Request Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum by (method) (rate(http_requests_total{namespace=\"gitlab\"}[5m]))", "legendFormat": "{{method}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "Sidekiq Jobs Processed",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(sidekiq_jobs_processed_total{namespace=\"gitlab\"}[5m])", "legendFormat": "Processed", "refId": "A"}]
+        },
+        {
+          "title": "Sidekiq Jobs Failed",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}, "color": {"mode": "fixed", "fixedColor": "red"}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(sidekiq_jobs_failed_total{namespace=\"gitlab\"}[5m])", "legendFormat": "Failed", "refId": "A"}]
+        },
+        {
+          "title": "Sidekiq Queue Size",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sidekiq_queue_size{namespace=\"gitlab\"}", "legendFormat": "{{name}}", "refId": "A"}]
+        },
+        {
+          "title": "Gitaly Request Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(gitaly_service_client_requests_total{namespace=\"gitlab\"}[5m])", "legendFormat": "{{grpc_service}}", "refId": "A"}]
+        },
+        {
+          "title": "Gitaly Request Duration (p99)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "histogram_quantile(0.99, rate(grpc_server_handling_seconds_bucket{namespace=\"gitlab\", grpc_type=\"unary\"}[5m]))", "legendFormat": "p99", "refId": "A"}]
+        },
+        {
+          "title": "Redis Operations",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "rate(gitlab_redis_client_requests_total{namespace=\"gitlab\"}[5m])", "legendFormat": "{{storage}} - {{request_type}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "Puma Memory Usage",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "id": 13,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "ruby_process_resident_memory_bytes{namespace=\"gitlab\", pod=~\".*webservice.*\"}", "legendFormat": "{{pod}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "GitLab Error Logs",
+          "type": "logs",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 36},
+          "id": 10,
+          "options": {
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false
+          },
+          "targets": [{"expr": "{namespace=\"gitlab\"} |= \"error\" | logfmt | level = \"error\"", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "PostgreSQL Database Size (GitLab)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 46},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "cnpg_pg_database_size_bytes{cnpg_cluster=\"gitlab-postgresql\"}", "legendFormat": "{{datname}}", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["gitlab", "rke2", "ci-cd"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "GitLab Overview",
+      "uid": "gitlab-overview",
+      "version": 1,
+      "description": "GitLab monitoring dashboard covering Puma/Rails request metrics, Sidekiq job processing, Gitaly gRPC operations, Redis operations, error logs via Loki, and CloudNativePG database size. Metrics from gitlab-exporter job and annotation-based discovery."
+    }

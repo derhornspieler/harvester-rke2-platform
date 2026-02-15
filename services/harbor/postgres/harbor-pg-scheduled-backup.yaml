@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: harbor-pg-daily
+  namespace: database
+spec:
+  schedule: "0 0 2 * * *"  # 02:00 UTC daily
+  backupOwnerReference: self
+  cluster:
+    name: harbor-pg
+  method: barmanObjectStore

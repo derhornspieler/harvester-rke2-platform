@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow CHANGEME placeholder patterns"
+regexTarget = "match"
+regexes = [
+  '''CHANGEME_\w+''',
+]
+
+paths = [
+  '''.env.example''',
+]

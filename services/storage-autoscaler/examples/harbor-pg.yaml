@@ -1,0 +1,16 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: harbor-pg
+  namespace: database
+spec:
+  target:
+    selector:
+      matchLabels:
+        cnpg.io/cluster: harbor-pg
+  thresholdPercent: 80
+  maxSize: 100Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-keycloak
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  keycloak-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Keycloak Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "up{job=\"keycloak\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Total Logins (1h)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(increase(keycloak_logins_total{job=\"keycloak\"}[1h]))", "legendFormat": "Logins", "refId": "A"}]
+        },
+        {
+          "title": "Login Errors (1h)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(increase(keycloak_login_errors_total{job=\"keycloak\"}[1h]))", "legendFormat": "Errors", "refId": "A"}]
+        },
+        {
+          "title": "Active Sessions",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(keycloak_active_user_sessions{job=\"keycloak\"})", "legendFormat": "Sessions", "refId": "A"}]
+        },
+        {
+          "title": "Login Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": [{"matcher": {"id": "byRegexp", "options": ".*error.*"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}]},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum(rate(keycloak_logins_total{job=\"keycloak\"}[5m])) by (realm)", "legendFormat": "{{realm}} logins", "refId": "A"},
+            {"expr": "sum(rate(keycloak_login_errors_total{job=\"keycloak\"}[5m])) by (realm, error)", "legendFormat": "{{realm}} {{error}}", "refId": "B"}
+          ]
+        },
+        {
+          "title": "Login Error Rate %",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "percent", "custom": {"drawStyle": "line", "fillOpacity": 10}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10}, {"color": "red", "value": 30}]}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(keycloak_login_errors_total{job=\"keycloak\"}[5m])) / (sum(rate(keycloak_logins_total{job=\"keycloak\"}[5m])) + sum(rate(keycloak_login_errors_total{job=\"keycloak\"}[5m]))) * 100", "legendFormat": "Error %", "refId": "A"}]
+        },
+        {
+          "title": "Token Issued Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(keycloak_registrations_total{job=\"keycloak\"}[5m])) by (realm)", "legendFormat": "{{realm}}", "refId": "A"}]
+        },
+        {
+          "title": "Active Sessions by Realm",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "keycloak_active_user_sessions{job=\"keycloak\"}", "legendFormat": "{{realm}} - {{client_id}}", "refId": "A"}]
+        },
+        {
+          "title": "JVM Memory",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "jvm_memory_bytes_used{job=\"keycloak\"}", "legendFormat": "{{area}}", "refId": "A"},
+            {"expr": "jvm_memory_bytes_max{job=\"keycloak\"}", "legendFormat": "Max {{area}}", "refId": "B"}
+          ]
+        },
+        {
+          "title": "JVM GC Duration",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(jvm_gc_collection_seconds_sum{job=\"keycloak\"}[5m])", "legendFormat": "{{gc}}", "refId": "A"}]
+        },
+        {
+          "title": "HTTP Server Requests",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\"}[5m])) by (method, status, uri)", "legendFormat": "{{method}} {{status}} {{uri}}", "refId": "A"}]
+        },
+        {
+          "title": "Request Duration p99",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"keycloak\"}[5m])) by (le, method))", "legendFormat": "p99 {{method}}", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["keycloak", "iam", "security", "authentication"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Keycloak IAM Overview",
+      "uid": "keycloak-overview",
+      "version": 1,
+      "description": "Keycloak IAM monitoring dashboard covering login rates, authentication errors, active sessions, token issuance, JVM memory and GC metrics, and HTTP server request performance."
+    }

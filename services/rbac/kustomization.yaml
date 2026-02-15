@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - platform-admins-crb.yaml
+  - infra-engineers-cr.yaml
+  - infra-engineers-crb.yaml
+  - viewers-crb.yaml

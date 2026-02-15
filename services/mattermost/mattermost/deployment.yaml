@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mattermost
+  namespace: mattermost
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mattermost
+  template:
+    metadata:
+      labels:
+        app: mattermost
+    spec:
+      nodeSelector:
+        workload-type: general
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - mattermost
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsUser: 2000
+        runAsNonRoot: true
+        fsGroup: 2000
+      containers:
+        - name: mattermost
+          image: docker.io/mattermost/mattermost-enterprise-edition:10.5
+          ports:
+            - name: http
+              containerPort: 8065
+            - name: metrics
+              containerPort: 8067
+            - name: gossip
+              containerPort: 8074
+          envFrom:
+            - configMapRef:
+                name: mattermost-config
+            - secretRef:
+                name: mattermost-secret
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /api/v4/system/ping
+              port: 8065
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v4/system/ping
+              port: 8065
+            initialDelaySeconds: 30
+            periodSeconds: 30

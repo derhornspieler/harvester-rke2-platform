@@ -1,0 +1,22 @@
+# Template: Per-namespace developer access
+# Copy this file, replace CHANGEME_NAMESPACE, and apply for each namespace
+# that developers and senior-developers should have edit access to.
+#
+# Example:
+#   sed 's/CHANGEME_NAMESPACE/my-app/' developer-rolebinding-template.yaml | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developers-edit
+  namespace: CHANGEME_NAMESPACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: edit
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: developers
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: senior-developers

@@ -1,0 +1,14 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  target:
+    pvcName: grafana-data
+  thresholdPercent: 80
+  maxSize: 50Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

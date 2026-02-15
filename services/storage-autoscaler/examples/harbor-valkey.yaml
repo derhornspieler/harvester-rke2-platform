@@ -1,0 +1,16 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: harbor-redis
+  namespace: harbor
+spec:
+  target:
+    selector:
+      matchLabels:
+        app: harbor-redis
+  thresholdPercent: 80
+  maxSize: 10Gi
+  increasePercent: 25
+  increaseMinimum: 1Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

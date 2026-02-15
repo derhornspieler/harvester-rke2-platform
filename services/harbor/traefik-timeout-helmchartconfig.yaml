@@ -1,0 +1,48 @@
+# Traefik HelmChartConfig — Complete Traefik Configuration
+#
+# This HelmChartConfig supplements the RKE2 built-in Traefik deployment.
+# chart_values in Terraform's rke_config do NOT propagate to the HelmChart
+# valuesContent for rke2-traefik, so ALL customizations go here.
+#
+# Includes:
+#   - Service type LoadBalancer with Cilium L2 IP
+#   - Gateway API provider enabled
+#   - Access logging + OTLP tracing
+#   - Timeout increase for Harbor (large image push) and Kasm (WebSocket streaming)
+#
+# Security note: Global timeout increase (per-route not yet supported in Traefik
+# — GitHub #10962). Acceptable for internal/VPN-protected clusters.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      type: LoadBalancer
+      spec:
+        loadBalancerIP: "CHANGEME_TRAEFIK_LB_IP"
+    providers:
+      kubernetesGateway:
+        enabled: true
+    logs:
+      access:
+        enabled: true
+    tracing:
+      otlp:
+        enabled: true
+    ports:
+      web:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+    # NOTE: Default TLS cert is set via TLSStore CRD (traefik-default-tlsstore.yaml),
+    # not via Helm values — the Helm tls.stores path doesn't create the CRD.
+    additionalArguments:
+      - "--api.insecure=true"
+      - "--entryPoints.web.transport.respondingTimeouts.readTimeout=1800s"
+      - "--entryPoints.web.transport.respondingTimeouts.writeTimeout=1800s"
+      - "--entryPoints.websecure.transport.respondingTimeouts.readTimeout=1800s"
+      - "--entryPoints.websecure.transport.respondingTimeouts.writeTimeout=1800s"

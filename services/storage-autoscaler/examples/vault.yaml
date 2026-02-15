@@ -1,0 +1,16 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: vault
+  namespace: vault
+spec:
+  target:
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: vault
+  thresholdPercent: 80
+  maxSize: 50Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

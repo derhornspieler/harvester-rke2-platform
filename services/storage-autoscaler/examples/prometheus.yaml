@@ -1,0 +1,14 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  target:
+    pvcName: data-prometheus-0
+  thresholdPercent: 80
+  maxSize: 200Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 60s
+  cooldownPeriod: 5m

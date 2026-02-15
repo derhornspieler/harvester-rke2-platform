@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  # MariaDB (Galera HA via MariaDB Operator)
+  - mariadb/secret.yaml
+  - mariadb/mariadb.yaml
+  # Valkey (HA via OpsTree Redis Operator)
+  - valkey/secret.yaml
+  - valkey/replication.yaml
+  - valkey/sentinel.yaml
+  # LibreNMS application
+  - librenms/secret.yaml
+  - librenms/configmap.yaml
+  - librenms/pvc.yaml
+  - librenms/deployment.yaml
+  - librenms/service.yaml
+  # TLS + Ingress (Gateway API + cert-manager gateway-shim)
+  - gateway.yaml
+  - httproute.yaml

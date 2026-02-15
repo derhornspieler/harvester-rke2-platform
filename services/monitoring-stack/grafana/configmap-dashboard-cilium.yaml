@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-cilium
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  cilium-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+          "id": 15,
+          "options": {
+            "mode": "markdown",
+            "content": "### Cilium Agent Metrics Require Firewall Port\nCilium agents use `hostNetwork` and expose metrics on port **9962**. This port must be opened on all nodes (`ufw allow 9962/tcp` or equivalent) for Prometheus to scrape `cilium-agent` metrics. Until then, panels below will show no data. The `hubble-relay` metrics job is unaffected."
+          }
+        },
+        {
+          "title": "Cilium Agents Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
+          "id": 1,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"cilium-agent\"} == 1)", "refId": "A"}]
+        },
+        {
+          "title": "Cilium Agents Down",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 4},
+          "id": 2,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"cilium-agent\"} == 0)", "refId": "A"}]
+        },
+        {
+          "title": "Total Endpoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 4},
+          "id": 3,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "sum(cilium_endpoint_state)", "refId": "A"}]
+        },
+        {
+          "title": "Endpoints Ready",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 4},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "sum(cilium_endpoint_state{endpoint_state=\"ready\"})", "refId": "A"}]
+        },
+        {
+          "title": "Endpoints Not Ready",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "sum(cilium_endpoint_state{endpoint_state=\"not-ready\"})", "refId": "A"}]
+        },
+        {
+          "title": "Policy Import Errors",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "sum(cilium_policy_import_errors_total)", "refId": "A"}]
+        },
+        {
+          "title": "Endpoint State by Node",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "cilium_endpoint_state", "legendFormat": "{{instance}} - {{endpoint_state}}", "refId": "A"}]
+        },
+        {
+          "title": "Network Policy Count",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "cilium_policy_count", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Forwarded Bytes",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "rate(cilium_forward_bytes_total[5m])", "legendFormat": "{{direction}}", "refId": "A"}]
+        },
+        {
+          "title": "Forwarded Packets",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "rate(cilium_forward_count_total[5m])", "legendFormat": "{{direction}}", "refId": "A"}]
+        },
+        {
+          "title": "Drop Reason",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "rate(cilium_drop_count_total[5m])", "legendFormat": "{{reason}}", "refId": "A"}]
+        },
+        {
+          "title": "API Call Duration (p99)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "histogram_quantile(0.99, rate(cilium_api_limiter_processing_duration_seconds_bucket[5m]))", "legendFormat": "{{api_call}}", "refId": "A"}]
+        },
+        {
+          "title": "BPF Map Operations",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+          "id": 13,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "rate(cilium_bpf_map_ops_total[5m])", "legendFormat": "{{operation}}", "refId": "A"}]
+        },
+        {
+          "title": "IPAM Available IPs",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+          "id": 14,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "cilium_ip_addresses{type=\"available\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["cilium", "cni", "networking", "kubernetes"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Cilium CNI Overview",
+      "uid": "cilium-cni-overview",
+      "version": 1,
+      "description": "Overview dashboard for Cilium CNI monitoring including agent health, endpoint state, network policy, forwarding, drops, API latency, BPF operations, and IPAM."
+    }

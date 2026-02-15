@@ -1,0 +1,16 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-example-com-tls
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  secretName: traefik-example-com-tls
+  issuerRef:
+    name: vault-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - traefik.example.com
+  duration: 720h
+  renewBefore: 168h

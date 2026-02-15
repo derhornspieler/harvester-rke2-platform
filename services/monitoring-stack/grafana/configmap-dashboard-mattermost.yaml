@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-mattermost
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  mattermost-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Mattermost Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}]}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "up{job=\"mattermost\"}", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Connected Users",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "mattermost_http_websockets_total{job=\"mattermost\"}", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Total Posts (1h)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(increase(mattermost_post_total{job=\"mattermost\"}[1h]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "HTTP Errors (1h)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(increase(mattermost_api_time_count{job=\"mattermost\",status_code=~\"5..\"}[1h]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "API Request Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(mattermost_api_time_count{job=\"mattermost\"}[5m])) by (handler)", "legendFormat": "{{handler}}", "refId": "A"}]
+        },
+        {
+          "title": "API Latency p99",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(mattermost_api_time_bucket{job=\"mattermost\"}[5m])) by (le, handler))", "legendFormat": "{{handler}}", "refId": "A"}]
+        },
+        {
+          "title": "WebSocket Connections",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "mattermost_http_websockets_total{job=\"mattermost\"}", "legendFormat": "WebSockets", "refId": "A"}]
+        },
+        {
+          "title": "Post Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(mattermost_post_total{job=\"mattermost\"}[5m])", "legendFormat": "Posts/s", "refId": "A"}]
+        },
+        {
+          "title": "Database Connections",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "mattermost_db_master_connections_total{job=\"mattermost\"}", "legendFormat": "Master", "refId": "A"},
+            {"expr": "mattermost_db_read_replica_connections_total{job=\"mattermost\"}", "legendFormat": "Read Replica", "refId": "B"}
+          ]
+        },
+        {
+          "title": "Go Routines",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "go_goroutines{job=\"mattermost\"}", "legendFormat": "Goroutines", "refId": "A"}]
+        },
+        {
+          "title": "Mattermost Error Logs",
+          "type": "logs",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 28},
+          "id": 11,
+          "options": {
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false
+          },
+          "targets": [{"expr": "{namespace=\"mattermost\"} |= \"error\" | logfmt | level = \"error\"", "legendFormat": "", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["mattermost", "messaging", "collaboration"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Mattermost Overview",
+      "uid": "mattermost-overview",
+      "version": 1,
+      "description": "Mattermost team messaging monitoring dashboard covering instance health, connected users, post activity, API request rates and latency, WebSocket connections, database connections, Go runtime metrics, and error logs via Loki."
+    }

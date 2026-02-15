@@ -1,0 +1,54 @@
+# Node Labeler Operator
+
+Kubernetes controller that watches Node objects and applies `workload-type` labels based on hostname patterns. This compensates for Rancher's cluster autoscaler not propagating machine pool labels to new nodes (CAPI limitation).
+
+> **Note**: Throughout this document, `<DOMAIN>` refers to the root domain
+> configured in `scripts/.env` (e.g., `example.com`). Derived formats:
+> `<DOMAIN_DASHED>` = dots replaced with hyphens (e.g., `example-com`),
+> `<DOMAIN_DOT>` = dots replaced with `-dot-` (e.g., `example-dot-com`).
+> All service FQDNs follow the pattern `<service>.<DOMAIN>`.
+
+## How It Works
+
+When a new node joins the cluster, the controller:
+
+1. Checks if the node already has a `workload-type` label
+2. Matches the node hostname against known pool patterns
+3. Patches the label onto the node
+
+### Hostname → Label Mapping
+
+| Pattern | Label |
+|---------|-------|
+| `*-general-*` | `workload-type=general` |
+| `*-compute-*` | `workload-type=compute` |
+| `*-database-*` | `workload-type=database` |
+
+Control plane nodes (no matching pattern) are skipped.
+
+## Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `node_labeler_labels_applied_total` | Counter | Total labels applied to nodes |
+| `node_labeler_errors_total` | Counter | Total errors during labeling |
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Build binary
+make build
+
+# Build and push Docker image (local, amd64 only)
+make docker-buildx IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0 PLATFORMS=linux/amd64
+
+# Run locally (requires KUBECONFIG)
+make run
+```
+
+## Deployment
+
+See `services/node-labeler/` for Kustomize deployment manifests.

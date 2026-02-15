@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-harbor
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  harbor-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Harbor Components Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(up{job=\"harbor\"} == 1)", "legendFormat": "Components Up", "refId": "A"}]
+        },
+        {
+          "title": "Total Projects",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "harbor_project_total{job=\"harbor\"}", "legendFormat": "Projects", "refId": "A"}]
+        },
+        {
+          "title": "Total Repositories",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "harbor_repo_total{job=\"harbor\"}", "legendFormat": "Repositories", "refId": "A"}]
+        },
+        {
+          "title": "Storage Used",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "bytes", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor\"}", "legendFormat": "Storage", "refId": "A"}]
+        },
+        {
+          "title": "Artifact Push/Pull Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "rate(harbor_artifact_pulled_total{job=\"harbor\"}[5m])", "legendFormat": "Pulls", "refId": "A"},
+            {"expr": "rate(harbor_artifact_pushed_total{job=\"harbor\"}[5m])", "legendFormat": "Pushes", "refId": "B"}
+          ]
+        },
+        {
+          "title": "HTTP Request Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(harbor_core_http_request_total{job=\"harbor\"}[5m])) by (method, code)", "legendFormat": "{{method}} {{code}}", "refId": "A"}]
+        },
+        {
+          "title": "Quota Usage by Project",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor\"}", "legendFormat": "{{project_name}}", "refId": "A"}]
+        },
+        {
+          "title": "System Volumes / GC",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "harbor_gc_run_count{job=\"harbor\"}", "legendFormat": "GC Runs", "refId": "A"},
+            {"expr": "harbor_gc_deleted_blobs{job=\"harbor\"}", "legendFormat": "GC Deleted Blobs", "refId": "B"},
+            {"expr": "harbor_gc_freed_bytes{job=\"harbor\"}", "legendFormat": "GC Freed Bytes", "refId": "C"}
+          ]
+        },
+        {
+          "title": "Replication Status",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "harbor_task_run_count{job=\"harbor\"}", "legendFormat": "{{status}}", "refId": "A"}]
+        },
+        {
+          "title": "Scan Results",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "harbor_artifact_scanned_total{job=\"harbor\"}", "legendFormat": "Scanned Artifacts", "refId": "A"},
+            {"expr": "harbor_scan_total{job=\"harbor\"}", "legendFormat": "{{status}}", "refId": "B"}
+          ]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["harbor", "registry", "containers"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Harbor Registry Overview",
+      "uid": "harbor-overview",
+      "version": 1,
+      "description": "Harbor container registry monitoring dashboard covering component health, project and repository counts, artifact push/pull rates, HTTP request metrics, quota usage, garbage collection, replication tasks, and vulnerability scanning results."
+    }

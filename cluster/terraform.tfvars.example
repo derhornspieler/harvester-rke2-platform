@@ -1,0 +1,80 @@
+# -----------------------------------------------------------------------------
+# Rancher Connection
+# -----------------------------------------------------------------------------
+rancher_url   = "https://rancher.example.com"
+rancher_token = "token-xxxxx:xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# -----------------------------------------------------------------------------
+# Harvester
+# -----------------------------------------------------------------------------
+harvester_kubeconfig_path      = "./kubeconfig-harvester.yaml"
+harvester_cluster_id           = "c-xxxxx"
+harvester_cloud_credential_name = "my-harvester-credential"
+
+# -----------------------------------------------------------------------------
+# Cluster
+# -----------------------------------------------------------------------------
+cluster_name       = "rke2-prod"
+kubernetes_version = "v1.34.2+rke2r1"
+cni                = "cilium"
+traefik_lb_ip      = "203.0.113.202"
+
+# -----------------------------------------------------------------------------
+# Harvester Networking
+# -----------------------------------------------------------------------------
+vm_namespace                = "rke2-prod"    # Dedicated Harvester namespace for cluster VMs (auto-created by deploy script)
+harvester_network_name      = "vm-network"
+harvester_network_namespace = "default"
+
+# -----------------------------------------------------------------------------
+# Rocky 9 Image (optional — defaults to latest GenericCloud)
+# -----------------------------------------------------------------------------
+# rocky_image_url = "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"
+
+# -----------------------------------------------------------------------------
+# Control Plane Pool
+# -----------------------------------------------------------------------------
+controlplane_count     = 3
+controlplane_cpu       = "8"
+controlplane_memory    = "32"
+controlplane_disk_size = 80
+
+# -----------------------------------------------------------------------------
+# General Worker Pool
+# -----------------------------------------------------------------------------
+general_cpu       = "4"
+general_memory    = "8"
+general_disk_size = 60
+general_min_count = 2
+general_max_count = 10
+
+# -----------------------------------------------------------------------------
+# Compute Worker Pool
+# -----------------------------------------------------------------------------
+compute_cpu       = "8"
+compute_memory    = "32"
+compute_disk_size = 80
+compute_min_count = 0
+compute_max_count = 10
+
+# -----------------------------------------------------------------------------
+# Database Worker Pool
+# -----------------------------------------------------------------------------
+database_cpu       = "4"
+database_memory    = "16"
+database_disk_size = 80
+database_min_count = 3
+database_max_count = 10
+
+# -----------------------------------------------------------------------------
+# Cloud Provider
+# -----------------------------------------------------------------------------
+harvester_cloud_provider_kubeconfig_path = "./harvester-cloud-provider-kubeconfig"
+
+# -----------------------------------------------------------------------------
+# SSH
+# -----------------------------------------------------------------------------
+ssh_user = "rocky"
+ssh_authorized_keys = [
+  "ssh-ed25519 AAAA... user@host",
+]

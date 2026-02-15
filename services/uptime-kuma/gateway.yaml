@@ -1,0 +1,27 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: uptime-kuma
+  namespace: uptime-kuma
+  annotations:
+    cert-manager.io/cluster-issuer: vault-issuer
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8000
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 8443
+      hostname: status.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: status-example-com-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

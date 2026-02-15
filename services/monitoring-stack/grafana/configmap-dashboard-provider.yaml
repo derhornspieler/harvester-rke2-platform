@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+  labels:
+    app: grafana
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: rke2
+        orgId: 1
+        folder: "RKE2"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/rke2
+          foldersFromFilesStructure: false
+      - name: kubernetes
+        orgId: 1
+        folder: "Kubernetes"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/kubernetes
+          foldersFromFilesStructure: false
+      - name: loki
+        orgId: 1
+        folder: "Loki"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/loki
+          foldersFromFilesStructure: false
+      - name: services
+        orgId: 1
+        folder: "Services"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/services
+          foldersFromFilesStructure: false
+      - name: networking
+        orgId: 1
+        folder: "Networking"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/networking
+          foldersFromFilesStructure: false
+      - name: security
+        orgId: 1
+        folder: "Security"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/security
+          foldersFromFilesStructure: false
+      - name: operations
+        orgId: 1
+        folder: "Operations"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/operations
+          foldersFromFilesStructure: false
+      - name: cicd
+        orgId: 1
+        folder: "CI/CD"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/cicd
+          foldersFromFilesStructure: false
+      - name: home
+        orgId: 1
+        folder: "Home"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/home
+          foldersFromFilesStructure: false

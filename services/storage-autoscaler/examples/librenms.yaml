@@ -1,0 +1,48 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: librenms-data
+  namespace: librenms
+spec:
+  target:
+    pvcName: librenms-data
+  thresholdPercent: 80
+  maxSize: 50Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m
+---
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: librenms-mariadb
+  namespace: librenms
+spec:
+  target:
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: librenms-mariadb
+  thresholdPercent: 80
+  maxSize: 50Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m
+---
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: librenms-redis
+  namespace: librenms
+spec:
+  target:
+    selector:
+      matchLabels:
+        app: librenms-redis
+  thresholdPercent: 80
+  maxSize: 10Gi
+  increasePercent: 25
+  increaseMinimum: 1Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

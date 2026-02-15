@@ -1,0 +1,21 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  annotations:
+    cert-manager.io/cluster-issuer: vault-issuer
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 8443
+      hostname: alertmanager.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: alertmanager-example-com-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

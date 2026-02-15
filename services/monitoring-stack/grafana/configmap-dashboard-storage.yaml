@@ -1,0 +1,495 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-storage
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  pv-usage.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Total PVCs",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "blue", "value": null}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(kube_persistentvolumeclaim_info)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "PVCs Bound",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(kube_persistentvolumeclaim_status_phase{phase=\"Bound\"} == 1)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "PVCs Pending",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "red", "value": 1}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(kube_persistentvolumeclaim_status_phase{phase=\"Pending\"} == 1) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Total PV Capacity",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "blue", "value": null}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "value",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_persistentvolume_capacity_bytes)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "PVC Usage Overview",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Capacity"},
+                "properties": [{"id": "unit", "value": "bytes"}, {"id": "custom.width", "value": 120}]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Used"},
+                "properties": [{"id": "unit", "value": "bytes"}, {"id": "custom.width", "value": 120}]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Available"},
+                "properties": [{"id": "unit", "value": "bytes"}, {"id": "custom.width", "value": 120}]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Usage %"},
+                "properties": [
+                  {"id": "unit", "value": "percent"},
+                  {"id": "custom.width", "value": 120},
+                  {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}},
+                  {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
+                  {"id": "custom.displayMode", "value": "color-background"}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Time"},
+                "properties": [{"id": "custom.hidden", "value": true}]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Value #E"},
+                "properties": [{"id": "custom.hidden", "value": true}]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [{"displayName": "Usage %", "desc": true}],
+            "footer": {"show": false}
+          },
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "node": true, "metrics_path": true, "endpoint": true, "service": true, "container": true, "pod": true},
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "persistentvolumeclaim": "PVC",
+                  "Value #A": "Capacity",
+                  "Value #B": "Used",
+                  "Value #C": "Available",
+                  "Value #D": "Usage %"
+                },
+                "indexByName": {
+                  "Namespace": 0,
+                  "PVC": 1,
+                  "Capacity": 2,
+                  "Used": 3,
+                  "Available": 4,
+                  "Usage %": 5
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kubelet_volume_stats_capacity_bytes{job=\"kubelet\"}",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "expr": "kubelet_volume_stats_used_bytes{job=\"kubelet\"}",
+              "legendFormat": "",
+              "refId": "B",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "expr": "kubelet_volume_stats_available_bytes{job=\"kubelet\"}",
+              "legendFormat": "",
+              "refId": "C",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "expr": "kubelet_volume_stats_used_bytes{job=\"kubelet\"} / kubelet_volume_stats_capacity_bytes{job=\"kubelet\"} * 100",
+              "legendFormat": "",
+              "refId": "D",
+              "instant": true,
+              "format": "table"
+            }
+          ]
+        },
+        {
+          "title": "Volume Usage % Over Time",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "id": 6,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 70},
+                  {"color": "red", "value": 90}
+                ]
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "kubelet_volume_stats_used_bytes{job=\"kubelet\"} / kubelet_volume_stats_capacity_bytes{job=\"kubelet\"} * 100",
+              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Volume Used Bytes Over Time",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "id": 7,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "kubelet_volume_stats_used_bytes{job=\"kubelet\"}",
+              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Inode Usage",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+          "id": 8,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Inode Usage %"},
+                "properties": [
+                  {"id": "unit", "value": "percent"},
+                  {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}},
+                  {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "basic"}},
+                  {"id": "custom.displayMode", "value": "color-background"}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Time"},
+                "properties": [{"id": "custom.hidden", "value": true}]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [{"displayName": "Inode Usage %", "desc": true}],
+            "footer": {"show": false}
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "node": true, "metrics_path": true, "endpoint": true, "service": true, "container": true, "pod": true},
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "persistentvolumeclaim": "PVC",
+                  "Value": "Inode Usage %"
+                },
+                "indexByName": {
+                  "Namespace": 0,
+                  "PVC": 1,
+                  "Inode Usage %": 2
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kubelet_volume_stats_inodes_used{job=\"kubelet\"} / kubelet_volume_stats_inodes{job=\"kubelet\"} * 100",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ]
+        },
+        {
+          "title": "PV Reclaim Policy",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+          "id": 9,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Time"},
+                "properties": [{"id": "custom.hidden", "value": true}]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Value"},
+                "properties": [{"id": "custom.hidden", "value": true}]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [{"displayName": "PV", "desc": false}],
+            "footer": {"show": false}
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {"Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "node": true, "metrics_path": true, "endpoint": true, "service": true, "container": true, "pod": true, "csi_driver": true, "csi_volume_handle": true, "uid": true},
+                "renameByName": {
+                  "persistentvolume": "PV",
+                  "reclaim_policy": "Reclaim Policy",
+                  "storageclass": "Storage Class"
+                },
+                "indexByName": {
+                  "PV": 0,
+                  "Reclaim Policy": 1,
+                  "Storage Class": 2
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "kube_persistentvolume_info",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true,
+              "format": "table"
+            }
+          ]
+        },
+        {
+          "title": "Volume Provisioner Activity",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 30},
+          "id": 10,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto",
+                "spanNulls": true
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}
+          },
+          "targets": [
+            {
+              "expr": "count(kube_persistentvolumeclaim_info) by (namespace)",
+              "legendFormat": "PVCs in {{namespace}}",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(kube_persistentvolumeclaim_status_phase{phase=\"Bound\"} == 1) by (namespace)",
+              "legendFormat": "Bound in {{namespace}}",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(kube_persistentvolumeclaim_status_phase{phase=\"Pending\"} == 1) by (namespace)",
+              "legendFormat": "Pending in {{namespace}}",
+              "refId": "C"
+            }
+          ]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["kubernetes", "storage", "persistent-volume"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Persistent Volume Usage",
+      "uid": "k8s-pv-usage",
+      "version": 1,
+      "description": "Kubernetes Persistent Volume and PVC usage monitoring dashboard."
+    }

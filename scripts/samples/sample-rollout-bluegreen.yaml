@@ -1,0 +1,150 @@
+# =============================================================================
+# Sample Blue/Green Rollout with Gateway API + Prometheus Analysis
+# =============================================================================
+# Modify this template for your application.
+# The Argo Rollouts controller will:
+#   1. Create a preview ReplicaSet
+#   2. Run pre-promotion analysis (success-rate + latency-p99)
+#   3. If analysis passes, switch traffic from active -> preview
+#   4. Run post-promotion analysis (error-rate + pod-restarts)
+#   5. Scale down old ReplicaSet after delay
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: sample-app
+  namespace: sample-app
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+    spec:
+      nodeSelector:
+        workload-type: general
+      containers:
+        - name: app
+          image: harbor.example.com/library/sample-app:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+  strategy:
+    blueGreen:
+      activeService: sample-app-active
+      previewService: sample-app-preview
+      autoPromotionEnabled: false
+      scaleDownDelaySeconds: 30
+      prePromotionAnalysis:
+        templates:
+          - clusterTemplateRef:
+              name: success-rate
+          - clusterTemplateRef:
+              name: latency-p99
+        args:
+          - name: service-name
+            value: sample-app-preview
+          - name: namespace
+            value: sample-app
+      postPromotionAnalysis:
+        templates:
+          - clusterTemplateRef:
+              name: error-rate
+          - clusterTemplateRef:
+              name: pod-restarts
+        args:
+          - name: service-name
+            value: sample-app-active
+          - name: namespace
+            value: sample-app
+          - name: rollout-name
+            value: sample-app
+      trafficRouting:
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: sample-app-route
+            namespace: sample-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-active
+  namespace: sample-app
+spec:
+  selector:
+    app: sample-app
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-preview
+  namespace: sample-app
+spec:
+  selector:
+    app: sample-app
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: sample-app
+  namespace: sample-app
+  annotations:
+    cert-manager.io/cluster-issuer: vault-issuer
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8000
+    - name: https
+      protocol: HTTPS
+      port: 8443
+      hostname: "sample-app.example.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: sample-app-example-com-tls
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: sample-app-route
+  namespace: sample-app
+spec:
+  parentRefs:
+    - name: sample-app
+      sectionName: https
+  hostnames:
+    - "sample-app.example.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: sample-app-active
+          port: 80
+        - name: sample-app-preview
+          port: 80

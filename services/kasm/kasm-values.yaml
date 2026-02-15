@@ -1,0 +1,60 @@
+# Kasm Workspaces Helm Chart Values
+# Chart: kasmtech/kasm (v1.1181.0 → Kasm 1.18.1)
+# Context: rke2-prod
+#
+# Prerequisites (deploy before Kasm):
+#   1. CNPG kasm-pg in database namespace (PostgreSQL 14 HA)
+#   2. Traefik timeout increased to 1800s (desktop streaming)
+#   3. cert-manager Certificate for kasm.example.com
+#
+# Install:
+#   helm repo add kasmtech https://helm.kasmweb.com/ && helm repo update
+#   helm install kasm kasmtech/kasm -n kasm \
+#     -f kasm-values.yaml --version 1.1181.0 --timeout 10m
+#
+# Post-deploy:
+#   - Get admin password: kubectl -n kasm get secret kasm-secrets -o jsonpath='{.data.admin-password}' | base64 -d
+#   - Login: https://kasm.example.com as admin@kasm.local
+#   - Configure Harvester VM Provider in Admin UI > Infrastructure > VM Providers
+
+# --- Public Address ---
+publicAddr: kasm.example.com
+
+# --- Deployment Size ---
+# small = 1 replica each component, supports 10-15 concurrent sessions
+deploymentSize: small
+
+# --- External PostgreSQL (CNPG PG 14) ---
+database:
+  standalone: true
+  hostname: kasm-pg-rw.database.svc.cluster.local
+  port: 5432
+  kasmDbName: kasm
+  kasmDbUser: kasmapp
+  kasmDbSecret:
+    name: kasm-pg-credentials
+    key: password
+  postgresMasterUser:
+    username: postgres
+    secret:
+      name: kasm-pg-superuser-secret
+      key: password
+
+# --- Proxy Service (ClusterIP behind Traefik) ---
+proxyService:
+  type: ClusterIP
+
+# --- Ingress (disabled — we use Traefik IngressRoute) ---
+ingress:
+  enabled: false
+  backendProtocol: http
+
+# --- TLS (cert-manager + vault-issuer handles certificate externally) ---
+certificate:
+  secretName: kasm-example-com-tls
+  certManager:
+    enabled: false
+
+# --- Node Placement (control plane on general pool) ---
+nodeSelector:
+  workload-type: general

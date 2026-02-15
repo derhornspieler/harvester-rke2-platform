@@ -1,0 +1,14 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: alertmanager
+  namespace: monitoring
+spec:
+  target:
+    pvcName: data-alertmanager-0
+  thresholdPercent: 80
+  maxSize: 20Gi
+  increasePercent: 25
+  increaseMinimum: 2Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

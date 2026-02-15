@@ -1,0 +1,68 @@
+# CloudNativePG Cluster for Mattermost
+# Requires: CNPG operator in cnpg-system namespace (already deployed)
+# Creates: 3-instance PostgreSQL cluster with 'mattermost' database
+# Tuned for messaging workload (high connections, larger shared_buffers)
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: mattermost-pg
+  namespace: database
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.6
+
+  bootstrap:
+    initdb:
+      database: mattermost
+      owner: mattermost
+      secret:
+        name: mattermost-pg-credentials
+      dataChecksums: true
+      localeCollate: "en_US.UTF-8"
+      localeCType: "en_US.UTF-8"
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "512MB"
+      effective_cache_size: "2GB"
+      work_mem: "8MB"
+      maintenance_work_mem: "128MB"
+      wal_buffers: "16MB"
+      random_page_cost: "1.1"
+      checkpoint_completion_target: "0.9"
+      log_min_duration_statement: "500"
+
+  storage:
+    size: 20Gi
+    storageClass: harvester
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  affinity:
+    nodeSelector:
+      workload-type: database
+    podAntiAffinityType: preferred
+    topologyKey: kubernetes.io/hostname
+
+  monitoring:
+    enablePodMonitor: false
+
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://cnpg-backups/mattermost-pg"
+      endpointURL: "http://minio.minio.svc.cluster.local:9000"
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-minio-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-minio-credentials
+          key: ACCESS_SECRET_KEY
+    retentionPolicy: "30d"

@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  # PostgreSQL (CNPG cluster in database namespace)
+  - postgres/secret.yaml
+  - postgres/kasm-pg-cluster.yaml
+  # Kasm control plane (deployed via Helm, supplementary resources below)
+  # TLS + Ingress
+  - certificate.yaml
+  - ingressroute.yaml

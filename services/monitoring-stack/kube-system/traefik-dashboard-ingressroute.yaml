@@ -1,0 +1,70 @@
+# Traefik Dashboard — Gateway API routing
+#
+# Traefik v3 CRD provider silently ignores IngressRoutes referencing api@internal.
+# Instead, we route via a ClusterIP Service pointing to Traefik's internal API
+# port (8080, enabled via --api.insecure=true in HelmChartConfig).
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-api
+  namespace: kube-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rke2-traefik
+  ports:
+    - name: api
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: http
+      port: 8000
+      protocol: HTTP
+    - name: https
+      port: 8443
+      protocol: HTTPS
+      hostname: "CHANGEME_TRAEFIK_FQDN"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: "CHANGEME_TRAEFIK_TLS_SECRET"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  parentRefs:
+    - name: traefik-dashboard
+      namespace: kube-system
+      sectionName: https
+  hostnames:
+    - "CHANGEME_TRAEFIK_FQDN"
+  rules:
+    - backendRefs:
+        - name: traefik-api
+          port: 8080
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: traefik.io
+            kind: Middleware
+            name: keycloak-auth
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

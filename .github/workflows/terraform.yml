@@ -1,0 +1,21 @@
+name: Terraform
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9"
+      - name: Terraform fmt
+        run: terraform -chdir=cluster fmt -check -recursive
+      - name: Terraform init
+        run: terraform -chdir=cluster init -backend=false
+      - name: Terraform validate
+        run: terraform -chdir=cluster validate

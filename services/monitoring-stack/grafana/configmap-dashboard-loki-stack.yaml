@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-loki-stack
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  loki-stack.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "gnetId": 14055,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Loki Logs Ingestion Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(loki_distributor_bytes_received_total[5m]))", "legendFormat": "Bytes/s", "refId": "A"}]
+        },
+        {
+          "title": "Loki Lines Ingested Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(loki_distributor_lines_received_total[5m]))", "legendFormat": "Lines/s", "refId": "A"}]
+        },
+        {
+          "title": "Active Streams",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "id": 3,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(loki_ingester_memory_streams)", "legendFormat": "Active Streams", "refId": "A"}]
+        },
+        {
+          "title": "Chunks in Memory",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(loki_ingester_memory_chunks)", "legendFormat": "Chunks", "refId": "A"}]
+        },
+        {
+          "title": "Chunk Store Operations",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum(rate(loki_chunk_store_index_entries_per_chunk_sum[5m]))", "legendFormat": "Index Entries/s", "refId": "A"},
+            {"expr": "sum(rate(loki_ingester_chunk_stored_bytes_total[5m]))", "legendFormat": "Stored Bytes/s", "refId": "B"}
+          ]
+        },
+        {
+          "title": "Ingester Flush Queue Length",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(loki_ingester_flush_queue_length)", "legendFormat": "Queue Length", "refId": "A"}]
+        },
+        {
+          "title": "Query Latency (p99)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.99, sum(rate(loki_request_duration_seconds_bucket{route=~\"loki_api_v1_query.*\"}[5m])) by (le, route))", "legendFormat": "p99 {{route}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "Request Rate by Status",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum(rate(loki_request_duration_seconds_count[5m])) by (status_code)", "legendFormat": "{{status_code}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "Loki Process Memory",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "process_resident_memory_bytes{job=\"loki\"}", "legendFormat": "RSS", "refId": "A"},
+            {"expr": "go_memstats_heap_inuse_bytes{job=\"loki\"}", "legendFormat": "Heap In Use", "refId": "B"}
+          ]
+        },
+        {
+          "title": "Loki CPU Usage",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(process_cpu_seconds_total{job=\"loki\"}[5m])", "legendFormat": "CPU Cores", "refId": "A"}]
+        },
+        {
+          "title": "Recent Loki Logs",
+          "type": "logs",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 40},
+          "id": 11,
+          "options": {
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "enableLogDetails": true
+          },
+          "targets": [{"expr": "{namespace=\"monitoring\", app=\"loki\"}", "legendFormat": "", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["loki", "monitoring"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Loki Stack Monitoring",
+      "uid": "loki-stack-monitoring",
+      "version": 1,
+      "description": "Loki stack monitoring dashboard. Based on Grafana.com dashboard 14055."
+    }

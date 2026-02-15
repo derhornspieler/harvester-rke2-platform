@@ -1,0 +1,51 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: infra-engineer
+rules:
+  # Namespaces (read + list)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Core resources
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "secrets", "persistentvolumeclaims", "events", "endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/exec", "pods/portforward"]
+    verbs: ["get", "create"]
+  # Apps
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Batch
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Networking
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes", "grpcroutes", "referencegrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # cert-manager
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Traefik CRDs
+  - apiGroups: ["traefik.io"]
+    resources: ["middlewares", "ingressroutes", "traefikservices", "tlsoptions", "tlsstores"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # CRDs (read-only)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  # Nodes (read-only)
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # Storage
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]

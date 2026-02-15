@@ -1,0 +1,562 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-rke2
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  rke2-cluster.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": "-- Grafana --",
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "gnetId": 14243,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "#299c46", "value": null},
+                  {"color": "rgba(237, 129, 40, 0.89)", "value": 80},
+                  {"color": "#d44a3a", "value": 90}
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+          "id": 8,
+          "options": {
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_info{node=~\".*\"}) / sum(kube_node_status_allocatable{resource=\"pods\",node=~\".*\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster Pod Usage",
+          "type": "gauge"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "#299c46", "value": null},
+                  {"color": "rgba(237, 129, 40, 0.89)", "value": 80},
+                  {"color": "#d44a3a", "value": 90}
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+          "id": 10,
+          "options": {
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\",node=~\".*\"}) / sum(kube_node_status_allocatable{resource=\"cpu\",node=~\".*\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster CPU Usage",
+          "type": "gauge"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "#299c46", "value": null},
+                  {"color": "rgba(237, 129, 40, 0.89)", "value": 80},
+                  {"color": "#d44a3a", "value": 90}
+                ]
+              },
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+          "id": 12,
+          "options": {
+            "orientation": "horizontal",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\",node=~\".*\"}) / sum(kube_node_status_allocatable{resource=\"memory\",node=~\".*\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster Memory Usage",
+          "type": "gauge"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}, {"color": "red", "value": 80}]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 3, "w": 6, "x": 18, "y": 0},
+          "id": 14,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["mean"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_node_info{node=~\".*\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Number Of Nodes",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 6, "w": 6, "x": 18, "y": 3},
+          "id": 16,
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_node_spec_unschedulable{node=~\".*\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Nodes Unavailable",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 3, "w": 12, "x": 0, "y": 6},
+          "id": 18,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{namespace=~\".*\", phase=\"Running\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Pods Running",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "red", "value": null}]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 3, "w": 12, "x": 0, "y": 9},
+          "id": 20,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{phase=\"Failed\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Pods Failed",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 3, "w": 6, "x": 12, "y": 6},
+          "id": 24,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{phase=\"Succeeded\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Pods Succeeded",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "#EAB839", "value": 5},
+                  {"color": "red", "value": 20}
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 3, "w": 6, "x": 12, "y": 9},
+          "id": 26,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{phase=\"Unknown\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Pods Unknown",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}]
+              },
+              "noValue": "0",
+              "unit": "none"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 3, "w": 6, "x": 18, "y": 9},
+          "id": 22,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{phase=\"Pending\"})",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Pods Pending",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}, {"color": "red", "value": 5}]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 2,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(count_over_time({namespace=\"cattle-system\"} |~ \"ERROR\" [$__interval]))",
+              "legendFormat": "Errors",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(count_over_time({namespace=\"cattle-system\"} |~ \"WARNING\" [$__interval]))",
+              "legendFormat": "Warnings",
+              "refId": "B"
+            }
+          ],
+          "title": "Rancher Logs Errors and Warnings",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{"color": "green", "value": null}, {"color": "red", "value": 5}]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 28,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "sum(count_over_time({namespace=\"kube-system\", container=\"kube-apiserver\"}[$__interval] |~ \"error\"))",
+              "legendFormat": "Error",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(count_over_time({namespace=\"kube-system\", container=\"kube-apiserver\"}[$__interval] |~ \"warn\"))",
+              "legendFormat": "Warnings",
+              "refId": "B"
+            }
+          ],
+          "title": "API Server Error/Warnings",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 4,
+          "options": {
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"cattle-system\"}",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Rancher Log",
+          "type": "logs"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 30,
+          "options": {
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"kube-system\", container=\"kube-apiserver\"} |~ \"error|warn\"",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "API Server Error/Warnings Log",
+          "type": "logs"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+          "id": 34,
+          "options": {
+            "tooltip": {"mode": "single"},
+            "legend": {"displayMode": "list", "placement": "bottom"}
+          },
+          "targets": [
+            {
+              "expr": "sum(count_over_time({namespace=\"kube-system\", container=\"etcd\"}[$__interval] |~ \"warn\"))",
+              "legendFormat": "Warnings",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(count_over_time({namespace=\"kube-system\", container=\"etcd\"}[$__interval] |~ \"panic\"))",
+              "legendFormat": "Errors",
+              "refId": "B"
+            }
+          ],
+          "title": "ETCD Warnings and Errors",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "id": 38,
+          "options": {
+            "tooltip": {"mode": "single"},
+            "legend": {"displayMode": "list", "placement": "bottom"}
+          },
+          "targets": [
+            {
+              "expr": "sum(count_over_time({namespace=\"kube-system\", container=\"kube-controller-manager\"}[$__interval] |~ \"error\"))",
+              "legendFormat": "Errors",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(count_over_time({namespace=\"kube-system\", container=\"kube-controller-manager\"}[$__interval] |~ \"warn\"))",
+              "legendFormat": "Warnings",
+              "refId": "B"
+            }
+          ],
+          "title": "Controller Manager Errors/Warnings",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+          "id": 32,
+          "options": {
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"kube-system\", container=\"etcd\"} |~ \"panic|warn\"",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "ETCD Warnings",
+          "type": "logs"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+          "id": 36,
+          "options": {
+            "showLabels": false,
+            "showTime": false,
+            "sortOrder": "Descending",
+            "wrapLogMessage": false
+          },
+          "targets": [
+            {
+              "expr": "{namespace=\"kube-system\", container=\"kube-controller-manager\"} |~ \"error|warn\"",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Controller Manager Errors/Warnings",
+          "type": "logs"
+        }
+      ],
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": ["rke2", "rancher"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "RKE2 Cluster",
+      "uid": "rke2-cluster",
+      "version": 1,
+      "description": "RKE2 cluster monitoring dashboard with Prometheus and Loki datasources. Based on Grafana.com dashboard 14243."
+    }

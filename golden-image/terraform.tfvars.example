@@ -1,0 +1,26 @@
+# =============================================================================
+# Golden Image Builder — Terraform Variables
+# =============================================================================
+# Copy to terraform.tfvars and adjust values for your environment.
+
+# --- Required ---
+harvester_kubeconfig_path   = "./kubeconfig-harvester.yaml"
+vm_namespace                = "rke2-prod"
+harvester_network_name      = "vm-network"
+harvester_network_namespace = "default"
+
+# --- Builder VM (temporary, destroyed after build) ---
+builder_cpu       = 4
+builder_memory    = "4Gi"
+builder_disk_size = "30Gi"
+image_name_prefix = "rke2-rocky9-golden"
+
+# --- Debug (optional, keys are NOT baked into golden image) ---
+# ssh_authorized_keys = ["ssh-ed25519 AAAA... user@host"]
+
+# --- Airgapped Mode (uncomment to enable) ---
+# airgapped              = true
+# private_ca_pem         = file("./private-ca.pem")
+# private_rocky_repo_url = "https://mirror.internal.example.com/rocky/9"
+# private_rke2_repo_url  = "https://mirror.internal.example.com/rke2"
+# rocky_image_url        = "https://mirror.internal.example.com/rocky/9/images/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"

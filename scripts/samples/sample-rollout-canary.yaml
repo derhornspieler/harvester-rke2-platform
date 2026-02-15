@@ -1,0 +1,82 @@
+# =============================================================================
+# Sample Canary Rollout with Gateway API + Prometheus Analysis
+# =============================================================================
+# Traffic is shifted incrementally: 10% -> 30% -> 60% -> 100%
+# Analysis runs at each pause step.
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: sample-app-canary
+  namespace: sample-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sample-app-canary
+  template:
+    metadata:
+      labels:
+        app: sample-app-canary
+    spec:
+      nodeSelector:
+        workload-type: general
+      containers:
+        - name: app
+          image: harbor.example.com/library/sample-app:latest
+          ports:
+            - containerPort: 8080
+  strategy:
+    canary:
+      canaryService: sample-app-canary-preview
+      stableService: sample-app-canary-stable
+      trafficRouting:
+        plugins:
+          argoproj-labs/gatewayAPI:
+            httpRoute: sample-app-canary-route
+            namespace: sample-app
+      steps:
+        - setWeight: 10
+        - pause: { duration: 60s }
+        - analysis:
+            templates:
+              - clusterTemplateRef:
+                  name: success-rate
+              - clusterTemplateRef:
+                  name: pod-restarts
+            args:
+              - name: service-name
+                value: sample-app-canary-preview
+              - name: namespace
+                value: sample-app
+              - name: rollout-name
+                value: sample-app-canary
+        - setWeight: 30
+        - pause: { duration: 60s }
+        - analysis:
+            templates:
+              - clusterTemplateRef:
+                  name: success-rate
+              - clusterTemplateRef:
+                  name: latency-p99
+            args:
+              - name: service-name
+                value: sample-app-canary-preview
+              - name: namespace
+                value: sample-app
+              - name: threshold-ms
+                value: "500"
+        - setWeight: 60
+        - pause: { duration: 60s }
+        - analysis:
+            templates:
+              - clusterTemplateRef:
+                  name: success-rate
+              - clusterTemplateRef:
+                  name: error-rate
+            args:
+              - name: service-name
+                value: sample-app-canary-preview
+              - name: namespace
+                value: sample-app
+        - setWeight: 100

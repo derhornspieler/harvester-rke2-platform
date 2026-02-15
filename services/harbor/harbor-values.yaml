@@ -1,0 +1,234 @@
+# Harbor Helm Chart Values — HA Deployment
+# Chart: oci://registry-1.docker.io/goharbor/harbor-helm (v1.18.x → Harbor 2.14.x)
+# Context: rke2-prod
+#
+# Prerequisites (deploy before Harbor):
+#   1. MinIO in minio namespace (S3 storage)
+#   2. CNPG harbor-pg in database namespace (PostgreSQL HA)
+#   3. Valkey Sentinel in harbor namespace (cache + job queue, via Redis Operator)
+#
+# Install:
+#   helm install harbor oci://registry-1.docker.io/goharbor/harbor-helm \
+#     -n harbor -f harbor-values.yaml --version 1.18.2
+#
+# IMPORTANT: Traefik readTimeout must be increased to 600s for large image pushes.
+# See traefik-timeout-helmchartconfig.yaml or update cluster.tf chart_values.
+
+# --- Expose (ClusterIP for Traefik IngressRoute) ---
+expose:
+  type: clusterIP
+  tls:
+    enabled: false  # TLS termination at Traefik + cert-manager/vault-issuer
+  clusterIP:
+    name: harbor
+    ports:
+      httpPort: 80
+
+externalURL: https://harbor.example.com
+
+# --- Admin ---
+harborAdminPassword: "CHANGEME_HARBOR_ADMIN_PASSWORD"
+# existingSecretAdminPassword: harbor-admin-secret
+# existingSecretAdminPasswordKey: HARBOR_ADMIN_PASSWORD
+
+# --- S3 Storage (MinIO) ---
+persistence:
+  enabled: true
+  resourcePolicy: "keep"
+  imageChartStorage:
+    type: s3
+    disableredirect: true  # REQUIRED for MinIO (no client redirect support)
+    s3:
+      region: us-east-1
+      bucket: harbor
+      accesskey: "harbor-minio-admin"
+      secretkey: "CHANGEME_HARBOR_MINIO_SECRET_KEY"
+      regionendpoint: http://minio.minio.svc.cluster.local:9000
+      rootdirectory: /registry
+      v4auth: true
+      secure: false
+      # For production, use existingSecret:
+      # existingSecret: harbor-s3-credentials
+
+# --- External Database (CNPG) ---
+database:
+  type: external
+  external:
+    host: "harbor-pg-rw.database.svc.cluster.local"
+    port: "5432"
+    username: "harbor"
+    password: "CHANGEME_HARBOR_DB_PASSWORD"
+    coreDatabase: "registry"
+    sslmode: "require"
+    # existingSecret: harbor-db-credentials
+
+# --- External Redis (Sentinel via OpsTree Redis Operator) ---
+redis:
+  type: external
+  external:
+    sentinelMasterSet: "mymaster"
+    addr: "harbor-redis-sentinel.harbor.svc.cluster.local:26379"
+    password: "CHANGEME_HARBOR_REDIS_PASSWORD"
+    coreDatabaseIndex: "0"
+    jobserviceDatabaseIndex: "1"
+    registryDatabaseIndex: "2"
+    trivyAdapterIndex: "5"
+
+# --- Core (API server, auth, token service) ---
+core:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  nodeSelector:
+    workload-type: general
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                component: core
+            topologyKey: kubernetes.io/hostname
+
+# --- Portal (Web UI) ---
+portal:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  nodeSelector:
+    workload-type: general
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                component: portal
+            topologyKey: kubernetes.io/hostname
+
+# --- Registry (Docker distribution — image blob handling) ---
+registry:
+  replicas: 2
+  registry:
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+  controller:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 128Mi
+  nodeSelector:
+    workload-type: general
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                component: registry
+            topologyKey: kubernetes.io/hostname
+
+# --- JobService (async tasks: replication, GC, scans) ---
+jobservice:
+  replicas: 2
+  maxJobWorkers: 10
+  jobLoggers:
+    - database  # Not filesystem — required for multi-replica HA
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  nodeSelector:
+    workload-type: general
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                component: jobservice
+            topologyKey: kubernetes.io/hostname
+
+# --- Trivy (vulnerability scanner) ---
+trivy:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector:
+    workload-type: general
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                component: trivy
+            topologyKey: kubernetes.io/hostname
+
+# --- Exporter (Prometheus metrics) ---
+exporter:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  nodeSelector:
+    workload-type: general
+
+# --- Metrics ---
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+
+# --- Disabled Components ---
+notary:
+  enabled: false
+chartmuseum:
+  enabled: false
+internalTLS:
+  enabled: false
+
+# --- Update Strategy ---
+updateStrategy:
+  type: RollingUpdate
+
+# --- Cache (Redis-backed layer caching) ---
+cache:
+  enabled: true
+  expireHours: 24

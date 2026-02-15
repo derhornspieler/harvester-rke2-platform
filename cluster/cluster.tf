@@ -1,0 +1,276 @@
+resource "rancher2_cluster_v2" "rke2" {
+  name               = var.cluster_name
+  kubernetes_version = var.kubernetes_version
+
+  rke_config {
+    # -----------------------------------------------------------------
+    # Pool 1: Control Plane (dedicated — no workloads)
+    # -----------------------------------------------------------------
+    machine_pools {
+      name                         = "controlplane"
+      cloud_credential_secret_name = rancher2_cloud_credential.harvester.id
+      control_plane_role           = true
+      etcd_role                    = true
+      worker_role                  = false
+      quantity                     = var.controlplane_count
+      drain_before_delete          = true
+
+      machine_config {
+        kind = rancher2_machine_config_v2.controlplane.kind
+        name = rancher2_machine_config_v2.controlplane.name
+      }
+
+      rolling_update {
+        max_unavailable = "0"
+        max_surge       = "1"
+      }
+    }
+
+    # -----------------------------------------------------------------
+    # Pool 2: General Workers (autoscale 2–10)
+    # -----------------------------------------------------------------
+    machine_pools {
+      name                         = "general"
+      cloud_credential_secret_name = rancher2_cloud_credential.harvester.id
+      control_plane_role           = false
+      etcd_role                    = false
+      worker_role                  = true
+      quantity                     = var.general_min_count
+      drain_before_delete          = true
+
+      machine_config {
+        kind = rancher2_machine_config_v2.general.kind
+        name = rancher2_machine_config_v2.general.name
+      }
+
+      rolling_update {
+        max_unavailable = "0"
+        max_surge       = "1"
+      }
+
+      labels = {
+        "workload-type" = "general"
+      }
+
+      annotations = {
+        "cluster.provisioning.cattle.io/autoscaler-min-size" = tostring(var.general_min_count)
+        "cluster.provisioning.cattle.io/autoscaler-max-size" = tostring(var.general_max_count)
+      }
+    }
+
+    # -----------------------------------------------------------------
+    # Pool 3: Compute Workers (autoscale 0–10, scale from zero)
+    # -----------------------------------------------------------------
+    machine_pools {
+      name                         = "compute"
+      cloud_credential_secret_name = rancher2_cloud_credential.harvester.id
+      control_plane_role           = false
+      etcd_role                    = false
+      worker_role                  = true
+      quantity                     = var.compute_min_count
+      drain_before_delete          = true
+
+      machine_config {
+        kind = rancher2_machine_config_v2.compute.kind
+        name = rancher2_machine_config_v2.compute.name
+      }
+
+      rolling_update {
+        max_unavailable = "0"
+        max_surge       = "1"
+      }
+
+      labels = {
+        "workload-type" = "compute"
+      }
+
+      annotations = {
+        "cluster.provisioning.cattle.io/autoscaler-min-size" = tostring(var.compute_min_count)
+        "cluster.provisioning.cattle.io/autoscaler-max-size" = tostring(var.compute_max_count)
+        # Scale-from-zero: resource annotations so the autoscaler knows
+        # what capacity a new node in this pool would provide.
+        "cluster.provisioning.cattle.io/autoscaler-resource-cpu"     = var.compute_cpu
+        "cluster.provisioning.cattle.io/autoscaler-resource-memory"  = "${var.compute_memory}Gi"
+        "cluster.provisioning.cattle.io/autoscaler-resource-storage" = "${var.compute_disk_size}Gi"
+      }
+    }
+
+    # -----------------------------------------------------------------
+    # Pool 4: Database Workers (autoscale 3–10)
+    # -----------------------------------------------------------------
+    machine_pools {
+      name                         = "database"
+      cloud_credential_secret_name = rancher2_cloud_credential.harvester.id
+      control_plane_role           = false
+      etcd_role                    = false
+      worker_role                  = true
+      quantity                     = var.database_min_count
+      drain_before_delete          = true
+
+      machine_config {
+        kind = rancher2_machine_config_v2.database.kind
+        name = rancher2_machine_config_v2.database.name
+      }
+
+      rolling_update {
+        max_unavailable = "0"
+        max_surge       = "1"
+      }
+
+      labels = {
+        "workload-type" = "database"
+      }
+
+      annotations = {
+        "cluster.provisioning.cattle.io/autoscaler-min-size" = tostring(var.database_min_count)
+        "cluster.provisioning.cattle.io/autoscaler-max-size" = tostring(var.database_max_count)
+      }
+    }
+
+    # -----------------------------------------------------------------
+    # Harvester Cloud Provider
+    # -----------------------------------------------------------------
+    machine_selector_config {
+      config = yamlencode({
+        cloud-provider-config = file(var.harvester_cloud_provider_kubeconfig_path)
+        cloud-provider-name   = "harvester"
+      })
+    }
+
+    # Per-pool node labels (kubelet --node-labels via RKE2 machine_selector_config)
+    # NOTE: node-role.kubernetes.io/* labels are applied via label_unlabeled_nodes()
+    # in deploy-cluster.sh because NodeRestriction prevents kubelet from setting them.
+    machine_selector_config {
+      config = yamlencode({ node-label = ["workload-type=general"] })
+      machine_label_selector {
+        match_labels = { "rke.cattle.io/rke-machine-pool-name" = "general" }
+      }
+    }
+
+    machine_selector_config {
+      config = yamlencode({ node-label = ["workload-type=compute"] })
+      machine_label_selector {
+        match_labels = { "rke.cattle.io/rke-machine-pool-name" = "compute" }
+      }
+    }
+
+    machine_selector_config {
+      config = yamlencode({ node-label = ["workload-type=database"] })
+      machine_label_selector {
+        match_labels = { "rke.cattle.io/rke-machine-pool-name" = "database" }
+      }
+    }
+
+    chart_values = yamlencode({
+      "harvester-cloud-provider" = {
+        clusterName     = var.cluster_name
+        cloudConfigPath = "/var/lib/rancher/rke2/etc/config-files/cloud-provider-config"
+      }
+
+      "rke2-cilium" = {
+        kubeProxyReplacement = true
+        k8sServiceHost       = "127.0.0.1"
+        k8sServicePort       = 6443
+
+        l2announcements = { enabled = true }
+        externalIPs     = { enabled = true }
+        gatewayAPI      = { enabled = true }
+
+        operator = { replicas = 1 }
+
+        hubble = {
+          enabled = true
+          relay   = { enabled = true }
+          ui      = { enabled = true }
+        }
+
+        prometheus = { enabled = true }
+
+        k8sClientRateLimit = {
+          qps   = 25
+          burst = 50
+        }
+      }
+
+      "rke2-traefik" = {
+        service = {
+          type = "LoadBalancer"
+          spec = {
+            loadBalancerIP = var.traefik_lb_ip
+          }
+        }
+        providers = {
+          kubernetesGateway = { enabled = true }
+        }
+        logs = {
+          access = { enabled = true }
+        }
+        tracing = {
+          otlp = {
+            enabled = true
+          }
+        }
+      }
+    })
+
+    # -----------------------------------------------------------------
+    # Global Machine Config
+    # -----------------------------------------------------------------
+    machine_global_config = yamlencode({
+      cni                   = var.cni
+      "disable-kube-proxy"  = true
+      "disable"             = ["rke2-ingress-nginx"]
+      "ingress-controller"  = "traefik"
+      "etcd-expose-metrics" = true
+
+      "kube-apiserver-arg" = [
+        "oidc-issuer-url=https://keycloak.${var.domain}/realms/${var.keycloak_realm}",
+        "oidc-client-id=kubernetes",
+        "oidc-username-claim=preferred_username",
+        "oidc-groups-claim=groups"
+      ]
+      "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
+      "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
+    })
+
+    # -----------------------------------------------------------------
+    # Upgrade Strategy
+    # -----------------------------------------------------------------
+    upgrade_strategy {
+      control_plane_concurrency = "1"
+      worker_concurrency        = "1"
+    }
+
+    # -----------------------------------------------------------------
+    # Etcd Snapshots
+    # -----------------------------------------------------------------
+    etcd {
+      snapshot_schedule_cron = "0 */6 * * *"
+      snapshot_retention     = 5
+    }
+  }
+
+  # EFI patches must complete before Rancher starts provisioning VMs
+  depends_on = [
+    null_resource.efi_controlplane,
+    null_resource.efi_general,
+    null_resource.efi_compute,
+    null_resource.efi_database,
+  ]
+
+  # Ignore quantity drift from cluster autoscaler — Terraform manages min/max
+  # annotations and machine config, but the autoscaler owns the live replica count.
+  # New clusters get the initial quantity from variables; existing clusters keep
+  # whatever the autoscaler has set.
+  lifecycle {
+    ignore_changes = [
+      rke_config[0].machine_pools[1].quantity, # general
+      rke_config[0].machine_pools[2].quantity, # compute
+      rke_config[0].machine_pools[3].quantity, # database
+    ]
+  }
+
+  timeouts {
+    create = "45m"
+  }
+}

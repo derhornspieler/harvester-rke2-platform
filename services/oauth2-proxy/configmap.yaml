@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-proxy-config
+  namespace: oauth2-proxy
+data:
+  oauth2-proxy.cfg: |
+    # OAuth2 Proxy configuration — Keycloak OIDC provider
+    provider = "keycloak-oidc"
+    provider_display_name = "Keycloak"
+    client_id = "oauth2-proxy"
+
+    # OIDC discovery (auto-configures endpoints)
+    oidc_issuer_url = "https://keycloak.example.com/realms/CHANGEME_KC_REALM"
+
+    # Redirect URL — must match Keycloak client redirect URI
+    redirect_url = "https://auth.example.com/oauth2/callback"
+
+    # Cookie settings
+    cookie_domains = [".example.com"]
+    cookie_secure = true
+    cookie_samesite = "lax"
+    cookie_name = "_oauth2_proxy"
+
+    # Email domain: allow all (Keycloak manages access)
+    email_domains = ["*"]
+
+    # Pass auth info to upstream via headers
+    set_xauthrequest = true
+    set_authorization_header = true
+    pass_access_token = true
+
+    # Scopes
+    scope = "openid profile email groups"
+
+    # Skip auth for the health check endpoint
+    skip_auth_routes = ["/ping"]
+
+    # Reverse proxy mode (ForwardAuth)
+    reverse_proxy = true
+
+    # TLS verification — trust our private Root CA
+    provider_ca_files = ["/etc/ssl/certs/vault-root-ca.pem"]
+
+    # Upstream (not used in ForwardAuth mode, but required)
+    upstreams = ["static://202"]
+
+    # Logging
+    logging_filename = ""
+    standard_logging = true
+    request_logging = true
+    auth_logging = true
+
+    # HTTP listener
+    http_address = "0.0.0.0:4180"

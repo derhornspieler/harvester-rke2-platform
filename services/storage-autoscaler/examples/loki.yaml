@@ -1,0 +1,14 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  target:
+    pvcName: data-loki-0
+  thresholdPercent: 80
+  maxSize: 200Gi
+  increasePercent: 25
+  increaseMinimum: 5Gi
+  pollInterval: 60s
+  cooldownPeriod: 5m

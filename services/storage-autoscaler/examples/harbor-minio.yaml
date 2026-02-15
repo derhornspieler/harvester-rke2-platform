@@ -1,0 +1,14 @@
+apiVersion: autoscaling.volume-autoscaler.io/v1alpha1
+kind: VolumeAutoscaler
+metadata:
+  name: harbor-minio
+  namespace: minio
+spec:
+  target:
+    pvcName: minio-data
+  thresholdPercent: 80
+  maxSize: 500Gi
+  increasePercent: 20
+  increaseMinimum: 10Gi
+  pollInterval: 120s
+  cooldownPeriod: 10m

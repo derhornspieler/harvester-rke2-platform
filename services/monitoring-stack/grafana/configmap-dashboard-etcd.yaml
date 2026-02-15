@@ -1,0 +1,197 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-etcd
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  etcd.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "gnetId": 3070,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+          "id": 15,
+          "options": {
+            "mode": "markdown",
+            "content": "### etcd mTLS Scraping\nThis dashboard requires working mTLS certificates for Prometheus to scrape etcd. If all panels show **No data**, verify:\n1. The etcd client certs are mounted in Prometheus (`/etc/prometheus/etcd-certs/`)\n2. `etcd-expose-metrics: true` is set in cluster config\n3. Prometheus can reach control-plane node IPs on port **2379**\n4. Check `up{job=\"etcd\"}` in Prometheus to verify scrape status"
+          }
+        },
+        {
+          "title": "etcd Members Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
+          "id": 16,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 3}]}, "mappings": [{"type": "value", "options": {"0": {"text": "0/3", "color": "red"}, "1": {"text": "1/3", "color": "red"}, "2": {"text": "2/3", "color": "orange"}, "3": {"text": "3/3", "color": "green"}}}]}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(up{job=\"etcd\"} == 1)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "etcd has a leader",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 5, "x": 4, "y": 4},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "NO", "color": "red"}, "1": {"text": "YES", "color": "green"}}}]}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "max(etcd_server_has_leader{job=\"etcd\"})", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "etcd Leader Changes",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 5, "x": 9, "y": 4},
+          "id": 2,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 3}, {"color": "red", "value": 5}]}}},
+          "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "changes(etcd_server_leader_changes_seen_total{job=\"etcd\"}[1h])", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Total DB Size",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 5, "x": 14, "y": 4},
+          "id": 3,
+          "fieldConfig": {"defaults": {"unit": "bytes", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 4294967296}, {"color": "red", "value": 6442450944}]}}},
+          "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "etcd_mvcc_db_total_size_in_bytes{job=\"etcd\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Failed Proposals",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 5, "x": 19, "y": 4},
+          "id": 4,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 5}]}}},
+          "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "increase(etcd_server_proposals_failed_total{job=\"etcd\"}[1h])", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "gRPC Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(grpc_server_started_total{grpc_type=\"unary\",job=\"etcd\"}[5m])) by (grpc_method)", "legendFormat": "{{grpc_method}}", "refId": "A"}]
+        },
+        {
+          "title": "Active Streams",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum(grpc_server_started_total{grpc_type=\"bidi_stream\",job=\"etcd\"}) - sum(grpc_server_handled_total{grpc_type=\"bidi_stream\",job=\"etcd\"})", "legendFormat": "Watch Streams", "refId": "A"},
+            {"expr": "sum(grpc_server_started_total{grpc_type=\"server_stream\",job=\"etcd\"}) - sum(grpc_server_handled_total{grpc_type=\"server_stream\",job=\"etcd\"})", "legendFormat": "Lease Streams", "refId": "B"}
+          ]
+        },
+        {
+          "title": "DB Size",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "etcd_mvcc_db_total_size_in_bytes{job=\"etcd\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Disk WAL Fsync Duration",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket{job=\"etcd\"}[5m]))", "legendFormat": "p99 {{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Disk Backend Commit Duration",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket{job=\"etcd\"}[5m]))", "legendFormat": "p99 {{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Raft Proposals",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum(rate(etcd_server_proposals_committed_total{job=\"etcd\"}[5m]))", "legendFormat": "Committed", "refId": "A"},
+            {"expr": "sum(rate(etcd_server_proposals_applied_total{job=\"etcd\"}[5m]))", "legendFormat": "Applied", "refId": "B"},
+            {"expr": "sum(rate(etcd_server_proposals_pending{job=\"etcd\"}[5m]))", "legendFormat": "Pending", "refId": "C"},
+            {"expr": "sum(rate(etcd_server_proposals_failed_total{job=\"etcd\"}[5m]))", "legendFormat": "Failed", "refId": "D"}
+          ]
+        },
+        {
+          "title": "Client Traffic In",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(etcd_network_client_grpc_received_bytes_total{job=\"etcd\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Client Traffic Out",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(etcd_network_client_grpc_sent_bytes_total{job=\"etcd\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Peer Traffic In",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+          "id": 13,
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(etcd_network_peer_received_bytes_total{job=\"etcd\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
+        },
+        {
+          "title": "Peer Traffic Out",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+          "id": 14,
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "rate(etcd_network_peer_sent_bytes_total{job=\"etcd\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["etcd", "rke2"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "etcd",
+      "uid": "etcd-dashboard",
+      "version": 1,
+      "description": "etcd cluster monitoring dashboard. Based on Grafana.com dashboard 3070."
+    }

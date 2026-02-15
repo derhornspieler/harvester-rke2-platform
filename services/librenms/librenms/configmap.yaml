@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: librenms-config
+  namespace: librenms
+data:
+  TZ: "Europe/Zurich"
+  DB_HOST: "librenms-mariadb.librenms.svc.cluster.local"
+  DB_PORT: "3306"
+  DB_NAME: "librenms"
+  DB_USER: "librenms"
+  REDIS_HOST: "librenms-redis.librenms.svc.cluster.local"
+  REDIS_PORT: "6379"
+  REDIS_SCHEME: "tcp"
+  REDIS_DB: "0"
+  CACHE_DRIVER: "redis"
+  SESSION_DRIVER: "redis"

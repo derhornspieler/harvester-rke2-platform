@@ -1,0 +1,24 @@
+name: Kubeconform
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Validate K8s manifests
+        run: |
+          find services/ -name '*.yaml' -not -name '*values*' -not -name '*kustomization*' -not -name '.yamllint*' \
+            | xargs kubeconform -summary -output text \
+              -ignore-missing-schemas \
+              -kubernetes-version 1.31.0 \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'

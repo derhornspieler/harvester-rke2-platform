@@ -1,0 +1,42 @@
+# ServersTransport — skip TLS verification to Kasm proxy backend
+# Kasm proxy always serves HTTPS internally with its own self-signed cert.
+# Traefik must skip verify to connect to port 8443.
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: kasm-skip-verify
+  namespace: kasm
+spec:
+  insecureSkipVerify: true
+---
+# Kasm Workspaces IngressRoute — sticky sessions for WebSocket streaming
+# No basic-auth middleware — Kasm has its own authentication
+# Service name: kasm-proxy-default (chart pattern: kasm-proxy-{zone})
+# Verified with: kubectl -n kasm get svc
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kasm
+  namespace: kasm
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`kasm.example.com`)
+      kind: Rule
+      services:
+        - name: kasm-proxy-default
+          port: 8443
+          scheme: https
+          serversTransport: kasm-skip-verify
+          sticky:
+            cookie:
+              name: KASMSTICKY
+              httpOnly: true
+              secure: true
+              sameSite: none
+  tls:
+    secretName: kasm-example-com-tls

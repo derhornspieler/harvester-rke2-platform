@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-traefik
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  traefik-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Traefik Instances Up",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"traefik\"} == 1)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Total Entrypoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(traefik_entrypoint_requests_total)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Active Services",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(count by (service) (traefik_service_requests_total))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Total Requests/sec",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "reqps", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_requests_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Request Rate by Entrypoint",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum by (entrypoint) (rate(traefik_entrypoint_requests_total[5m]))", "legendFormat": "{{entrypoint}}", "refId": "A"}]
+        },
+        {
+          "title": "Request Rate by Status Code",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum by (code) (rate(traefik_service_requests_total[5m]))", "legendFormat": "{{code}}", "refId": "A"}]
+        },
+        {
+          "title": "Error Rate (4xx + 5xx)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}, "color": {"mode": "fixed", "fixedColor": "red"}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum(rate(traefik_service_requests_total{code=~\"4..|5..\"}[5m]))", "legendFormat": "Errors", "refId": "A"}]
+        },
+        {
+          "title": "Request Duration (p50, p90, p99)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [
+            {"expr": "histogram_quantile(0.5, sum by (le) (rate(traefik_service_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.9, sum by (le) (rate(traefik_service_request_duration_seconds_bucket[5m])))", "legendFormat": "p90", "refId": "B"},
+            {"expr": "histogram_quantile(0.99, sum by (le) (rate(traefik_service_request_duration_seconds_bucket[5m])))", "legendFormat": "p99", "refId": "C"}
+          ]
+        },
+        {
+          "title": "Open Connections",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "traefik_entrypoint_open_connections", "legendFormat": "{{entrypoint}}", "refId": "A"}]
+        },
+        {
+          "title": "Requests by Service (Top 10)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "topk(10, sum by (service) (rate(traefik_service_requests_total[5m])))", "legendFormat": "{{service}}", "refId": "A"}]
+        },
+        {
+          "title": "TLS Connections",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum by (tls_version) (traefik_tls_certs_not_after_timestamp_seconds)", "legendFormat": "{{tls_version}}", "refId": "A"}]
+        },
+        {
+          "title": "Config Reloads",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [
+            {"expr": "rate(traefik_config_reloads_total[5m])", "legendFormat": "Reloads", "refId": "A"},
+            {"expr": "rate(traefik_config_reloads_failure_total[5m])", "legendFormat": "Failures", "refId": "B"}
+          ]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["traefik", "ingress"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Traefik Ingress Controller",
+      "uid": "traefik-ingress-controller",
+      "version": 1,
+      "description": "Traefik Ingress Controller monitoring dashboard with request rates, error rates, latency percentiles, and connection metrics."
+    }

@@ -1,0 +1,21 @@
+# ArgoCD Application for Harbor
+# Add this to services/argo/bootstrap/apps/ to include in app-of-apps
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: CHANGEME_GIT_REPO_URL
+    targetRevision: main
+    path: services/harbor
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harbor
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    # Manual sync recommended — Harbor requires coordinated deployment
+    # with MinIO, CNPG, and Redis. Switch to automated after stable.

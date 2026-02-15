@@ -1,0 +1,27 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: librenms
+  namespace: librenms
+  annotations:
+    cert-manager.io/cluster-issuer: vault-issuer
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8000
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 8443
+      hostname: librenms.example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: librenms-example-com-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

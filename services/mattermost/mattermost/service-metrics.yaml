@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mattermost-metrics
+  namespace: mattermost
+  annotations: {}
+spec:
+  type: ClusterIP
+  selector:
+    app: mattermost
+  ports:
+    - name: metrics
+      port: 8067
+      targetPort: 8067
+      protocol: TCP

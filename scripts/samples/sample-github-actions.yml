@@ -1,0 +1,139 @@
+# =============================================================================
+# Sample GitHub Actions CI/CD Pipeline for ArgoCD + Harbor + Argo Rollouts
+# =============================================================================
+# Required GitHub Actions Secrets (Settings > Secrets and variables > Actions):
+#   HARBOR_REGISTRY     - harbor.example.com
+#   HARBOR_CI_USER      - robot$ci-push
+#   HARBOR_CI_PASSWORD  - robot token
+#   ARGOCD_SERVER       - argo.example.com
+#   ARGOCD_AUTH_TOKEN   - ArgoCD API token
+# =============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ${{ secrets.HARBOR_REGISTRY }}/library/${{ github.event.repository.name }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Lint
+  # ---------------------------------------------------------------------------
+  lint-yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint YAML
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_data: "extends: relaxed"
+
+  lint-helm:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+      - name: Lint Helm chart
+        run: helm lint charts/${{ github.event.repository.name }}/
+
+  # ---------------------------------------------------------------------------
+  # Build & Push to Harbor
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint-yaml]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_CI_USER }}
+          password: ${{ secrets.HARBOR_CI_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # Test
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run integration tests
+        run: echo "Add your integration tests here"
+
+  # ---------------------------------------------------------------------------
+  # Deploy Staging (automatic)
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    steps:
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+
+      - name: Deploy to staging
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+            --grpc-web --insecure
+          argocd app set ${{ github.event.repository.name }}-staging \
+            --kustomize-image ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          argocd app sync ${{ github.event.repository.name }}-staging --prune --force
+          argocd app wait ${{ github.event.repository.name }}-staging --health --timeout 300
+
+  # ---------------------------------------------------------------------------
+  # Deploy Production (manual approval via GitHub environment)
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+    steps:
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+
+      - name: Deploy to production
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+            --grpc-web --insecure
+          argocd app set ${{ github.event.repository.name }}-production \
+            --kustomize-image ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          argocd app sync ${{ github.event.repository.name }}-production --prune --force
+          # Argo Rollouts handles the blue/green or canary strategy
+          # ArgoCD will show "Progressing" until Rollouts completes analysis
+          argocd app wait ${{ github.event.repository.name }}-production --health --timeout 600
