@@ -1522,7 +1522,8 @@ main() {
   echo -e "${NC}"
   echo ""
 
-  export DEPLOY_START_TIME=$(date +%s)
+  DEPLOY_START_TIME=$(date +%s)
+  export DEPLOY_START_TIME
 
   # Pre-flight checks
   check_prerequisites

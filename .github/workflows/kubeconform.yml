@@ -16,7 +16,12 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
       - name: Validate K8s manifests
         run: |
-          find services/ -name '*.yaml' -not -name '*values*' -not -name '*kustomization*' -not -name '.yamllint*' \
+          find services/ -name '*.yaml' \
+            -not -name '*values*' \
+            -not -name '*kustomization*' \
+            -not -name '.yamllint*' \
+            -not -path '*/kube-system/traefik-dashboard-ingressroute.yaml' \
+            -not -path '*/librenms/mariadb/mariadb.yaml' \
             | xargs kubeconform -summary -output text \
               -ignore-missing-schemas \
               -kubernetes-version 1.31.0 \

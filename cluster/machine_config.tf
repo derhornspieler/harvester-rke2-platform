@@ -20,7 +20,7 @@ locals {
   # ---------------------------------------------------------------------------
   image_full_name = var.use_golden_image ? (
     "${var.vm_namespace}/${data.harvester_image.golden[0].name}"
-  ) : (
+    ) : (
     "${var.vm_namespace}/${harvester_image.rocky9[0].name}"
   )
 

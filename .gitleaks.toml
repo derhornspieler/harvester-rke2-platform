@@ -2,12 +2,16 @@
 useDefault = true
 
 [allowlist]
-description = "Allow CHANGEME placeholder patterns"
+description = "Allow CHANGEME placeholders and documentation examples"
 regexTarget = "match"
 regexes = [
   '''CHANGEME_\w+''',
+  '''key\d+_64chars''',
+  '''key\d+_base64''',
+  '''hvs\.X{16}''',
 ]
 
 paths = [
   '''.env.example''',
+  '''scripts/oidc-client-secrets.json.example''',
 ]

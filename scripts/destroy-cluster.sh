@@ -279,7 +279,8 @@ main() {
   echo -e "${NC}"
   echo ""
 
-  export DEPLOY_START_TIME=$(date +%s)
+  DEPLOY_START_TIME=$(date +%s)
+  export DEPLOY_START_TIME
 
   phase_0_preflight
 

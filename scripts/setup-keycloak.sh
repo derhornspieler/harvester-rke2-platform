@@ -770,7 +770,8 @@ main() {
   echo "  Keycloak Setup — OIDC + Service Bindings"
   echo -e "${NC}"
 
-  export DEPLOY_START_TIME=$(date +%s)
+  DEPLOY_START_TIME=$(date +%s)
+  export DEPLOY_START_TIME
 
   check_prerequisites
 

@@ -1,4 +1,9 @@
 [![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?logo=anthropic)](https://claude.ai/claude-code)
+[![ShellCheck](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/shellcheck.yml)
+[![Terraform](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/terraform.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/terraform.yml)
+[![YAML Lint](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/yamllint.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/yamllint.yml)
+[![Kubeconform](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/kubeconform.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/kubeconform.yml)
+[![Gitleaks](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/gitleaks.yml)
 
 # RKE2 Cluster Platform
 

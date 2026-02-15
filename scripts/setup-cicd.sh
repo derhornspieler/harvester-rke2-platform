@@ -69,6 +69,7 @@ GIT_OWNER=$(git -C "${REPO_ROOT}" remote get-url origin \
 
 REPO_PREFIX="svc-${KC_REALM}"
 INFRA_REPO_URL=$(git -C "${REPO_ROOT}" remote get-url origin)
+# shellcheck disable=SC2034  # used by sourced scripts
 HARBOR_URL="https://harbor.${DOMAIN}"
 
 # Deploy key paths
@@ -1361,7 +1362,8 @@ main() {
     echo ""
   fi
 
-  export DEPLOY_START_TIME=$(date +%s)
+  DEPLOY_START_TIME=$(date +%s)
+  export DEPLOY_START_TIME
 
   check_prerequisites
 

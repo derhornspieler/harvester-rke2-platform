@@ -13,4 +13,4 @@ jobs:
       - name: Install yamllint
         run: pip install yamllint
       - name: Run yamllint
-        run: yamllint -c .yamllint.yml services/
+        run: yamllint -c .yamllint.yml services/ scripts/.env.example
