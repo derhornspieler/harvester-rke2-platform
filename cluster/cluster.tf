@@ -225,14 +225,6 @@ resource "rancher2_cluster_v2" "rke2" {
             }
           }
         }
-        experimental = {
-          plugins = {
-            keycloakopenid = {
-              moduleName = "github.com/Gwojda/keycloakopenid"
-              version    = "v0.1.36"
-            }
-          }
-        }
         volumes = [
           { name = "vault-root-ca", mountPath = "/vault-ca", type = "configMap" },
           { name = "combined-ca", mountPath = "/combined-ca", type = "emptyDir" }

@@ -785,32 +785,37 @@ graph LR
 
 ### Authentication Matrix
 
-| Endpoint | Auth Method | Provider | SSO Status | Notes |
-|----------|------------|----------|------------|-------|
-| `grafana.<DOMAIN>` | Built-in login | Grafana | Future (OIDC) | |
-| `prometheus.<DOMAIN>` | Basic auth | Traefik middleware | Future (ForwardAuth) | |
-| `hubble.<DOMAIN>` | Basic auth | Traefik middleware | Future (ForwardAuth) | |
-| `traefik.<DOMAIN>` | Basic auth | Traefik middleware | Future (ForwardAuth) | |
-| `vault.<DOMAIN>` | Built-in login | Vault (token/OIDC) | Future (OIDC) | |
-| `harbor.<DOMAIN>` | Built-in login | Harbor DB | Future (OIDC) | |
-| `keycloak.<DOMAIN>` | Built-in login | Keycloak | N/A (is the IdP) | |
-| `argo.<DOMAIN>` | Built-in login | ArgoCD (local/OIDC) | Future (OIDC) | |
-| `rollouts.<DOMAIN>` | Basic auth | Traefik middleware | Future (ForwardAuth) | |
-| `mattermost.<DOMAIN>` | Built-in login | Mattermost | Future (OIDC) | |
-| `kasm.<DOMAIN>` | Built-in login | Kasm | N/A | |
+| Endpoint | Auth Method | Provider | SSO Status | Allowed Groups |
+|----------|------------|----------|------------|----------------|
+| `grafana.<DOMAIN>` | Keycloak OIDC | Grafana (native) | Implemented (`prompt=login`) | All (role-mapped) |
+| `prometheus.<DOMAIN>` | oauth2-proxy ForwardAuth | `prometheus-oidc` client | Implemented | platform-admins, infra-engineers |
+| `alertmanager.<DOMAIN>` | oauth2-proxy ForwardAuth | `alertmanager-oidc` client | Implemented | platform-admins, infra-engineers |
+| `hubble.<DOMAIN>` | oauth2-proxy ForwardAuth | `hubble-oidc` client | Implemented | platform-admins, infra-engineers, network-engineers |
+| `traefik.<DOMAIN>` | oauth2-proxy ForwardAuth | `traefik-dashboard-oidc` client | Implemented | platform-admins, network-engineers |
+| `vault.<DOMAIN>` | Keycloak OIDC | Vault (native) | Implemented | platform-admins, infra-engineers |
+| `harbor.<DOMAIN>` | Keycloak OIDC | Harbor (native) | Implemented | All (admin: platform-admins) |
+| `keycloak.<DOMAIN>` | Keycloak (native) | Keycloak | N/A (is the IdP) | N/A |
+| `argo.<DOMAIN>` | Keycloak OIDC | ArgoCD (native, `prompt=login`) | Implemented | All (RBAC policies) |
+| `rollouts.<DOMAIN>` | oauth2-proxy ForwardAuth | `rollouts-oidc` client | Implemented | platform-admins, infra-engineers, senior-developers |
+| `mattermost.<DOMAIN>` | Keycloak OIDC | Mattermost (native) | Implemented | All |
+| `kasm.<DOMAIN>` | Keycloak OIDC | Kasm (manual UI config) | Manual config required | All |
+| `rancher.<DOMAIN>` | Keycloak OIDC | Rancher (manual UI config) | Manual config required | All |
 
-### SSO Roadmap
+### SSO Implementation Status
 
 ```mermaid
 graph LR
     P1["Phase 1 (Done)<br/>Keycloak deployed<br/>as identity provider"]
-    P2["Phase 2<br/>Grafana + Vault + ArgoCD<br/>OIDC integration"]
-    P3["Phase 3<br/>ForwardAuth middleware<br/>(Prometheus, Hubble,<br/>Traefik, Rollouts)"]
-    P4["Phase 4<br/>Remove basic-auth<br/>Full SSO"]
+    P2["Phase 2 (Done)<br/>Grafana + Vault + ArgoCD<br/>+ Harbor + Mattermost<br/>OIDC integration"]
+    P3["Phase 3 (Done)<br/>oauth2-proxy ForwardAuth<br/>(Prometheus, AlertManager,<br/>Hubble, Traefik, Rollouts)"]
+    P4["Phase 4 (Done)<br/>Per-service OIDC clients<br/>Group-based access control<br/>prompt=login on all services"]
 
     P1 --> P2 --> P3 --> P4
 
     style P1 fill:#9f9,stroke:#333
+    style P2 fill:#9f9,stroke:#333
+    style P3 fill:#9f9,stroke:#333
+    style P4 fill:#9f9,stroke:#333
 ```
 
 ### Network Security Posture
@@ -1368,7 +1373,7 @@ flowchart TD
 |-------|------|-------------------|-------------------|
 | Vault Shamir unseal (manual) | Operational: pod restart requires human | 3-replica HA reduces impact | Auto-unseal via transit/KMS |
 | No Cilium NetworkPolicy | Lateral movement between namespaces | VPN-only access + iptables | Cilium NetworkPolicy per namespace |
-| Basic-auth on 4 services | Weak auth, no MFA | Strong passwords | Keycloak SSO (ForwardAuth) |
+| ~~Basic-auth on 4 services~~ | ~~Weak auth, no MFA~~ | ~~Strong passwords~~ | **Resolved**: oauth2-proxy ForwardAuth with per-service OIDC clients and group-based access control |
 | No Pod Security Admission | Privileged containers possible | Security context on known workloads | PSA enforce restricted |
 | Rancher autoscaler label bug | New nodes may lack workload-type label | Node-labeler controller | Rancher upstream fix |
 | Mattermost single replica | No HA for messaging | Gossip protocol ready | Scale replicas + restore sticky cookies |

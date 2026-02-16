@@ -743,7 +743,10 @@ generate_or_load_env() {
   : "${GITLAB_PRAEFECT_TOKEN:=$(gen_password 32)}"
   : "${GITLAB_CHART_PATH:=/home/rocky/data/gitlab}"
 
-  # DEPRECATED: basic-auth replaced by keycloakopenid Traefik plugin
+  # GitLab API token (api scope) — leave empty to be prompted at runtime
+  : "${GITLAB_API_TOKEN:=}"
+
+  # DEPRECATED: basic-auth replaced by oauth2-proxy ForwardAuth
   # Kept for rollback compatibility
   : "${BASIC_AUTH_PASSWORD:=$(gen_password 24)}"
 
@@ -796,6 +799,7 @@ generate_or_load_env() {
   export LIBRENMS_DB_PASSWORD LIBRENMS_VALKEY_PASSWORD
   export GITLAB_ROOT_PASSWORD GITLAB_PRAEFECT_DB_PASSWORD GITLAB_REDIS_PASSWORD
   export GITLAB_GITALY_TOKEN GITLAB_PRAEFECT_TOKEN GITLAB_CHART_PATH
+  export GITLAB_API_TOKEN
   export GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD BASIC_AUTH_HTPASSWD
   export DOMAIN DOMAIN_DASHED DOMAIN_DOT TRAEFIK_LB_IP
   export ORG_NAME KC_REALM GIT_REPO_URL
@@ -848,6 +852,9 @@ GITLAB_GITALY_TOKEN="${GITLAB_GITALY_TOKEN}"
 GITLAB_PRAEFECT_TOKEN="${GITLAB_PRAEFECT_TOKEN}"
 GITLAB_CHART_PATH="${GITLAB_CHART_PATH}"
 
+# GitLab API token (api scope) — leave empty to be prompted at runtime
+GITLAB_API_TOKEN="${GITLAB_API_TOKEN}"
+
 # Root domain for all service FQDNs (e.g., vault.DOMAIN, harbor.DOMAIN)
 DOMAIN="${DOMAIN}"
 
@@ -896,7 +903,6 @@ _subst_changeme() {
     -e "s|CHANGEME_GIT_REPO_URL|${GIT_REPO_URL}|g" \
     -e "s|CHANGEME_TRAEFIK_FQDN|traefik.${DOMAIN}|g" \
     -e "s|CHANGEME_TRAEFIK_TLS_SECRET|traefik-${DOMAIN_DASHED}-tls|g" \
-    -e "s|CHANGEME_TRAEFIK_OIDC_CLIENT_SECRET|${TRAEFIK_OIDC_CLIENT_SECRET:-placeholder}|g" \
     -e "s|CHANGEME_KC_REALM|${KC_REALM}|g" \
     -e "s|example-dot-com|${DOMAIN_DOT}|g" \
     -e "s|example-com|${DOMAIN_DASHED}|g" \
@@ -1348,7 +1354,7 @@ Harbor         https://harbor.${DOMAIN}         admin / ${harbor_pass}
 ArgoCD         https://argo.${DOMAIN}           admin / ${argocd_pass}
 Rollouts       https://rollouts.${DOMAIN}       (ForwardAuth via Keycloak)
 Traefik        https://traefik.${DOMAIN}        (ForwardAuth via Keycloak)
-Auth           (keycloakopenid Traefik plugin — protects prometheus, alertmanager, hubble, rollouts, traefik)
+Auth           (oauth2-proxy ForwardAuth — protects prometheus, alertmanager, hubble, rollouts, traefik)
 Keycloak       https://keycloak.${DOMAIN}       admin / CHANGEME_KC_ADMIN_PASSWORD  (bootstrap — run setup-keycloak.sh)
 Mattermost     https://mattermost.${DOMAIN}     (create admin via mmctl post-deploy)
 Kasm           https://kasm.${DOMAIN}           admin@kasm.local / ${kasm_pass}

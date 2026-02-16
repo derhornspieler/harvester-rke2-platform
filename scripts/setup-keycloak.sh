@@ -6,7 +6,7 @@
 #
 # This script:
 #   1. Creates the realm (derived from DOMAIN) with admin user + TOTP
-#   2. Creates OIDC clients for every service (incl. kubernetes + traefik-oidc)
+#   2. Creates OIDC clients for every service (incl. kubernetes + per-service oauth2-proxy + rancher)
 #   3. Binds each service to Keycloak for SSO
 #   4. Creates user groups with role mappings (7 groups)
 #
@@ -234,7 +234,7 @@ phase_1_realm() {
         \"failureFactor\": 5,
         \"sslRequired\": \"external\",
         \"accessTokenLifespan\": 300,
-        \"ssoSessionIdleTimeout\": 1800,
+        \"ssoSessionIdleTimeout\": 120,
         \"ssoSessionMaxLifespan\": 36000
       }"
     log_ok "Realm '${KC_REALM}' created"
@@ -441,18 +441,38 @@ phase_2_clients() {
     log_ok "  Client 'kubernetes' created (public — no secret)"
   fi
 
-  # 2.9 Traefik OIDC (keycloakopenid plugin — redirects back to original URL)
-  secret=$(kc_create_client "traefik-oidc" \
-    "https://prometheus.${DOMAIN}/*,https://alertmanager.${DOMAIN}/*,https://hubble.${DOMAIN}/*,https://traefik.${DOMAIN}/*,https://rollouts.${DOMAIN}/*" \
-    "Traefik OIDC Plugin")
-  jq --arg s "$secret" '.["traefik-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+  # 2.9 Per-service oauth2-proxy OIDC clients (one per protected service)
+  secret=$(kc_create_client "prometheus-oidc" \
+    "https://prometheus.${DOMAIN}/oauth2/callback" "Prometheus")
+  jq --arg s "$secret" '.["prometheus-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
+  secret=$(kc_create_client "alertmanager-oidc" \
+    "https://alertmanager.${DOMAIN}/oauth2/callback" "AlertManager")
+  jq --arg s "$secret" '.["alertmanager-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
+  secret=$(kc_create_client "hubble-oidc" \
+    "https://hubble.${DOMAIN}/oauth2/callback" "Hubble")
+  jq --arg s "$secret" '.["hubble-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
+  secret=$(kc_create_client "traefik-dashboard-oidc" \
+    "https://traefik.${DOMAIN}/oauth2/callback" "Traefik Dashboard")
+  jq --arg s "$secret" '.["traefik-dashboard-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
+  secret=$(kc_create_client "rollouts-oidc" \
+    "https://rollouts.${DOMAIN}/oauth2/callback" "Argo Rollouts")
+  jq --arg s "$secret" '.["rollouts-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
+  # 2.10 Rancher OIDC client
+  secret=$(kc_create_client "rancher" \
+    "https://rancher.${DOMAIN}/verify-auth" "Rancher")
+  jq --arg s "$secret" '.rancher = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
 
   # Add "groups" as optional client scope to clients that request scope=groups
   log_step "Adding 'groups' scope to relevant clients..."
   local groups_scope_id
   groups_scope_id=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
   if [[ -n "$groups_scope_id" ]]; then
-    for cid in argocd kubernetes grafana harbor vault; do
+    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher; do
       local cid_internal
       cid_internal=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${cid}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
       if [[ -n "$cid_internal" ]]; then
@@ -490,10 +510,10 @@ phase_3_bindings() {
     GF_AUTH_GENERIC_OAUTH_CLIENT_ID="grafana" \
     GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET="${grafana_secret}" \
     GF_AUTH_GENERIC_OAUTH_SCOPES="openid profile email" \
-    GF_AUTH_GENERIC_OAUTH_AUTH_URL="${oidc_issuer}/protocol/openid-connect/auth" \
+    GF_AUTH_GENERIC_OAUTH_AUTH_URL="${oidc_issuer}/protocol/openid-connect/auth?prompt=login" \
     GF_AUTH_GENERIC_OAUTH_TOKEN_URL="${oidc_issuer}/protocol/openid-connect/token" \
     GF_AUTH_GENERIC_OAUTH_API_URL="${oidc_issuer}/protocol/openid-connect/userinfo" \
-    GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH="contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'infra-engineers') && 'Admin' || contains(groups[*], 'senior-developers') && 'Editor' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'" \
+    GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH="contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'infra-engineers') && 'Admin' || contains(groups[*], 'network-engineers') && 'Viewer' || contains(groups[*], 'senior-developers') && 'Editor' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'" \
     GF_AUTH_SIGNOUT_REDIRECT_URL="${oidc_issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=https%3A%2F%2Fgrafana.${DOMAIN}%2Flogin" \
     GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA="/etc/ssl/certs/vault-root-ca.pem" \
     2>/dev/null || log_warn "Grafana OIDC binding may need manual configuration"
@@ -518,7 +538,9 @@ requestedScopes:
   - openid
   - profile
   - email
-  - groups"
+  - groups
+forceAuthRequestParameters:
+  prompt: login"
 
   # Append rootCA if available (ArgoCD natively supports inline CA PEM)
   if [[ -n "${argocd_root_ca:-}" ]]; then
@@ -688,7 +710,7 @@ VEOF'
 phase_4_groups() {
   start_phase "PHASE 4: GROUPS + ROLE MAPPING"
 
-  local groups=("platform-admins" "harvester-admins" "rancher-admins" "infra-engineers" "senior-developers" "developers" "viewers")
+  local groups=("platform-admins" "harvester-admins" "rancher-admins" "infra-engineers" "network-engineers" "senior-developers" "developers" "viewers")
 
   for group in "${groups[@]}"; do
     log_step "Creating group: ${group}"
@@ -731,7 +753,7 @@ phase_4_groups() {
   local clients
   clients=$(kc_api GET "/realms/${KC_REALM}/clients?max=100" 2>/dev/null || echo "[]")
 
-  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "traefik-oidc")
+  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher")
   for client_id_name in "${our_clients[@]}"; do
     local internal_id
     internal_id=$(echo "$clients" | jq -r ".[] | select(.clientId==\"${client_id_name}\") | .id" 2>/dev/null || echo "")
@@ -798,17 +820,28 @@ phase_5_validation() {
   echo "    (TOTP enrollment on first login)"
   echo ""
   echo "  OIDC Clients Created:"
-  echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public), traefik-oidc"
+  echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public)
+    prometheus-oidc, alertmanager-oidc, hubble-oidc, traefik-dashboard-oidc, rollouts-oidc, rancher"
   echo ""
   echo "  Client secrets saved to:"
   echo "    ${OIDC_SECRETS_FILE}"
   echo ""
-  echo "  Groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, senior-developers, developers, viewers"
+  echo "  Groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, network-engineers, senior-developers, developers, viewers"
   echo ""
   echo -e "${YELLOW}  Manual steps remaining:${NC}"
   echo "    1. Configure Kasm OIDC via Admin UI"
   echo "    2. Run ./scripts/setup-gitlab.sh (creates OIDC secret automatically)"
-  echo "    3. keycloakopenid middleware is configured automatically after this script"
+  echo "    3. oauth2-proxy ForwardAuth is configured automatically after this script"
+  echo "    4. Configure Rancher Keycloak OIDC via UI (see below)"
+  echo ""
+  echo -e "  ${YELLOW}Rancher Keycloak OIDC (one-time manual step):${NC}"
+  echo "    Navigate to: Users & Authentication > Auth Provider > Keycloak (OIDC)"
+  echo "    Use 'Specify (advanced)' — do NOT use 'Generate'"
+  echo "    Client ID:      rancher"
+  echo "    Client Secret:  $(jq -r '.rancher' "$OIDC_SECRETS_FILE" 2>/dev/null || echo 'see oidc-client-secrets.json')"
+  echo "    Issuer:         https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+  echo "    Auth Endpoint:  https://keycloak.${DOMAIN}/realms/${KC_REALM}/protocol/openid-connect/auth"
+  echo "    Token Endpoint: https://keycloak.${DOMAIN}/realms/${KC_REALM}/protocol/openid-connect/token"
   echo ""
 
   # Append Keycloak credentials to credentials.txt

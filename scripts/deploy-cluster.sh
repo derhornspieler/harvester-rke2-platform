@@ -6,7 +6,7 @@
 #   Terraform → cert-manager → CNPG → Redis Operator → Node Labeler → Vault
 #   → Monitoring → Harbor → ArgoCD → Keycloak → Mattermost → Kasm
 #   → Uptime Kuma → LibreNMS (optional) → RBAC → Validation
-#   → Keycloak OIDC Setup → keycloakopenid Traefik plugin → GitLab
+#   → Keycloak OIDC Setup → oauth2-proxy ForwardAuth → GitLab
 #
 # Prerequisites:
 #   1. cluster/terraform.tfvars populated (see terraform.tfvars.example)
@@ -699,7 +699,7 @@ POLICY
   log_step "Distributing Root CA to service namespaces..."
   distribute_root_ca
 
-  # Restart Traefik to pick up real vault-root-ca (keycloakopenid plugin needs it)
+  # Restart Traefik to pick up real vault-root-ca (services need it for OIDC TLS)
   log_step "Restarting Traefik to pick up Root CA..."
   kubectl rollout restart daemonset/rke2-traefik -n kube-system
   kubectl rollout status daemonset/rke2-traefik -n kube-system --timeout=120s
@@ -1436,7 +1436,7 @@ phase_9_validation() {
   echo "    Grafana admin:     admin / ${GRAFANA_ADMIN_PASSWORD:-N/A}"
   echo "    Kasm admin:        admin@kasm.local / ${kasm_pass}"
   echo "    Keycloak bootstrap: admin / CHANGEME_KC_ADMIN_PASSWORD (temporary — run setup-keycloak.sh)"
-  echo "    Auth (prom/alertmanager/hubble/rollouts/traefik): via keycloakopenid Traefik plugin"
+  echo "    Auth (prom/alertmanager/hubble/rollouts/traefik): via oauth2-proxy ForwardAuth"
   echo ""
   echo "  Vault PKI (External Root CA):"
   echo "    Root CA:         15yr validity (${ORG_NAME} Root CA, key offline)"
@@ -1486,19 +1486,51 @@ phase_10_keycloak_setup() {
   log_step "Running Keycloak OIDC setup..."
   "${SCRIPT_DIR}/setup-keycloak.sh"
 
-  # Apply middleware CRDs with real traefik-oidc client secret
-  log_step "Configuring keycloakopenid authentication..."
-  local traefik_oidc_secret
-  traefik_oidc_secret=$(jq -r '.["traefik-oidc"] // empty' "${SCRIPTS_DIR}/oidc-client-secrets.json")
-  if [[ -n "$traefik_oidc_secret" ]]; then
-    export TRAEFIK_OIDC_CLIENT_SECRET="$traefik_oidc_secret"
-    # Reapply middleware CRDs with real secret (replaces placeholder from Phase 3/5)
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/middleware-keycloak-auth.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-keycloak-auth.yaml"
-    kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/middleware-keycloak-auth.yaml"
-    log_ok "keycloakopenid middleware configured with OIDC client secret"
+  # Deploy oauth2-proxy instances with per-service OIDC client secrets
+  log_step "Configuring oauth2-proxy ForwardAuth..."
+  local oidc_secrets_file="${SCRIPTS_DIR}/oidc-client-secrets.json"
+
+  if [[ -f "$oidc_secrets_file" ]]; then
+    local services=("prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc")
+    local namespaces=("monitoring" "monitoring" "kube-system" "kube-system" "argo-rollouts")
+    local names=("prometheus" "alertmanager" "hubble" "traefik-dashboard" "rollouts")
+
+    for i in "${!services[@]}"; do
+      local client_id="${services[$i]}"
+      local ns="${namespaces[$i]}"
+      local name="${names[$i]}"
+      local client_secret cookie_secret
+
+      client_secret=$(jq -r ".[\"${client_id}\"] // empty" "$oidc_secrets_file")
+      cookie_secret=$(openssl rand -base64 32 | tr -- '+/' '-_')
+
+      if [[ -z "$client_secret" ]]; then
+        log_warn "Client secret for ${client_id} not found — skipping oauth2-proxy-${name}"
+        continue
+      fi
+
+      kubectl create secret generic "oauth2-proxy-${name}" \
+        --namespace="${ns}" \
+        --from-literal=client-secret="${client_secret}" \
+        --from-literal=cookie-secret="${cookie_secret}" \
+        --dry-run=client -o yaml | kubectl apply -f -
+      log_ok "Secret oauth2-proxy-${name} created in ${ns}"
+    done
+
+    # Apply oauth2-proxy deployments + ForwardAuth middlewares
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/oauth2-proxy.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/middleware-oauth2-proxy.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/alertmanager/oauth2-proxy.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/alertmanager/middleware-oauth2-proxy.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/oauth2-proxy-hubble.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-oauth2-proxy-hubble.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/oauth2-proxy-traefik-dashboard.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-oauth2-proxy-traefik-dashboard.yaml"
+    kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/oauth2-proxy.yaml"
+    kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/middleware-oauth2-proxy.yaml"
+    log_ok "oauth2-proxy ForwardAuth configured for all protected services"
   else
-    log_warn "traefik-oidc client secret not found — keycloakopenid auth will not work"
+    log_warn "oidc-client-secrets.json not found — oauth2-proxy auth will not work"
   fi
 
   end_phase "PHASE 10: KEYCLOAK OIDC SETUP"

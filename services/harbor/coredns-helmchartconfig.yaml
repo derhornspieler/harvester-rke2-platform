@@ -5,7 +5,7 @@
 #
 # Fix: CoreDNS rewrites *.example.com queries to the Traefik ClusterIP so
 # in-cluster OIDC clients (Vault, Grafana, ArgoCD, etc.) can reach Keycloak,
-# and the keycloakopenid Traefik plugin can perform token introspection.
+# and oauth2-proxy instances can perform OIDC authentication.
 #
 # The rewrite + answer auto ensures:
 #   1. DNS query for keycloak.example.com → resolves rke2-traefik ClusterIP

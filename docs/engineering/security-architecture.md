@@ -568,10 +568,12 @@ sequenceDiagram
 | `mattermost.<DOMAIN>` | Keycloak OIDC | `mattermost` | Implemented | Built-in login |
 | `gitlab.<DOMAIN>` | Keycloak OIDC | `gitlab` | Manual config required | Built-in login |
 | `kasm.<DOMAIN>` | Keycloak OIDC | `kasm` | Manual config required | Built-in login |
-| `prometheus.<DOMAIN>` | Basic auth | N/A | Planned (ForwardAuth) | Traefik middleware |
-| `hubble.<DOMAIN>` | Basic auth | N/A | Planned (ForwardAuth) | Traefik middleware |
-| `traefik.<DOMAIN>` | Basic auth | N/A | Planned (ForwardAuth) | Traefik middleware |
-| `rollouts.<DOMAIN>` | Basic auth | N/A | Planned (ForwardAuth) | Traefik middleware |
+| `prometheus.<DOMAIN>` | oauth2-proxy ForwardAuth | `prometheus-oidc` | Implemented | Groups: platform-admins, infra-engineers |
+| `alertmanager.<DOMAIN>` | oauth2-proxy ForwardAuth | `alertmanager-oidc` | Implemented | Groups: platform-admins, infra-engineers |
+| `hubble.<DOMAIN>` | oauth2-proxy ForwardAuth | `hubble-oidc` | Implemented | Groups: platform-admins, infra-engineers, network-engineers |
+| `traefik.<DOMAIN>` | oauth2-proxy ForwardAuth | `traefik-dashboard-oidc` | Implemented | Groups: platform-admins, network-engineers |
+| `rollouts.<DOMAIN>` | oauth2-proxy ForwardAuth | `rollouts-oidc` | Implemented | Groups: platform-admins, infra-engineers, senior-developers |
+| `rancher.<DOMAIN>` | Keycloak OIDC | `rancher` | Manual config required | Manual UI setup |
 | `keycloak.<DOMAIN>` | Keycloak (native) | N/A | N/A (is the IdP) | N/A |
 
 ### SSO Roadmap
@@ -623,7 +625,12 @@ The `setup-keycloak.sh` script creates all OIDC clients in the realm. The realm 
 | `kasm` | Kasm Workspaces | Confidential | `https://kasm.<DOMAIN>/api/oidc_callback` | openid, profile, email | Manual UI config required |
 | `gitlab` | GitLab | Confidential | `https://gitlab.<DOMAIN>/users/auth/openid_connect/callback` | openid, profile, email | Manual Helm/omnibus config required |
 | `kubernetes` | Kubernetes (kubelogin) | **Public** | `http://localhost:8000`, `http://localhost:18000` | openid, profile, email | No client secret (public client for kubelogin) |
-| `traefik-oidc` | Traefik OIDC Plugin | Confidential | `https://prometheus.<DOMAIN>/*`, `https://alertmanager.<DOMAIN>/*`, `https://hubble.<DOMAIN>/*`, `https://traefik.<DOMAIN>/*`, `https://rollouts.<DOMAIN>/*` | openid, profile, email | keycloakopenid Traefik middleware for per-site authentication |
+| `prometheus-oidc` | Prometheus | Confidential | `https://prometheus.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, infra-engineers |
+| `alertmanager-oidc` | AlertManager | Confidential | `https://alertmanager.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, infra-engineers |
+| `hubble-oidc` | Hubble | Confidential | `https://hubble.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, infra-engineers, network-engineers |
+| `traefik-dashboard-oidc` | Traefik Dashboard | Confidential | `https://traefik.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, network-engineers |
+| `rollouts-oidc` | Argo Rollouts | Confidential | `https://rollouts.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, infra-engineers, senior-developers |
+| `rancher` | Rancher | Confidential | `https://rancher.<DOMAIN>/verify-auth` | openid, profile, email, groups | Manual UI configuration required |
 
 ### Common Client Settings
 
@@ -911,7 +918,7 @@ flowchart TD
     HasOIDC["Service has<br/>built-in OIDC<br/>support?"]
     UseOIDC["Configure Keycloak<br/>OIDC client via<br/>setup-keycloak.sh"]
     UseBasicAuth["Use Traefik<br/>basic-auth middleware<br/>(temporary)"]
-    PlannedFA["Add keycloakopenid<br/>Traefik middleware<br/>for OIDC protection"]
+    PlannedFA["Add oauth2-proxy<br/>ForwardAuth middleware<br/>for OIDC protection"]
     NeedsAuth["Requires<br/>authentication?"]
     NoAuth["Direct Gateway +<br/>HTTPRoute (TLS only)"]
 
@@ -950,7 +957,7 @@ flowchart TD
     Current["Service currently<br/>using basic-auth?"]
     HasOIDC["Service supports<br/>OIDC natively?"]
     MigrateOIDC["1. Create Keycloak client<br/>2. Configure service OIDC<br/>3. Remove basic-auth middleware"]
-    NeedProxy["Add keycloakopenid<br/>Traefik middleware<br/>in front of service"]
+    NeedProxy["Add oauth2-proxy<br/>ForwardAuth middleware<br/>in front of service"]
     AlreadySSO["Already on Keycloak?"]
     Done["No action needed"]
 

@@ -13,7 +13,7 @@
 #   - Gateway API provider enabled
 #   - Access logging + OTLP tracing
 #   - Timeout increase for Harbor (large image push) and Kasm (WebSocket streaming)
-#   - keycloakopenid plugin for native OIDC authentication middleware
+#   - oauth2-proxy ForwardAuth for service authentication
 #   - Vault Root CA trust (combined CA bundle via init container)
 #
 # Security note: Global timeout increase (per-route not yet supported in Traefik
@@ -46,12 +46,6 @@ spec:
             scheme: https
     # NOTE: Default TLS cert is set via TLSStore CRD (traefik-default-tlsstore.yaml),
     # not via Helm values — the Helm tls.stores path doesn't create the CRD.
-    # keycloakopenid plugin registration
-    experimental:
-      plugins:
-        keycloakopenid:
-          moduleName: github.com/Gwojda/keycloakopenid
-          version: v0.1.36
     # Mount vault-root-ca for private CA trust (Keycloak TLS)
     volumes:
       - name: vault-root-ca

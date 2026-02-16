@@ -158,14 +158,14 @@ All external services are served over HTTPS via Traefik using Gateway API (HTTPR
 | Endpoint | Namespace | Ingress Type | Auth Method |
 |----------|-----------|-------------|-------------|
 | `grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | Grafana login |
-| `prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | Keycloak SSO (keycloakopenid) |
-| `hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | Keycloak SSO (keycloakopenid) |
-| `traefik.<DOMAIN>` | kube-system | IngressRoute | Keycloak SSO (keycloakopenid) |
+| `prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | oauth2-proxy ForwardAuth |
+| `hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | oauth2-proxy ForwardAuth |
+| `traefik.<DOMAIN>` | kube-system | Gateway + HTTPRoute | oauth2-proxy ForwardAuth |
 | `vault.<DOMAIN>` | vault | Gateway + HTTPRoute | Vault login |
 | `harbor.<DOMAIN>` | harbor | Gateway + HTTPRoute | Harbor login |
 | `keycloak.<DOMAIN>` | keycloak | Gateway + HTTPRoute | Keycloak login |
 | `argo.<DOMAIN>` | argocd | Gateway + HTTPRoute | ArgoCD login |
-| `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | Keycloak SSO (keycloakopenid) |
+| `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | oauth2-proxy ForwardAuth |
 | `mattermost.<DOMAIN>` | mattermost | Gateway + HTTPRoute | Mattermost login |
 | `kasm.<DOMAIN>` | kasm | IngressRoute | Kasm login |
 | `gitlab.<DOMAIN>` | gitlab | External | GitLab login |

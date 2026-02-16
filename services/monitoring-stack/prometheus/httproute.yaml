@@ -13,6 +13,15 @@ spec:
   hostnames:
     - "prometheus.example.com"
   rules:
+    # oauth2-proxy callback — no auth middleware
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /oauth2
+      backendRefs:
+        - name: oauth2-proxy-prometheus
+          port: 4180
+    # Main app — protected by ForwardAuth
     - matches:
         - path:
             type: PathPrefix
@@ -22,7 +31,7 @@ spec:
           extensionRef:
             group: traefik.io
             kind: Middleware
-            name: keycloak-auth
+            name: oauth2-proxy-prometheus
       backendRefs:
         - name: prometheus
           port: 9090

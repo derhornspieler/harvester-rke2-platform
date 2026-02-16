@@ -55,16 +55,25 @@ spec:
   hostnames:
     - "CHANGEME_TRAEFIK_FQDN"
   rules:
-    - backendRefs:
-        - name: traefik-api
-          port: 8080
+    # oauth2-proxy callback — no auth middleware
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /oauth2
+      backendRefs:
+        - name: oauth2-proxy-traefik-dashboard
+          port: 4180
+    # Main app — protected by ForwardAuth
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
       filters:
         - type: ExtensionRef
           extensionRef:
             group: traefik.io
             kind: Middleware
-            name: keycloak-auth
-      matches:
-        - path:
-            type: PathPrefix
-            value: /
+            name: oauth2-proxy-traefik-dashboard
+      backendRefs:
+        - name: traefik-api
+          port: 8080

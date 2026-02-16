@@ -1,38 +1,58 @@
-name: CodeQL
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: '0 6 * * 1'   # Monday 6 AM UTC
 
 permissions:
-  security-events: write
   contents: read
 
 jobs:
-  analyze:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run ShellCheck on scripts
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: scripts
+          severity: warning
+
+  yamllint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run yamllint on services
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: services
+          config_data: |
+            extends: relaxed
+            rules:
+              line-length:
+                max: 250
+
+  go-vet:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
-        language: [go]
+        operator: [node-labeler, storage-autoscaler]
+    defaults:
+      run:
+        working-directory: operators/${{ matrix.operator }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: operators/node-labeler/go.mod
+          go-version-file: operators/${{ matrix.operator }}/go.mod
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
+      - name: Go vet
+        run: go vet ./...
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      - name: Go build
+        run: go build ./...
