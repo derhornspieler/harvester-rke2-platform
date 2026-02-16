@@ -14,8 +14,8 @@ resources:
   - postgres/secret.yaml
   - postgres/harbor-pg-cluster.yaml
   - postgres/harbor-pg-scheduled-backup.yaml
-  # Redis (Sentinel — deployed via Helm, secrets managed here)
-  - redis/secret.yaml
+  # Valkey (Sentinel — deployed via Helm, secrets managed here)
+  - valkey/secret.yaml
   # Harbor (deployed via Helm, supplementary resources below)
   # TLS + Ingress (Gateway API + cert-manager gateway-shim)
   - gateway.yaml

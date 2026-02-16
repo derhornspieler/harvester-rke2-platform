@@ -967,10 +967,9 @@ phase_5_argocd() {
 
   log_ok "Argo Rollouts deployed"
 
-  log_step "Applying Rollouts auth middleware, Gateway + HTTPRoute..."
-  kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/basic-auth-secret.yaml"
-  kube_apply -f "${SERVICES_DIR}/argo/argo-rollouts/middleware-basic-auth.yaml"
-  kube_apply -f "${SERVICES_DIR}/argo/argo-rollouts/middleware-keycloak-auth.yaml"
+  log_step "Applying Rollouts oauth2-proxy middleware, Gateway + HTTPRoute..."
+  kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/oauth2-proxy.yaml"
+  kube_apply -f "${SERVICES_DIR}/argo/argo-rollouts/middleware-oauth2-proxy.yaml"
   kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/gateway.yaml" \
                    "${SERVICES_DIR}/argo/argo-rollouts/httproute.yaml"
   wait_for_tls_secret argo-rollouts "rollouts-${DOMAIN_DASHED}-tls" 120
