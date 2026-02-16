@@ -43,8 +43,8 @@ graph TD
     end
 
     subgraph Monitoring["Observability Layer"]
-        Prometheus["Prometheus<br/>(27 scrape jobs)"]
-        Grafana["Grafana<br/>(27+ dashboards)"]
+        Prometheus["Prometheus<br/>(29 scrape jobs)"]
+        Grafana["Grafana<br/>(28 dashboards)"]
         Loki["Loki<br/>(TSDB, 50Gi)"]
         Alloy["Alloy DaemonSet<br/>(log collection)"]
         Alertmanager["Alertmanager<br/>(route to receivers)"]
@@ -126,15 +126,18 @@ graph TD
 
 | Phase | Services | Rationale |
 |-------|----------|-----------|
-| 0 | RKE2, Cilium, Traefik, Harvester CSI | Infrastructure base |
-| 1 | cert-manager | Must exist before any TLS certificate issuance |
-| 2 | Vault (HA Raft) | PKI backend for cert-manager ClusterIssuer |
-| 3 | Monitoring Stack, Node Labeler | Observability for all subsequent deployments |
-| 4 | CNPG Operator, MariaDB Operator, Redis Operator | Database infrastructure for stateful services |
+| 0 | RKE2, Cilium, Traefik, Harvester CSI | Infrastructure base (Terraform) |
+| 1 | cert-manager, Node Labeler, Storage Autoscaler | Cluster foundation (no TLS yet) |
+| 2 | Vault (HA Raft) + PKI | PKI backend for cert-manager ClusterIssuer |
+| 3 | Monitoring Stack | Observability for all subsequent deployments |
+| 4 | Harbor, MinIO, CNPG, Redis Operator, Proxy Cache, Registry Mirrors | Container registry + database operators |
 | 5 | ArgoCD + Argo Rollouts | GitOps engine for remaining deployments |
 | 6 | Keycloak | Identity provider for SSO integration |
-| 7 | Harbor, Mattermost, Kasm, Uptime Kuma, LibreNMS | Application services |
-| 8 | Storage Autoscaler | Automated PVC expansion (requires Prometheus) |
+| 7 | Mattermost, Kasm, Uptime Kuma, LibreNMS | Remaining application services |
+| 8 | DNS Records | Create DNS A records for all services |
+| 9 | Validation | Health checks, VolumeAutoscaler CRs, smoke tests |
+| 10 | Keycloak OIDC Setup | OIDC clients, groups, oauth2-proxy ForwardAuth |
+| 11 | GitLab | GitLab deployment (optional) |
 
 ---
 
@@ -199,7 +202,7 @@ graph TD
 | data-alertmanager-0 | monitoring | 5Gi | harvester | Alertmanager |
 | minio-data | minio | 200Gi | harvester | Harbor MinIO |
 | harbor-pg PVCs | database | 20Gi x3 | harvester | Harbor PostgreSQL |
-| harbor-valkey PVCs | harbor | varies | harvester | Harbor Redis |
+| harbor-valkey PVCs | harbor | varies | harvester | Harbor Valkey |
 | keycloak-pg PVCs | database | 10Gi x3 | harvester | Keycloak PostgreSQL |
 | mattermost-pg PVCs | database | 20Gi x3 | harvester | Mattermost PostgreSQL |
 | mattermost-minio | mattermost | 20Gi | harvester | Mattermost MinIO |
@@ -207,7 +210,7 @@ graph TD
 | uptime-kuma-data | uptime-kuma | 2Gi | harvester | Uptime Kuma |
 | librenms-data | librenms | 10Gi | harvester | LibreNMS |
 | librenms-mariadb PVCs | librenms | 10Gi x3 | harvester | LibreNMS MariaDB |
-| librenms-redis PVCs | librenms | 2Gi x3 | harvester | LibreNMS Valkey |
+| librenms-valkey PVCs | librenms | 2Gi x3 | harvester | LibreNMS Valkey |
 
 ---
 
@@ -517,7 +520,7 @@ graph TD
     Prometheus -->|"alerting"| AM
     Prometheus -->|"scrape"| NE
     Prometheus -->|"scrape"| KSM
-    Prometheus -->|"scrape 27 jobs"| ExternalTargets["All cluster services"]
+    Prometheus -->|"scrape 28 jobs"| ExternalTargets["All cluster services"]
     Alloy -->|"push logs"| Loki
 ```
 
@@ -540,12 +543,12 @@ graph TD
 | Service (ClusterIP) | kube-state-metrics | monitoring | :8080, :8081 |
 | Service (Headless) | node-exporter | monitoring | :9100 per node |
 | Service (Headless) | alloy | monitoring | :12345 per node |
-| ConfigMap | prometheus-config | monitoring | 27 scrape jobs + alert rules |
+| ConfigMap | prometheus-config | monitoring | 29 scrape jobs + alert rules |
 | ConfigMap | alertmanager-config | monitoring | Route/receiver config |
 | ConfigMap | loki-config | monitoring | TSDB + retention config |
 | ConfigMap | alloy-config | monitoring | River pipeline config |
 | ConfigMap | grafana-datasources | monitoring | Prometheus + Loki sources |
-| ConfigMap | grafana-dashboard-* (27+) | monitoring | Pre-provisioned dashboards |
+| ConfigMap | grafana-dashboard-* (28) | monitoring | Pre-provisioned dashboards |
 | Secret | grafana-admin-secret | monitoring | Admin password |
 | Secret | etcd-certs | monitoring | etcd TLS certs (optional, mounted but unused -- etcd scraped via plain HTTP :2381) |
 | Secret | oauth2-proxy-prometheus | monitoring | oauth2-proxy OIDC client + cookie secret |
@@ -576,7 +579,7 @@ graph TD
 | Retention (size) | 40GB |
 | Storage path | /prometheus |
 | Web lifecycle | Enabled |
-| Total scrape jobs | 27 |
+| Total scrape jobs | 28 |
 
 **Loki**:
 
@@ -600,7 +603,7 @@ graph TD
 | Repeat interval | 4h (1h for critical) |
 | Routing | By alertname, namespace, job |
 
-**Alert Rule Groups**: node-alerts, kubernetes-alerts, vault-alerts, certmanager-alerts, gitlab-alerts, postgresql-alerts, monitoring-self-alerts, traefik-alerts, cilium-alerts, argocd-alerts, harbor-alerts, keycloak-alerts, mattermost-alerts, security-alerts.
+**Alert Rule Groups**: node-alerts, kubernetes-alerts, vault-alerts, certmanager-alerts, gitlab-alerts, postgresql-alerts, monitoring-self-alerts, traefik-alerts, cilium-alerts, argocd-alerts, harbor-alerts, keycloak-alerts, mattermost-alerts, oauth2-proxy-alerts, security-alerts.
 
 **Traefik HelmChartConfig** (`kube-system/rke2-traefik`):
 
@@ -661,9 +664,9 @@ No external database. Prometheus uses its own TSDB. Loki uses embedded TSDB with
 
 ### 5.8 Monitoring Integration
 
-Self-monitoring scrape jobs: `prometheus` (job #1), `alloy` (job #19), `loki` (job #20), `alertmanager` (job #27).
+Self-monitoring scrape jobs: `prometheus` (job #1), `alloy` (job #19), `loki` (job #20), `alertmanager` (job #27), `oauth2-proxy` (job #28).
 
-27+ Grafana dashboards provisioned as ConfigMaps across RKE2, Kubernetes, Loki, and service-specific folders.
+28 Grafana dashboards provisioned as ConfigMaps across RKE2, Kubernetes, Loki, and service-specific folders.
 
 ### 5.9 High Availability
 
@@ -761,7 +764,7 @@ graph TD
 | Job | create-buckets | minio | Post-install bucket creation |
 | Secret | harbor-s3-credentials | harbor | MinIO access keys |
 | Secret | harbor-db-credentials | harbor | PostgreSQL connection |
-| Secret | harbor-redis-credentials | harbor | Redis password |
+| Secret | harbor-redis-credentials | harbor | Valkey password |
 | Gateway | harbor | harbor | HTTPS with cert-manager annotation |
 | HTTPRoute | harbor | harbor | Path-based routing (core vs portal) |
 | HPA | harbor-core | harbor | 2-5 replicas, 70% CPU |
@@ -779,9 +782,9 @@ graph TD
 | Expose type | ClusterIP (TLS at Traefik) |
 | Database | External CNPG: `harbor-pg-rw.database.svc:5432` |
 | Database name | registry |
-| Redis | External Sentinel: `harbor-redis-sentinel.harbor.svc:26379` |
+| Valkey | External Sentinel: `harbor-redis-sentinel.harbor.svc:26379` |
 | Sentinel master set | mymaster |
-| Redis DB indices | core=0, jobservice=1, registry=2, trivy=5 |
+| Valkey DB indices | core=0, jobservice=1, registry=2, trivy=5 |
 | S3 endpoint | `http://minio.minio.svc.cluster.local:9000` |
 | S3 bucket | harbor |
 | S3 disableredirect | true (required for MinIO) |
@@ -796,7 +799,7 @@ graph TD
 |-----|------|-----------|---------|
 | minio-data | 200Gi | minio | Container image blobs + Helm chart artifacts |
 | harbor-pg PVCs (x3) | 20Gi each | database | PostgreSQL data |
-| harbor-valkey PVCs | varies | harbor | Redis persistence |
+| harbor-valkey PVCs | varies | harbor | Valkey persistence |
 
 ### 6.5 Database Backend
 
@@ -820,7 +823,7 @@ graph TD
 | 8808 | exporter | Prometheus metrics |
 | 9000 | minio | S3 API |
 | 9001 | minio | Console UI |
-| 26379 | sentinel | Redis Sentinel |
+| 26379 | sentinel | Valkey Sentinel |
 | 5432 | harbor-pg-rw | PostgreSQL |
 | 443 | Traefik | External HTTPS |
 
@@ -855,7 +858,7 @@ Harbor admin password is set in `harbor-values.yaml`. Core, portal, registry, jo
 |------------|----------|---------|
 | MinIO | Yes | S3 blob storage (deploy first) |
 | CNPG harbor-pg | Yes | PostgreSQL database (deploy first) |
-| Redis Sentinel | Yes | Cache + job queue (deploy first) |
+| Valkey Sentinel | Yes | Cache + job queue (deploy first) |
 | Traefik timeout | Yes | 1800s for large image pushes |
 | cert-manager | Yes | TLS certificate |
 

@@ -6,11 +6,11 @@
 #   helm install argo-rollouts argo/argo-rollouts -n argo-rollouts \
 #     -f services/argo/argo-rollouts/argo-rollouts-values.yaml --wait
 #
-# Post-deploy (IngressRoute + TLS certificate + basic-auth):
-#   kubectl apply -f services/argo/argo-rollouts/basic-auth-secret.yaml \
-#                 -f services/argo/argo-rollouts/middleware-basic-auth.yaml \
-#                 -f services/argo/argo-rollouts/certificate.yaml \
-#                 -f services/argo/argo-rollouts/ingressroute.yaml
+# Post-deploy (Gateway API + oauth2-proxy ForwardAuth):
+#   kubectl apply -f services/argo/argo-rollouts/gateway.yaml \
+#                 -f services/argo/argo-rollouts/oauth2-proxy.yaml \
+#                 -f services/argo/argo-rollouts/middleware-oauth2-proxy.yaml \
+#                 -f services/argo/argo-rollouts/httproute.yaml
 
 controller:
   replicas: 2

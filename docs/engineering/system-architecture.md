@@ -129,17 +129,23 @@ graph TD
             CP3["CP-3<br/>eth0"]
             W1_e0["General-1<br/>eth0"]
             W2_e0["General-2<br/>eth0"]
+            W3_e0["General-3<br/>eth0"]
+            W4_e0["General-4<br/>eth0"]
             DB1_e0["Database-1<br/>eth0"]
             DB2_e0["Database-2<br/>eth0"]
             DB3_e0["Database-3<br/>eth0"]
+            DB4_e0["Database-4<br/>eth0"]
         end
 
         subgraph SvcNet["services-network (VLAN 5)"]
             W1_e1["General-1<br/>eth1"]
             W2_e1["General-2<br/>eth1"]
+            W3_e1["General-3<br/>eth1"]
+            W4_e1["General-4<br/>eth1"]
             DB1_e1["Database-1<br/>eth1"]
             DB2_e1["Database-2<br/>eth1"]
             DB3_e1["Database-3<br/>eth1"]
+            DB4_e1["Database-4<br/>eth1"]
         end
     end
 
@@ -180,7 +186,7 @@ graph TD
             CP3["CP-3<br/>etcd + API<br/>8 CPU / 32 GiB<br/>80 GiB disk<br/>1 NIC (eth0)"]
         end
 
-        subgraph General["General Worker Pool (2-10 nodes)"]
+        subgraph General["General Worker Pool (4-10 nodes)"]
             G1["General-1<br/>4 CPU / 8 GiB<br/>60 GiB disk<br/>2 NICs"]
             G2["General-2<br/>4 CPU / 8 GiB<br/>60 GiB disk<br/>2 NICs"]
             GN["General-N<br/>..."]
@@ -191,7 +197,7 @@ graph TD
             CN["(scale-from-zero)"]
         end
 
-        subgraph Database["Database Worker Pool (3-10 nodes)"]
+        subgraph Database["Database Worker Pool (4-10 nodes)"]
             D1["Database-1<br/>4 CPU / 16 GiB<br/>80 GiB disk<br/>2 NICs"]
             D2["Database-2<br/>4 CPU / 16 GiB<br/>80 GiB disk<br/>2 NICs"]
             D3["Database-3<br/>4 CPU / 16 GiB<br/>80 GiB disk<br/>2 NICs"]
@@ -209,9 +215,9 @@ graph TD
 | Pool | Roles | Count | NICs | CPU | Memory | Disk | Autoscale | Node Label |
 |------|-------|-------|------|-----|--------|------|-----------|------------|
 | **Control Plane** | etcd, control-plane | 3 (fixed) | 1 (eth0) | 8 | 32 GiB | 80 GiB | No | _(auto-tainted)_ |
-| **General** | worker | 2--10 | 2 (eth0, eth1) | 4 | 8 GiB | 60 GiB | Yes | `workload-type=general` |
+| **General** | worker | 4--10 | 2 (eth0, eth1) | 4 | 8 GiB | 60 GiB | Yes | `workload-type=general` |
 | **Compute** | worker | 0--10 | 2 (eth0, eth1) | 8 | 32 GiB | 80 GiB | Yes (scale-from-zero) | `workload-type=compute` |
-| **Database** | worker | 3--10 | 2 (eth0, eth1) | 4 | 16 GiB | 80 GiB | Yes | `workload-type=database` |
+| **Database** | worker | 4--10 | 2 (eth0, eth1) | 4 | 16 GiB | 80 GiB | Yes | `workload-type=database` |
 
 ### Node Roles, Labels, and Taints
 
@@ -222,11 +228,11 @@ graph TD
     end
 
     subgraph Workers["Worker Node Pools"]
-        G["General Pool<br/>Label: workload-type=general<br/>Autoscale: 2-10<br/><br/>Runs: Monitoring, Keycloak, ArgoCD,<br/>Harbor, Mattermost, Kasm,<br/>Argo Rollouts, cert-manager"]
+        G["General Pool<br/>Label: workload-type=general<br/>Autoscale: 4-10<br/><br/>Runs: Monitoring, Keycloak, ArgoCD,<br/>Harbor, Mattermost, Kasm,<br/>Argo Rollouts, cert-manager"]
 
         C["Compute Pool<br/>Label: workload-type=compute<br/>Autoscale: 0-10 (scale-from-zero)<br/><br/>Runs: Batch jobs, CI runners,<br/>heavy compute workloads"]
 
-        D["Database Pool<br/>Label: workload-type=database<br/>Autoscale: 3-10<br/><br/>Runs: Vault HA, CNPG PostgreSQL,<br/>Redis Sentinel, MinIO"]
+        D["Database Pool<br/>Label: workload-type=database<br/>Autoscale: 4-10<br/><br/>Runs: Vault HA, CNPG PostgreSQL,<br/>Valkey Sentinel, MinIO"]
     end
 
     CP -->|"API server :6443"| G
@@ -512,18 +518,18 @@ graph BT
     subgraph DataLayer["Data Layer"]
         HarborPG["CNPG harbor-pg<br/>(3 instances, PG 16)<br/>namespace: database"]
         KasmPG["CNPG kasm-pg<br/>(3 instances, PG 14)<br/>namespace: kasm"]
-        KCPG["PostgreSQL<br/>(Keycloak, PG 16)<br/>namespace: keycloak"]
-        MMPG["PostgreSQL<br/>(Mattermost, PG 16)<br/>namespace: mattermost"]
-        HarborRedis["Redis Sentinel<br/>(3+3 replicas)<br/>namespace: harbor"]
+        KCPG["CNPG keycloak-pg<br/>(3 instances, PG 16)<br/>namespace: database"]
+        MMPG["CNPG mattermost-pg<br/>(3 instances, PG 16)<br/>namespace: database"]
+        HarborRedis["Valkey Sentinel<br/>(3+3 replicas, OpsTree)<br/>namespace: harbor"]
         ArgoRedis["Redis HA + HAProxy<br/>(3+3 replicas, Valkey 8)<br/>namespace: argocd"]
         HarborMinio["MinIO (750 GiB)<br/>namespace: minio"]
         MMMinio["MinIO (50 GiB)<br/>namespace: mattermost"]
     end
 
     subgraph Monitoring["Monitoring Layer"]
-        Prom["Prometheus<br/>(100 GiB, 30d retention)"]
-        Grafana["Grafana<br/>(27+ dashboards)"]
-        Loki["Loki<br/>(100 GiB, 7d retention)"]
+        Prom["Prometheus<br/>(50 GiB, 30d retention)"]
+        Grafana["Grafana<br/>(28 dashboards)"]
+        Loki["Loki<br/>(50 GiB, 7d retention)"]
         Alloy["Alloy<br/>(DaemonSet log collector)"]
         AM["Alertmanager<br/>(alert routing)"]
         NE["Node Exporter<br/>(DaemonSet)"]
@@ -553,6 +559,8 @@ graph BT
     Vault -->|"PKI backend"| CM
     CNPG_Op -->|"manages"| HarborPG
     CNPG_Op -->|"manages"| KasmPG
+    CNPG_Op -->|"manages"| KCPG
+    CNPG_Op -->|"manages"| MMPG
 
     %% cert-manager provides TLS to all apps
     CM -->|"TLS certs"| Traefik
@@ -631,19 +639,16 @@ graph TD
             V2["vault-2: 10 GiB"]
         end
 
-        subgraph CNPG_Vol["CNPG PostgreSQL (120 GiB total)"]
+        subgraph CNPG_Vol["CNPG PostgreSQL (210 GiB total)"]
             HPG["harbor-pg x3: 20 GiB each"]
             KPG["kasm-pg x3: 20 GiB each"]
-        end
-
-        subgraph StandalonePG["Standalone PostgreSQL (30 GiB total)"]
-            KCPG_v["keycloak-pg: 10 GiB"]
-            MMPG_v["mattermost-pg: 20 GiB"]
+            KCPG_v["keycloak-pg x3: 10 GiB each"]
+            MMPG_v["mattermost-pg x3: 20 GiB each"]
         end
 
         subgraph MonVol["Monitoring (210 GiB total)"]
-            PromPVC["prometheus: 100 GiB"]
-            LokiPVC["loki: 100 GiB"]
+            PromPVC["prometheus: 50 GiB"]
+            LokiPVC["loki: 50 GiB"]
             GrafPVC["grafana: 10 GiB"]
         end
 
@@ -661,7 +666,6 @@ graph TD
     Disks --> SC
     SC --> Raft
     SC --> CNPG_Vol
-    SC --> StandalonePG
     SC --> MonVol
     SC --> S3Vol
     SC --> RedisVol
@@ -674,16 +678,16 @@ graph TD
 | vault | vault-{0,1,2} | 10 GiB | 3 | 30 GiB | Permanent | Raft consensus storage |
 | database | harbor-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Harbor registry metadata |
 | kasm | kasm-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Kasm Workspaces metadata |
-| keycloak | keycloak-pg | 10 GiB | 1 | 10 GiB | Permanent | Keycloak identity data |
-| mattermost | mattermost-pg | 20 GiB | 1 | 20 GiB | Permanent | Mattermost messages |
-| monitoring | prometheus | 100 GiB | 1 | 100 GiB | 30 days | Time-series metrics |
-| monitoring | loki | 100 GiB | 1 | 100 GiB | 7 days | Log storage (TSDB v13) |
+| database | keycloak-pg-{1,2,3} | 10 GiB | 3 | 30 GiB | Permanent | Keycloak identity data |
+| database | mattermost-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Mattermost messages |
+| monitoring | prometheus | 50 GiB | 1 | 50 GiB | 30 days | Time-series metrics |
+| monitoring | loki | 50 GiB | 1 | 50 GiB | 7 days | Log storage (TSDB v13) |
 | monitoring | grafana | 10 GiB | 1 | 10 GiB | Permanent | Dashboard state + preferences |
 | minio | harbor-minio | 750 GiB | 1 | 750 GiB | Permanent | OCI images, Helm charts |
 | mattermost | mattermost-minio | 50 GiB | 1 | 50 GiB | Permanent | File attachments |
 | harbor | harbor-redis-{0,1,2} | 8 GiB | 3 | 24 GiB | Ephemeral | Harbor cache + sessions |
 | argocd | argocd-redis-ha-{0,1,2} | 8 GiB | 3 | 24 GiB | Ephemeral | ArgoCD state cache |
-| **Total** | | | | **~1.24 TiB** | | |
+| **Total** | | | | **~1.29 TiB** | | |
 
 ---
 
@@ -859,9 +863,9 @@ graph TD
     end
 
     subgraph PoolConfig["Pool Autoscale Configuration"]
-        GP["General Pool<br/>Min: 2 / Max: 10<br/>Scale-from-zero: No"]
+        GP["General Pool<br/>Min: 4 / Max: 10<br/>Scale-from-zero: No"]
         CMP["Compute Pool<br/>Min: 0 / Max: 10<br/>Scale-from-zero: Yes"]
-        DP["Database Pool<br/>Min: 3 / Max: 10<br/>Scale-from-zero: No"]
+        DP["Database Pool<br/>Min: 4 / Max: 10<br/>Scale-from-zero: No"]
     end
 
     subgraph AppLevel["Application-Level Autoscaling (HPA)"]
@@ -955,7 +959,7 @@ graph TD
     end
 
     subgraph Collection["Metrics Collection"]
-        Prom["Prometheus<br/>(StatefulSet, 1 replica)<br/>:9090<br/>100 GiB PVC<br/>30-day retention<br/>30s scrape interval"]
+        Prom["Prometheus<br/>(StatefulSet, 1 replica)<br/>:9090<br/>50 GiB PVC<br/>30-day retention<br/>30s scrape interval"]
     end
 
     subgraph Alerting["Alert Processing"]
@@ -963,7 +967,7 @@ graph TD
     end
 
     subgraph Visualization["Visualization"]
-        Grafana["Grafana<br/>(Deployment, 1 replica)<br/>:3000<br/>10 GiB PVC<br/>27+ dashboards"]
+        Grafana["Grafana<br/>(Deployment, 1 replica)<br/>:3000<br/>10 GiB PVC<br/>28 dashboards"]
     end
 
     NE -->|"scrape"| Prom
@@ -996,7 +1000,7 @@ graph TD
     end
 
     subgraph LogStorage["Storage"]
-        Loki["Loki<br/>(StatefulSet, 1 replica)<br/>:3100<br/>100 GiB PVC<br/>7-day retention<br/>TSDB schema v13"]
+        Loki["Loki<br/>(StatefulSet, 1 replica)<br/>:3100<br/>50 GiB PVC<br/>7-day retention<br/>TSDB schema v13"]
     end
 
     subgraph LogViz["Visualization"]
@@ -1011,7 +1015,7 @@ graph TD
     Loki -->|"LogQL"| GrafanaL
 ```
 
-### Grafana Dashboard Inventory (27+ Dashboards)
+### Grafana Dashboard Inventory (29 Dashboards)
 
 | Folder | Dashboard | Datasource | Description |
 |--------|-----------|------------|-------------|
@@ -1040,6 +1044,7 @@ graph TD
 | **Storage** | CNPG | Prometheus | PostgreSQL replication lag, query stats |
 | **Security** | Security | Prometheus | Certificate status, auth failures |
 | **Security** | Security Advanced | Prometheus | Deep security posture metrics |
+| **Security** | oauth2-proxy ForwardAuth | Prometheus + Loki | Per-service proxy health, Keycloak per-client login analytics, resource usage |
 | **Autoscaling** | Operations | Prometheus | Scale events, HPA targets |
 | **CI/CD** | Pipelines | Prometheus | CI/CD pipeline metrics |
 
@@ -1179,9 +1184,9 @@ graph TD
 |---|---------|---------|-------|-----------|------|----------|---------|---------------|-------------------|---------|---------|
 | 1 | **Vault** | 1.19.0 | hashicorp/vault 0.32.0 | vault | database | 3 | Raft consensus | 250m / 1 | 256Mi / 512Mi | 10 GiB x 3 | Gateway + HTTPRoute |
 | 2 | **cert-manager** | v1.19.3 | jetstack/cert-manager | cert-manager | general | 1 | Stateless | -- | -- | None | None (internal) |
-| 3 | **Prometheus** | (upstream) | Kustomize | monitoring | general | 1 | No | 500m / 2 | 2 GiB / 4 GiB | 100 GiB | Gateway + HTTPRoute |
+| 3 | **Prometheus** | (upstream) | Kustomize | monitoring | general | 1 | No | 500m / 2 | 2 GiB / 4 GiB | 50 GiB | Gateway + HTTPRoute |
 | 4 | **Grafana** | (upstream) | Kustomize | monitoring | general | 1 | No | 500m / 1 | 512Mi / 1 GiB | 10 GiB | Gateway + HTTPRoute |
-| 5 | **Loki** | (upstream) | Kustomize | monitoring | general | 1 | No | 250m / 1 | 512Mi / 2 GiB | 100 GiB | None (internal) |
+| 5 | **Loki** | (upstream) | Kustomize | monitoring | general | 1 | No | 250m / 1 | 512Mi / 2 GiB | 50 GiB | None (internal) |
 | 6 | **Alloy** | (upstream) | Kustomize | monitoring | all (DS) | DaemonSet | N/A | 100m / 500m | 128Mi / 512Mi | None | None (internal) |
 | 7 | **Alertmanager** | (upstream) | Kustomize | monitoring | general | 1 | No | -- | -- | None | Gateway + HTTPRoute |
 | 8 | **Keycloak** | 26.0.8 | Kustomize | keycloak | general | 2--5 (HPA) | Infinispan/JGroups | 500m / 2 | 512Mi / 1.5 GiB | None (uses PG) | Gateway + HTTPRoute |
@@ -1198,10 +1203,10 @@ graph TD
 |---|---------|------|-----------|-----------|---------|---------|-----------|
 | 1 | **harbor-pg** | CNPG Cluster | database | 3 | PG 16 | 20 GiB x 3 | Harbor |
 | 2 | **kasm-pg** | CNPG Cluster | kasm | 3 | PG 14 | 20 GiB x 3 | Kasm Workspaces |
-| 3 | **keycloak-pg** | StatefulSet | keycloak | 1 | PG 16-alpine | 10 GiB | Keycloak |
-| 4 | **mattermost-pg** | StatefulSet | mattermost | 1 | PG 16-alpine | 20 GiB | Mattermost |
+| 3 | **keycloak-pg** | CNPG Cluster | database | 3 | PG 16 | 10 GiB x 3 | Keycloak |
+| 4 | **mattermost-pg** | CNPG Cluster | database | 3 | PG 16 | 20 GiB x 3 | Mattermost |
 | 5 | **Vault Raft** | Integrated | vault | 3 | N/A | 10 GiB x 3 | Vault (secrets + PKI) |
-| 6 | **Harbor Redis** | Bitnami Sentinel | harbor | 3 server + 3 sentinel | -- | 8 GiB x 3 | Harbor cache + sessions |
+| 6 | **Harbor Valkey** | OpsTree Valkey Sentinel | harbor | 3 server + 3 sentinel | -- | 8 GiB x 3 | Harbor cache + sessions |
 | 7 | **ArgoCD Redis** | HA + HAProxy (Valkey) | argocd | 3 server + 3 HAProxy | Valkey 8-alpine | 8 GiB x 3 | ArgoCD state cache |
 | 8 | **Harbor MinIO** | Deployment | minio | 1 | quay.io/minio/minio | 750 GiB | Harbor blobs + OCI charts |
 | 9 | **Mattermost MinIO** | Deployment | mattermost | 1 | quay.io/minio/minio | 50 GiB | Mattermost file attachments |
@@ -1214,13 +1219,13 @@ graph TD
 | `monitoring` | Prometheus, Grafana, Loki, Alloy, Alertmanager, Node Exporter, KSM | Kustomize (ArgoCD) |
 | `vault` | Vault HA (3 replicas) | Helm (ArgoCD manual-sync) |
 | `cert-manager` | cert-manager controller, webhook, cainjector | Helm (ArgoCD) |
-| `keycloak` | Keycloak, PostgreSQL | Kustomize |
+| `keycloak` | Keycloak | Kustomize |
 | `argocd` | ArgoCD (server, controller, repo-server, appset, Redis HA) | Helm |
 | `argo-rollouts` | Argo Rollouts controller + dashboard | Helm (ArgoCD) |
-| `harbor` | Harbor (core, portal, registry, jobservice, trivy, exporter), Redis | Helm + Kustomize |
+| `harbor` | Harbor (core, portal, registry, jobservice, trivy, exporter), Valkey | Helm + Kustomize |
 | `minio` | MinIO (Harbor S3 backend) | Kustomize |
-| `database` | CNPG harbor-pg | CNPG Operator |
-| `mattermost` | Mattermost, PostgreSQL, MinIO | Kustomize |
+| `database` | CNPG harbor-pg, keycloak-pg, mattermost-pg | CNPG Operator |
+| `mattermost` | Mattermost, MinIO | Kustomize |
 | `kasm` | Kasm Workspaces (proxy, manager, share), CNPG kasm-pg | Helm + Kustomize |
 | `cnpg-system` | CNPG Operator | Helm |
 | `storage-autoscaler` | Storage Autoscaler controller | Kustomize |
@@ -1228,7 +1233,7 @@ graph TD
 
 ### Resource Budget Summary
 
-#### General Pool (2--10 nodes, 4 CPU / 8 GiB each)
+#### General Pool (4--10 nodes, 4 CPU / 8 GiB each)
 
 | Service | Replicas | CPU (req/lim) | Memory (req/lim) |
 |---------|----------|---------------|-------------------|
@@ -1248,23 +1253,23 @@ graph TD
 | Mattermost MinIO | 1 | 250m / 1 | 512Mi / 2 GiB |
 | **Total (approx)** | | **~9 / ~36** | **~13 GiB / ~45 GiB** |
 
-> At minimum scale (2 nodes), total available is 8 CPU / 16 GiB. The general pool will
-> need to autoscale to 5+ nodes under full workload.
+> At minimum scale (4 nodes), total available is 16 CPU / 32 GiB -- which is still less
+> than the ~9 CPU / ~13 GiB requests, so the pool will likely need to autoscale.
 
-#### Database Pool (3--10 nodes, 4 CPU / 16 GiB each)
+#### Database Pool (4--10 nodes, 4 CPU / 16 GiB each)
 
 | Service | Replicas | CPU (req/lim) | Memory (req/lim) |
 |---------|----------|---------------|-------------------|
 | Vault | 3 | 250m / 1 | 256Mi / 512Mi |
 | harbor-pg (CNPG) | 3 | ~750m / ~3 | ~1.5 GiB / ~6 GiB |
 | kasm-pg (CNPG) | 3 | ~750m / ~3 | ~1.5 GiB / ~6 GiB |
-| Keycloak PostgreSQL | 1 | 250m / 1 | 512Mi / 2 GiB |
-| Mattermost PostgreSQL | 1 | 250m / 1 | 512Mi / 2 GiB |
-| Harbor Redis Sentinel | 3+3 | ~750m / ~3 | ~1.5 GiB / ~6 GiB |
+| keycloak-pg (CNPG) | 3 | ~750m / ~3 | ~1.5 GiB / ~6 GiB |
+| mattermost-pg (CNPG) | 3 | ~750m / ~3 | ~1.5 GiB / ~6 GiB |
+| Harbor Valkey Sentinel | 3+3 | ~750m / ~3 | ~1.5 GiB / ~6 GiB |
 | Harbor MinIO | 1 | 250m / 1 | 512Mi / 2 GiB |
-| **Total (approx)** | | **~3.5 / ~14** | **~6.3 GiB / ~25 GiB** |
+| **Total (approx)** | | **~4.5 / ~18** | **~8.3 GiB / ~33 GiB** |
 
-> At minimum scale (3 nodes), total available is 12 CPU / 48 GiB. Comfortable headroom.
+> At minimum scale (4 nodes), total available is 16 CPU / 64 GiB. Comfortable headroom.
 
 ---
 
@@ -1308,7 +1313,7 @@ graph TD
     EFI_D --> Cluster
 ```
 
-## Appendix B: Deployment Phases
+## Appendix B: Deployment Phases (0--11)
 
 ```mermaid
 flowchart TD
@@ -1316,37 +1321,54 @@ flowchart TD
         TF["terraform apply<br/>(cluster/ directory)<br/>Provisions VMs + RKE2"]
     end
 
-    subgraph Phase1["Phase 1: Certificate Foundation"]
-        CM["helm install cert-manager<br/>jetstack/cert-manager v1.19.3<br/>Gateway API enabled"]
+    subgraph Phase1["Phase 1: Foundation"]
+        F1["cert-manager v1.19.3"]
+        F2["CNPG Operator"]
+        F3["OpsTree Redis Operator"]
+        F4["Node Labeler"]
+        F5["Cluster Autoscaler"]
+        F6["MariaDB Operator"]
     end
 
-    subgraph Phase2["Phase 2: Vault PKI"]
-        V1["helm install vault<br/>hashicorp/vault 0.32.0 (HA)"]
-        V2["vault operator init<br/>(Shamir 5 shares, 3 threshold)"]
-        V3["Configure PKI engines<br/>Root CA -> Intermediate CA"]
-        V4["Configure K8s auth<br/>cert-manager-issuer role"]
-        V5["Apply Gateway + HTTPRoute"]
-        V1 --> V2 --> V3 --> V4 --> V5
+    subgraph Phase2["Phase 2: Vault + PKI"]
+        V1["Vault HA (3 replicas)"]
+        V2["Init + Unseal + Raft"]
+        V3["Root CA + Intermediate CA"]
+        V4["K8s Auth + cert-manager"]
+        V1 --> V2 --> V3 --> V4
     end
 
-    subgraph Phase3["Phase 3: Monitoring + RBAC"]
-        Mon["kubectl apply -k<br/>services/monitoring-stack/<br/>(Prometheus, Grafana, Loki,<br/>Alloy, Alertmanager, exporters)"]
+    subgraph Phase3["Phase 3: Monitoring"]
+        Mon["Prometheus, Grafana, Loki,<br/>Alloy, Alertmanager<br/>+ Storage Autoscaler"]
     end
 
-    subgraph Phase4["Phase 4: Application Services"]
-        direction LR
-        KC["Keycloak HA"]
-        Harbor["Harbor + CNPG<br/>+ Redis + MinIO"]
-        MM["Mattermost"]
-        KasmD["Kasm Workspaces"]
+    subgraph Phase4["Phase 4: Harbor"]
+        H1["MinIO + CNPG harbor-pg<br/>+ Valkey Sentinel"]
+        H2["Harbor Helm + Gateway"]
+        H1 --> H2
     end
 
-    subgraph Phase5["Phase 5: GitOps Bootstrap"]
-        A1["helm install argocd"]
-        A2["helm install argo-rollouts"]
-        A3["kubectl apply app-of-apps"]
-        A1 --> A3
-        A2 --> A3
+    subgraph Phase5["Phase 5: ArgoCD"]
+        A1["ArgoCD HA + Argo Rollouts"]
+    end
+
+    subgraph Phase6["Phase 6: Keycloak"]
+        KC["CNPG keycloak-pg<br/>+ Keycloak HA"]
+    end
+
+    subgraph Phase7["Phase 7: Remaining"]
+        MM["Mattermost + CNPG"]
+        KW["Kasm Workspaces + CNPG"]
+        UK["Uptime Kuma (optional)"]
+        LN["LibreNMS (optional)"]
+    end
+
+    subgraph Phase8_11["Phases 8-11: Finalization"]
+        DNS["Phase 8: DNS Records"]
+        Val["Phase 9: Validation + RBAC"]
+        OIDC["Phase 10: Keycloak OIDC<br/>+ oauth2-proxy ForwardAuth"]
+        GL["Phase 11: GitLab"]
+        DNS --> Val --> OIDC --> GL
     end
 
     Phase0 --> Phase1
@@ -1354,6 +1376,9 @@ flowchart TD
     Phase2 --> Phase3
     Phase3 --> Phase4
     Phase4 --> Phase5
+    Phase5 --> Phase6
+    Phase6 --> Phase7
+    Phase7 --> Phase8_11
 ```
 
 ## Appendix C: Backup and Recovery Summary

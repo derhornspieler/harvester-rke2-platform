@@ -34,7 +34,6 @@ spec:
             - --redirect-url=https://hubble.example.com/oauth2/callback
             - --upstream=static://202
             - --skip-provider-button=true
-            - --prompt=login
             - --cookie-secure=true
             - --cookie-samesite=lax
             - --cookie-name=_oauth2_proxy_hubble
@@ -43,6 +42,11 @@ spec:
             - --provider-ca-file=/etc/ssl/certs/vault-root-ca.pem
             - --skip-jwt-bearer-tokens=true
             - --code-challenge-method=S256
+            - --reverse-proxy=true
+            - --session-store-type=redis
+            - --redis-use-sentinel=true
+            - --redis-sentinel-master-name=mymaster
+            - --redis-sentinel-connection-urls=redis://oauth2-proxy-redis-sentinel.monitoring.svc.cluster.local:26379
           env:
             - name: OAUTH2_PROXY_CLIENT_SECRET
               valueFrom:
@@ -54,6 +58,11 @@ spec:
                 secretKeyRef:
                   name: oauth2-proxy-hubble
                   key: cookie-secret
+            - name: OAUTH2_PROXY_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy-redis-credentials
+                  key: password
           ports:
             - containerPort: 4180
               name: http

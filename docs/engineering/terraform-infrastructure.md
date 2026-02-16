@@ -234,7 +234,7 @@ graph TD
 | `general_cpu` | `string` | `"4"` | No | vCPUs per general worker node. |
 | `general_memory` | `string` | `"8"` | No | Memory in GiB per general worker node. |
 | `general_disk_size` | `number` | `60` | No | Disk size in GiB per general worker node. |
-| `general_min_count` | `number` | `2` | No | Minimum node count (autoscaler floor). Also used as initial `quantity`. |
+| `general_min_count` | `number` | `4` | No | Minimum node count (autoscaler floor). Also used as initial `quantity`. |
 | `general_max_count` | `number` | `10` | No | Maximum node count (autoscaler ceiling). |
 
 ### Compute Worker Pool
@@ -254,7 +254,7 @@ graph TD
 | `database_cpu` | `string` | `"4"` | No | vCPUs per database worker node. |
 | `database_memory` | `string` | `"16"` | No | Memory in GiB per database worker node. |
 | `database_disk_size` | `number` | `80` | No | Disk size in GiB per database worker node. |
-| `database_min_count` | `number` | `3` | No | Minimum node count (autoscaler floor). |
+| `database_min_count` | `number` | `4` | No | Minimum node count (autoscaler floor). |
 | `database_max_count` | `number` | `10` | No | Maximum node count (autoscaler ceiling). |
 
 ### Cloud Provider
@@ -534,13 +534,13 @@ graph LR
         CP["CP + etcd<br/>3 nodes<br/>no workloads"]
     end
     subgraph "Pool 2: general"
-        GEN["Workers<br/>2-10 nodes<br/>autoscaled"]
+        GEN["Workers<br/>4-10 nodes<br/>autoscaled"]
     end
     subgraph "Pool 3: compute"
         COM["Workers<br/>0-10 nodes<br/>scale-from-zero"]
     end
     subgraph "Pool 4: database"
-        DB["Workers<br/>3-10 nodes<br/>autoscaled"]
+        DB["Workers<br/>4-10 nodes<br/>autoscaled"]
     end
 ```
 
@@ -558,9 +558,9 @@ graph LR
 | Pool | Roles | Initial Quantity | Labels | Autoscaler Annotations |
 |------|-------|-----------------|--------|----------------------|
 | `controlplane` | CP + etcd | `var.controlplane_count` (3) | -- | -- |
-| `general` | worker | `var.general_min_count` (2) | `workload-type=general` | min=2, max=10 |
+| `general` | worker | `var.general_min_count` (4) | `workload-type=general` | min=4, max=10 |
 | `compute` | worker | `var.compute_min_count` (0) | `workload-type=compute` | min=0, max=10, **resource annotations for scale-from-zero** |
-| `database` | worker | `var.database_min_count` (3) | `workload-type=database` | min=3, max=10 |
+| `database` | worker | `var.database_min_count` (4) | `workload-type=database` | min=4, max=10 |
 
 The compute pool has additional resource annotations that tell the autoscaler what capacity a new node would provide when scaling from zero:
 
@@ -1336,12 +1336,12 @@ lifecycle {
 ```
 
 Without `ignore_changes`:
-1. Autoscaler scales general pool from 2 to 6 nodes.
-2. `terraform plan` detects drift: `quantity: 6 -> 2`.
-3. `terraform apply` resets quantity to 2, destroying 4 nodes.
+1. Autoscaler scales general pool from 4 to 8 nodes.
+2. `terraform plan` detects drift: `quantity: 8 -> 4`.
+3. `terraform apply` resets quantity to 4, destroying 4 nodes.
 
 With `ignore_changes`:
-1. Autoscaler scales general pool from 2 to 6 nodes.
+1. Autoscaler scales general pool from 4 to 8 nodes.
 2. `terraform plan` shows no changes for quantity.
 3. Terraform still manages annotations, machine config, and all other attributes.
 
@@ -1371,9 +1371,9 @@ graph TD
 | Pool | Min | Max | Scale-from-zero | Initial Quantity |
 |------|-----|-----|-----------------|------------------|
 | `controlplane` | -- (fixed) | -- (fixed) | No | `controlplane_count` (3) |
-| `general` | 2 | 10 | No | `general_min_count` (2) |
+| `general` | 4 | 10 | No | `general_min_count` (4) |
 | `compute` | 0 | 10 | **Yes** | `compute_min_count` (0) |
-| `database` | 3 | 10 | No | `database_min_count` (3) |
+| `database` | 4 | 10 | No | `database_min_count` (4) |
 
 The control plane pool is **not autoscaled** -- its quantity is directly managed by Terraform (no `ignore_changes`, no autoscaler annotations).
 

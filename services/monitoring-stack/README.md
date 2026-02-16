@@ -20,9 +20,9 @@ All container images use the `dhi.io/` Docker Hardened Images registry prefix.
 
 | Component | Image | Kind | Replicas | CPU (req/lim) | Memory (req/lim) | Storage | Service Port(s) |
 |---|---|---|---|---|---|---|---|
-| Prometheus | `dhi.io/prometheus:v2.53.0` | StatefulSet | 1 | 500m / 2 | 2Gi / 4Gi | 100Gi PVC | 9090 |
+| Prometheus | `dhi.io/prometheus:v2.53.0` | StatefulSet | 1 | 500m / 2 | 2Gi / 4Gi | 50Gi PVC | 9090 |
 | Grafana | `dhi.io/grafana:11.1.0` | Deployment | 1 | 500m / 1 | 512Mi / 1Gi | 10Gi PVC | 3000 |
-| Loki | `dhi.io/loki:3.1.0` | StatefulSet | 1 | 250m / 1 | 512Mi / 2Gi | 100Gi PVC | 3100, 9096 (gRPC) |
+| Loki | `dhi.io/loki:3.1.0` | StatefulSet | 1 | 250m / 1 | 512Mi / 2Gi | 50Gi PVC | 3100, 9096 (gRPC) |
 | Alloy | `dhi.io/alloy:v1.3.0` | DaemonSet | all nodes | 100m / 500m | 128Mi / 512Mi | emptyDir | 12345 (headless) |
 | Node Exporter | `dhi.io/node-exporter:v1.8.2` | DaemonSet | all nodes | 50m / 250m | 64Mi / 256Mi | none | 9100 (headless) |
 | kube-state-metrics | `dhi.io/kube-state-metrics:v2.13.0` | Deployment | 1 | 100m / 500m | 256Mi / 512Mi | none | 8080, 8081 |
@@ -135,8 +135,8 @@ grafana.monitoring.svc:3000
                     grafana-admin-secret (admin password)
         |
         v
-4. PVCs             prometheus data-prometheus-0 (100Gi)
-                    loki data-loki-0 (100Gi)
+4. PVCs             prometheus data-prometheus-0 (50Gi)
+                    loki data-loki-0 (50Gi)
                     grafana-data (10Gi)
         |
         v
@@ -499,7 +499,7 @@ The stack creates **55 Kubernetes resources** across **46 YAML files**:
 
 ## Dashboards
 
-7 dashboards are provisioned as ConfigMaps across 3 Grafana folders. Additional dashboards are added by other services for a total of 27+:
+7 dashboards are provisioned as ConfigMaps across 3 Grafana folders. Additional dashboards are added by other services for a total of 28:
 
 | Folder | Dashboard | ConfigMap | Grafana.com ID | Datasource |
 |---|---|---|---|---|
@@ -511,7 +511,7 @@ The stack creates **55 Kubernetes resources** across **46 YAML files**:
 | **Loki** | Loki Logs | `grafana-dashboard-loki` | 15324 | Loki |
 | **Loki** | Loki Stack Monitoring | `grafana-dashboard-loki-stack` | 14055 | Prometheus + Loki |
 
-> See [docs/data-flow.md](../../docs/data-flow.md#grafana-dashboards) for the full 27+ dashboard inventory across all service folders.
+> See [docs/data-flow.md](../../docs/data-flow.md#grafana-dashboards) for the full 28 dashboard inventory across all service folders.
 
 ---
 
@@ -676,7 +676,7 @@ rke2-monitoring-stack/
 +-- vault/
 |   +-- vault-values.yaml              (Helm values, standalone Raft)
 |   +-- certificate.yaml               (TLS cert for Vault UI)
-|   +-- ingressroute.yaml              (IngressRoute, websecure + TLS, no basic-auth)
+|   +-- ingressroute.yaml              (IngressRoute, websecure + TLS, Vault native auth)
 |
 +-- cert-manager/
 |   +-- rbac.yaml                      (SA + Role + RoleBinding for vault-issuer)

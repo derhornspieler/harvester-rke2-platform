@@ -4,102 +4,131 @@ Design document for deploying the RKE2 cluster stack without internet access.
 
 ## Overview
 
-When `AIRGAPPED=true` is set in `scripts/.env`, the deployment scripts validate that all required resources (images, charts, credentials) are available locally or via internal registries before proceeding. No external network calls are made during deployment.
+When `AIRGAPPED=true` is set in `scripts/.env`, the deployment scripts route all container image pulls through an internal upstream proxy registry instead of public registries. Harbor proxy cache projects point to this upstream proxy, and Rancher cluster registries are configured to pull through Harbor with private CA trust.
 
 ## `.env` Configuration
 
 ```bash
-AIRGAPPED="false"   # Set to "true" for airgapped deployment
+# Airgapped mode — when true, Harbor proxy-cache uses UPSTREAM_PROXY_REGISTRY
+AIRGAPPED="false"                    # Set to "true" for airgapped deployment
+UPSTREAM_PROXY_REGISTRY=""           # Required when AIRGAPPED=true (e.g., "registry.internal.corp:5000")
 ```
+
+When `AIRGAPPED=true`, the deploy script (Phase 4: Harbor) routes all proxy cache registries through the upstream proxy instead of public endpoints:
+
+| Harbor Project | Online Endpoint | Airgapped Endpoint |
+|----------------|-----------------|---------------------|
+| `dockerhub` | `https://registry-1.docker.io` | `https://<UPSTREAM_PROXY>/dockerhub` |
+| `quay` | `https://quay.io` | `https://<UPSTREAM_PROXY>/quay` |
+| `ghcr` | `https://ghcr.io` | `https://<UPSTREAM_PROXY>/ghcr` |
+| `gcr` | `https://gcr.io` | `https://<UPSTREAM_PROXY>/gcr` |
+| `k8s` | `https://registry.k8s.io` | `https://<UPSTREAM_PROXY>/k8s` |
+| `elastic` | `https://docker.elastic.co` | `https://<UPSTREAM_PROXY>/elastic` |
 
 ## Prerequisites for Airgapped Mode
 
 ### 1. All Credentials Pre-populated
 
-Every required variable in `.env` must be set. The deployment scripts will not generate random passwords in airgapped mode (they may fail DNS/network checks during generation).
+Every required variable in `.env` must be set. The deployment scripts auto-generate random passwords for any empty variables, but in airgapped mode DNS/network checks during generation may fail.
 
 Required variables:
 - `DOMAIN` — internal DNS domain
+- `UPSTREAM_PROXY_REGISTRY` — hostname:port of upstream proxy registry
 - `HARBOR_ADMIN_PASSWORD`
 - `HARBOR_REDIS_PASSWORD`
+- `HARBOR_DB_PASSWORD`
+- `HARBOR_MINIO_SECRET_KEY`
 - `KEYCLOAK_DB_PASSWORD`
-- `KEYCLOAK_ADMIN_CLIENT_SECRET`
+- `KEYCLOAK_BOOTSTRAP_CLIENT_SECRET`
 - `GRAFANA_ADMIN_PASSWORD`
-- `BASIC_AUTH_PASSWORD`
-- All CNPG database passwords
+- `MATTERMOST_DB_PASSWORD`
+- `MATTERMOST_MINIO_ROOT_USER`
+- `MATTERMOST_MINIO_ROOT_PASSWORD`
+- `KASM_PG_SUPERUSER_PASSWORD`
+- `KASM_PG_APP_PASSWORD`
+- `LIBRENMS_DB_PASSWORD` (if `DEPLOY_LIBRENMS=true`)
+- `LIBRENMS_VALKEY_PASSWORD` (if `DEPLOY_LIBRENMS=true`)
 
 ### 2. Internal DNS Resolution
 
 All service FQDNs must resolve to the Traefik LB IP within the network:
-- `vault.DOMAIN`, `harbor.DOMAIN`, `keycloak.DOMAIN`, etc.
+- `vault.DOMAIN`, `harbor.DOMAIN`, `keycloak.DOMAIN`, `grafana.DOMAIN`, `prometheus.DOMAIN`, `alertmanager.DOMAIN`, `hubble.DOMAIN`, `traefik.DOMAIN`, `argo.DOMAIN`, `rollouts.DOMAIN`, `mattermost.DOMAIN`, `kasm.DOMAIN`, `gitlab.DOMAIN`
+- Optional: `status.DOMAIN` (Uptime Kuma), `librenms.DOMAIN`
 
-### 3. Harbor Pre-deployed or Local Registry Mirror
+### 3. Upstream Proxy Registry or Harbor Pre-deployed
 
 One of:
-- Harbor already deployed with proxy cache projects populated from a previous online deployment
-- Local container registry mirror with all required images pre-loaded
+- **Upstream proxy registry** with pre-cached images from all 6 upstream registries (Docker Hub, Quay, GHCR, GCR, k8s.io, Elastic)
+- **Harbor already deployed** with proxy cache projects populated from a previous online deployment
+- **Local container registry mirror** with all required images pre-loaded
 
 ### 4. Helm Charts Available
 
 Either:
-- OCI charts accessible via internal Harbor
+- OCI charts accessible via internal Harbor (`oci://harbor.DOMAIN/charts/`)
+- Helm repos reachable via upstream proxy or internal mirror
 - Tarballs in a `charts/` directory (future implementation)
+
+Required Helm charts:
+| Chart | Version | Source |
+|-------|---------|--------|
+| `jetstack/cert-manager` | v1.19.3 | `https://charts.jetstack.io` |
+| `cnpg/cloudnative-pg` | 0.27.1 | `https://cloudnative-pg.github.io/charts` |
+| `hashicorp/vault` | 0.32.0 | `https://helm.releases.hashicorp.com` |
+| `autoscaler/cluster-autoscaler` | latest | `https://kubernetes.github.io/autoscaler` |
+| `ot-helm/redis-operator` | latest | `https://ot-container-kit.github.io/helm-charts/` |
+| `goharbor/harbor` | 1.18.2 | `https://helm.goharbor.io` |
+| `argo-cd` (OCI) | latest | `oci://ghcr.io/argoproj/argo-helm/argo-cd` |
+| `argo-rollouts` (OCI) | latest | `oci://ghcr.io/argoproj/argo-helm/argo-rollouts` |
+| `kasmtech/kasm` | 1.1181.0 | `https://helm.kasmweb.com/` |
+| `mariadb-operator` | latest | `https://mariadb-operator.github.io/mariadb-operator` (if LibreNMS enabled) |
 
 ### 5. Private CA Certificate
 
-- Root CA PEM file at `cluster/aegis-root-ca.pem`
+- Root CA PEM file at `cluster/root-ca.pem` (generated by deploy-cluster.sh Phase 2, or pre-existing from a previous deployment)
+- Root CA key at `cluster/root-ca-key.pem` (needed to sign Intermediate CA)
 - Trusted by all internal services
 
 ### 6. Vault Init File (Rebuild Scenarios)
 
 - `cluster/vault-init.json` must exist if rebuilding from backup
-- Stored as K8s secret on Harvester
+- Stored as K8s secret on Harvester (synced by `terraform.sh push-secrets`)
 
-## Validation Function
+## Current Implementation
+
+The following airgapped features are **already implemented** in the codebase:
+
+### `.env` Variables (lib.sh)
 
 ```bash
-# In lib.sh:
-validate_airgapped_prereqs() {
-    [[ "${AIRGAPPED:-false}" != "true" ]] && return 0
-
-    local errors=0
-
-    # Check required .env values
-    for var in DOMAIN HARBOR_ADMIN_PASSWORD HARBOR_REDIS_PASSWORD \
-               KEYCLOAK_DB_PASSWORD GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD; do
-        if [[ -z "${!var}" ]]; then
-            log_error "AIRGAPPED: ${var} not set in .env"
-            errors=$((errors + 1))
-        fi
-    done
-
-    # Test internal DNS
-    if ! host "${DOMAIN}" &>/dev/null; then
-        log_warn "AIRGAPPED: ${DOMAIN} does not resolve (may be expected pre-deploy)"
-    fi
-
-    # Test Private CA trust
-    if [[ -f "${CLUSTER_DIR}/aegis-root-ca.pem" ]]; then
-        log_ok "AIRGAPPED: Root CA certificate found"
-    else
-        log_error "AIRGAPPED: Root CA certificate not found at cluster/aegis-root-ca.pem"
-        errors=$((errors + 1))
-    fi
-
-    # Test Harbor reachability (if DNS resolves)
-    if host "harbor.${DOMAIN}" &>/dev/null 2>&1; then
-        if curl --cacert "${CLUSTER_DIR}/aegis-root-ca.pem" -sf \
-            "https://harbor.${DOMAIN}/api/v2.0/health" &>/dev/null; then
-            log_ok "AIRGAPPED: Harbor registry reachable"
-        else
-            log_warn "AIRGAPPED: Harbor not reachable yet (may be deployed later)"
-        fi
-    fi
-
-    [[ $errors -gt 0 ]] && die "AIRGAPPED: ${errors} prerequisite(s) failed"
-    log_ok "AIRGAPPED: All prerequisites validated"
-}
+# In lib.sh generate_or_load_env():
+: "${AIRGAPPED:=false}"
+: "${UPSTREAM_PROXY_REGISTRY:=}"
+export AIRGAPPED UPSTREAM_PROXY_REGISTRY
 ```
+
+### Harbor Proxy Cache Routing (deploy-cluster.sh Phase 4)
+
+```bash
+# In configure_harbor_projects():
+if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    if [[ -z "${UPSTREAM_PROXY_REGISTRY:-}" ]]; then
+        die "AIRGAPPED=true but UPSTREAM_PROXY_REGISTRY is not set in .env"
+    fi
+    log_info "Airgapped mode: using upstream proxy ${UPSTREAM_PROXY_REGISTRY}"
+    registry_urls="https://${UPSTREAM_PROXY_REGISTRY}/dockerhub https://${UPSTREAM_PROXY_REGISTRY}/quay ..."
+else
+    registry_urls="https://registry-1.docker.io https://quay.io ..."
+fi
+```
+
+### Rancher Cluster Registries (lib.sh)
+
+After Harbor is deployed, `configure_rancher_registries()` patches the Rancher cluster resource with:
+- Mirror configurations pointing all upstream registries through Harbor
+- Root CA certificate for TLS trust on all nodes
+
+This ensures all node-level image pulls go through Harbor, which in airgapped mode pulls from the upstream proxy.
 
 ## Image Pre-loading Strategy
 
@@ -111,11 +140,11 @@ Deploy normally. Harbor's proxy cache projects (`dockerhub`, `quay`, `ghcr`, `gc
 
 ### Step 2: Export Registry Data
 
-Back up Harbor's MinIO storage and PostgreSQL database.
+Back up Harbor's MinIO storage (750 GiB PVC in `minio` namespace) and CNPG harbor-pg database (in `database` namespace).
 
 ### Step 3: Airgapped Deployment
 
-Restore Harbor from backup. All cached images are available without internet.
+Restore Harbor from backup. All cached images are available without internet. Set `AIRGAPPED=true` and `UPSTREAM_PROXY_REGISTRY` to point to the restored Harbor or an intermediate proxy.
 
 ### Manual Image Loading (Alternative)
 
@@ -160,6 +189,9 @@ charts/
   cloudnative-pg-0.27.1.tgz
   vault-0.32.0.tgz
   harbor-1.18.2.tgz
+  redis-operator-latest.tgz
+  cluster-autoscaler-latest.tgz
+  kasm-1.1181.0.tgz
   ...
 ```
 
@@ -167,16 +199,39 @@ The deploy script would detect `AIRGAPPED=true` and use `helm install -f values.
 
 ## Deploy Script Integration
 
-The `validate_airgapped_prereqs()` function is called:
+### Phase-by-Phase Airgapped Considerations
+
+| Phase | Service | Airgapped Impact |
+|-------|---------|-----------------|
+| 0 | Terraform | Rocky 9 image must be available in Harvester (pre-uploaded or via local URL) |
+| 1 | cert-manager, CNPG, Redis Operator, Node Labeler, Cluster Autoscaler | Helm charts + images must be reachable |
+| 2 | Vault + PKI | Helm chart + Vault image; Root CA generated locally (no network needed) |
+| 3 | Monitoring Stack | All images via Kustomize manifests; Storage Autoscaler image from GHCR |
+| 4 | Harbor | **Critical**: proxy cache projects point to `UPSTREAM_PROXY_REGISTRY` in airgapped mode |
+| 5 | ArgoCD + Argo Rollouts | OCI Helm charts from GHCR (need mirror or pre-push to Harbor) |
+| 6 | Keycloak | CNPG keycloak-pg + Keycloak images |
+| 7 | Mattermost, Kasm, Uptime Kuma, LibreNMS | All images + Helm charts must be reachable |
+| 8 | DNS Records | Internal DNS only — no external dependency |
+| 9 | Validation + RBAC | No images needed |
+| 10 | Keycloak OIDC + oauth2-proxy | oauth2-proxy images (from Quay); requires all services accessible internally |
+| 11 | GitLab | GitLab Helm chart + images |
+
+### Validation Points
+
+The airgapped validation should be called:
 1. In `check_prerequisites()` (lib.sh) — runs before any phase
-2. Before Phase 4 (Harbor) — verifies registry backend is ready
-3. Before Phase 10 (Keycloak OIDC) — verifies all services accessible
+2. Before Phase 4 (Harbor) — verifies registry backend and upstream proxy are ready
+3. Before Phase 10 (Keycloak OIDC) — verifies all services accessible internally
 
 ## Implementation Status
 
-- [ ] Add `AIRGAPPED` flag to `.env`
+- [x] Add `AIRGAPPED` and `UPSTREAM_PROXY_REGISTRY` flags to `.env`
+- [x] Export airgapped variables in `generate_or_load_env()` (lib.sh)
+- [x] Route Harbor proxy cache through upstream proxy when `AIRGAPPED=true` (deploy-cluster.sh Phase 4)
+- [x] Configure Rancher cluster registries with Harbor mirrors + Root CA trust (lib.sh)
 - [ ] Implement `validate_airgapped_prereqs()` in `lib.sh`
-- [ ] Add airgapped Helm install path in `helm_install_if_needed()`
+- [ ] Add airgapped Helm install path in `helm_install_if_needed()` (OCI from Harbor or local tarballs)
 - [ ] Document required image list per service
 - [ ] Add chart tarball download script for offline preparation
+- [ ] Pre-push OCI charts (ArgoCD, Argo Rollouts) to Harbor in online mode
 - [ ] Test full airgapped deployment cycle

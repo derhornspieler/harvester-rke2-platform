@@ -41,7 +41,15 @@
 18. [Register Workspace Images](#18-register-workspace-images)
 19. [End-to-End Validation](#19-end-to-end-validation)
 20. [Troubleshooting](#20-troubleshooting)
-21. [References](#21-references)
+
+**Part V -- Golden Images & Image Lifecycle**
+21. [Custom Docker Workspace Images](#21-custom-docker-workspace-images)
+22. [Linux VM Golden Images](#22-linux-vm-golden-images)
+23. [Windows VM Golden Images](#23-windows-vm-golden-images)
+24. [Image Lifecycle Automation](#24-image-lifecycle-automation)
+
+**Appendix**
+25. [References](#25-references)
 
 ---
 
@@ -1138,7 +1146,640 @@ kubectl apply -f services/harbor/traefik-timeout-helmchartconfig.yaml
 
 ---
 
-## 21. References
+---
+
+# Part V -- Golden Images & Image Lifecycle
+
+## 21. Custom Docker Workspace Images
+
+KASM's Container Desktop Infrastructure (CDI) model uses Docker images for
+workspace sessions. Building custom images lets you pre-install tools,
+certificates, and configurations for your organization.
+
+### 21.1 Image Hierarchy
+
+KASM provides a layered base image hierarchy. Always extend these -- never
+build from scratch, as KasmVNC, audio, clipboard, and file transfer depend
+on the KASM runtime layer.
+
+```
+kasmweb/core-ubuntu-jammy:1.18.0           ← Minimal: KasmVNC + Xfce skeleton
+  └── kasmweb/ubuntu-jammy-desktop:1.18.0  ← Full XFCE desktop + utilities
+        └── kasmweb/chrome:1.18.0          ← Desktop + Chrome browser
+        └── kasmweb/vs-code:1.18.0         ← Desktop + VS Code
+        └── kasmweb/terminal:1.18.0        ← Terminal only (no desktop)
+
+kasmweb/core-ubuntu-noble:1.18.0           ← Ubuntu 24.04 core
+kasmweb/core-nvidia-focal:1.18.0           ← NVIDIA runtime (CUDA)
+kasmweb/core-rocky-9:1.18.0               ← Rocky Linux 9 core
+```
+
+### 21.2 Dockerfile Pattern
+
+```dockerfile
+# Custom workspace: Aegis Developer Desktop
+FROM kasmweb/ubuntu-jammy-desktop:1.18.0
+
+USER root
+
+# Install organization CA certificate (from Vault PKI)
+COPY aegis-root-ca.pem /usr/local/share/ca-certificates/aegis-root-ca.crt
+RUN update-ca-certificates
+
+# Install tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    jq \
+    kubectl \
+    helm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pre-configure git
+COPY --chown=1000:1000 gitconfig /home/kasm-default-profile/.gitconfig
+
+# Custom desktop background / branding
+COPY wallpaper.png /usr/share/backgrounds/aegis-wallpaper.png
+
+# IMPORTANT: Switch back to kasm-user (UID 1000)
+# All KASM workspaces run as UID/GID 1000 -- this is hardcoded
+USER 1000
+```
+
+Key rules:
+- **Always end with `USER 1000`** -- KASM enforces UID 1000 (`kasm-user`).
+- **Use `/home/kasm-default-profile/`** for default user files -- KASM copies
+  these to the session user's home at container start.
+- **Do NOT install systemd services** unless using Sysbox runtime.
+- **Keep images small** -- large images increase agent disk usage and pull time.
+  Use multi-stage builds for compilation steps.
+
+### 21.3 Building & Pushing to Harbor
+
+```bash
+# Build
+docker build -t harbor.<DOMAIN>/kasm/aegis-developer:1.18.0 \
+  -f Dockerfile.aegis-developer .
+
+# Push to Harbor (private registry)
+docker push harbor.<DOMAIN>/kasm/aegis-developer:1.18.0
+```
+
+In KASM Admin > Workspaces > Add Workspace:
+- Docker Image: `harbor.<DOMAIN>/kasm/aegis-developer:1.18.0`
+- Docker Registry: leave blank if Harbor is configured as a mirror on agents,
+  or set to `harbor.<DOMAIN>` with robot account credentials.
+
+### 21.4 Registry Authentication on Agent VMs
+
+For agents to pull from Harbor, configure Docker daemon on each agent:
+
+**Option A: Docker daemon mirror** (agent-level, all pulls go through Harbor):
+```json
+{
+  "registry-mirrors": ["https://harbor.<DOMAIN>"],
+  "insecure-registries": []
+}
+```
+Add to `/etc/docker/daemon.json` on agent VMs (via cloud-init startup script).
+
+**Option B: Per-workspace registry** (KASM-managed):
+In KASM Admin > Workspaces > workspace > Docker Registry field:
+- Registry: `harbor.<DOMAIN>`
+- Username: robot account name
+- Password: robot account secret
+
+### 21.5 Rolling Tags & Auto-Updates
+
+KASM publishes rolling tags for security updates:
+- `kasmweb/chrome:1.18.0` -- pinned, never changes
+- `kasmweb/chrome:1.18.0-rolling-weekly` -- updated weekly with OS patches
+- `kasmweb/chrome:1.18.0-rolling-daily` -- updated daily
+
+For custom images, build a CI/CD pipeline:
+
+```yaml
+# .gitlab-ci.yml example (adapt for ArgoCD / GitHub Actions)
+build-workspace:
+  stage: build
+  script:
+    - docker build -t harbor.<DOMAIN>/kasm/aegis-developer:${CI_COMMIT_SHORT_SHA} .
+    - docker push harbor.<DOMAIN>/kasm/aegis-developer:${CI_COMMIT_SHORT_SHA}
+    - docker tag harbor.<DOMAIN>/kasm/aegis-developer:${CI_COMMIT_SHORT_SHA} \
+        harbor.<DOMAIN>/kasm/aegis-developer:latest
+    - docker push harbor.<DOMAIN>/kasm/aegis-developer:latest
+  only:
+    - main
+```
+
+After pushing a new image tag, update the workspace definition in KASM Admin
+(or via the undocumented `update_image` API endpoint).
+
+### 21.6 Testing Custom Images Locally
+
+```bash
+# Test locally before pushing
+docker run --rm -it --shm-size=512m \
+  -p 6901:6901 \
+  -e VNC_PW=password \
+  harbor.<DOMAIN>/kasm/aegis-developer:1.18.0
+
+# Open browser: https://localhost:6901
+# Login: kasm_user / password
+```
+
+---
+
+## 22. Linux VM Golden Images
+
+For Server Pool (KasmVNC) and Docker Agent VMs, pre-baked golden images
+reduce boot time and ensure consistent configuration.
+
+### 22.1 Base Image Selection
+
+| OS | Cloud Image URL | Use Case |
+|----|----------------|----------|
+| Ubuntu 22.04 | `https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img` | Docker Agents, KasmVNC Servers |
+| Ubuntu 24.04 | `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img` | Latest LTS |
+| Rocky 9 | `https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2` | RHEL-compatible |
+
+Upload to **Harvester UI** > **Images** > namespace `kasm-autoscale`.
+
+### 22.2 Golden Image Build Process (Docker Agent)
+
+Build a pre-baked image with Docker + KASM Agent pre-installed to reduce
+first-boot provisioning time from ~10 minutes to ~2 minutes.
+
+**Step 1: Create a build VM in Harvester**
+
+Create a VM from the base cloud image with 4 CPU, 8 GB RAM, 50 GB disk.
+
+**Step 2: SSH in and install prerequisites**
+
+```bash
+# Update and install base packages
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y \
+  qemu-guest-agent \
+  curl \
+  wget \
+  jq \
+  ca-certificates \
+  gnupg \
+  lsb-release
+
+# Enable QEMU Guest Agent (MANDATORY for Harvester)
+sudo systemctl enable --now qemu-guest-agent.service
+
+# Install Docker Engine
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] \
+  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list
+sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+
+# Install organization CA certificate (from Vault PKI)
+sudo cp aegis-root-ca.pem /usr/local/share/ca-certificates/aegis-root-ca.crt
+sudo update-ca-certificates
+
+# Configure Docker to trust Harbor
+sudo mkdir -p /etc/docker/certs.d/harbor.<DOMAIN>
+sudo cp aegis-root-ca.pem /etc/docker/certs.d/harbor.<DOMAIN>/ca.crt
+
+# Pre-pull common workspace images (optional, saves bandwidth)
+sudo docker pull kasmweb/chrome:1.18.0
+sudo docker pull kasmweb/firefox:1.18.0
+sudo docker pull kasmweb/desktop:1.18.0
+sudo docker pull kasmweb/vs-code:1.18.0
+sudo docker pull kasmweb/terminal:1.18.0
+
+# Download KASM agent installer (do NOT run install yet)
+cd /tmp
+wget https://kasm-static-content.s3.amazonaws.com/kasm_release_1.18.1.tar.gz \
+  -O /opt/kasm_release.tar.gz
+cd /opt && tar -xf kasm_release.tar.gz && rm kasm_release.tar.gz
+```
+
+**Step 3: Clean up for templating**
+
+```bash
+# Clear cloud-init state so it re-runs on next boot
+sudo cloud-init clean --logs
+
+# Clear machine-id (regenerated on boot)
+sudo truncate -s 0 /etc/machine-id
+
+# Clear SSH host keys (regenerated on boot)
+sudo rm -f /etc/ssh/ssh_host_*
+
+# Clear bash history
+history -c && sudo rm -f /root/.bash_history /home/*/.bash_history
+
+# Shut down
+sudo shutdown -h now
+```
+
+**Step 4: Create Harvester template**
+
+Harvester UI > Virtual Machines > select the VM > **Generate Template** >
+**With Data** > name: `ubuntu-2204-kasm-agent-golden`.
+
+### 22.3 Optimized Startup Script for Pre-Baked Images
+
+When using a golden image, the cloud-init script is much shorter since
+Docker and the tarball are already present:
+
+```yaml
+#cloud-config
+users:
+  - name: kasm-admin
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - {ssh_key}
+
+runcmd:
+  - systemctl enable --now qemu-guest-agent.service
+  - IP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+  - |
+    if [ -z "$GIVEN_FQDN" ] || [ "$GIVEN_FQDN" == "None" ]; then
+      AGENT_ADDRESS=$IP
+    else
+      AGENT_ADDRESS=$GIVEN_FQDN
+    fi
+  - bash /opt/kasm_release/install.sh -e -S agent -p $AGENT_ADDRESS -m {upstream_auth_address} -i {server_id} -r {provider_name} -M {manager_token}
+  - rm -rf /opt/kasm_release
+
+swap:
+  filename: /var/swap.1
+  size: 8589934592
+```
+
+### 22.4 Linux KasmVNC Server Golden Image
+
+For Server Pool (KasmVNC) workspaces, the VM IS the desktop:
+
+```bash
+# After base packages + QEMU Guest Agent (same as 22.2 Step 2)
+
+# Install XFCE desktop
+sudo apt-get install -y xfce4 xfce4-goodies dbus-x11
+
+# Install KasmVNC
+KASM_VNC_VER="1.3.3"
+wget "https://github.com/kasmtech/KasmVNC/releases/download/v${KASM_VNC_VER}/kasmvncserver_jammy_${KASM_VNC_VER}_amd64.deb"
+sudo dpkg -i kasmvncserver_jammy_${KASM_VNC_VER}_amd64.deb
+sudo apt-get -f install -y
+
+# Install user tools
+sudo apt-get install -y firefox chromium-browser libreoffice
+
+# Download KASM startup script (from kasmtech/workspaces-autoscale-startup-scripts)
+# This handles registration with the KASM manager at boot
+sudo wget -O /opt/kasm-server-startup.sh \
+  "https://raw.githubusercontent.com/kasmtech/workspaces-autoscale-startup-scripts/release/1.18.1/linux_vms/ubuntu.sh"
+sudo chmod +x /opt/kasm-server-startup.sh
+```
+
+Clean up and template as described in 22.2 Steps 3-4.
+
+### 22.5 Hardening Checklist
+
+| Item | Command / Action |
+|------|-----------------|
+| Disable root SSH | `PermitRootLogin no` in `/etc/ssh/sshd_config` |
+| SSH key-only auth | `PasswordAuthentication no` |
+| Auto security updates | `sudo apt-get install -y unattended-upgrades` |
+| Firewall | Allow only 443 (KASM proxy), 22 (SSH admin), 6901 (KasmVNC) |
+| Audit logging | `sudo apt-get install -y auditd` |
+| Fail2ban | `sudo apt-get install -y fail2ban` |
+| Time sync | `sudo timedatectl set-ntp true` |
+
+---
+
+## 23. Windows VM Golden Images
+
+Windows Server Pool (RDP) workspaces require a properly prepared VM template
+with VirtIO drivers, QEMU Guest Agent, and the Kasm Desktop Service.
+
+### 23.1 Prerequisites
+
+Download and upload to Harvester Images:
+
+| Image | Source |
+|-------|--------|
+| Windows Server 2022 ISO | Microsoft Evaluation Center or VLSC |
+| VirtIO Drivers ISO | [Fedora VirtIO-Win](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso) |
+
+### 23.2 Build Process
+
+**Step 1: Create VM in Harvester**
+
+| Setting | Value |
+|---------|-------|
+| CPU | 4 vCPU |
+| Memory | 8 GiB |
+| Boot Disk | 60 GiB, Bus: VirtIO |
+| CD-ROM 1 | Windows Server 2022 ISO (SATA) |
+| CD-ROM 2 | VirtIO Drivers ISO (SATA) |
+| Network | Pod network or vm-network |
+| Machine Type | q35 |
+| Secure Boot | Disabled (for initial install) |
+
+**Step 2: Install Windows**
+
+1. Boot from Windows ISO.
+2. At disk selection: **Load driver** > Browse VirtIO CD > `vioscsi\2k22\amd64`.
+3. Also load: `NetKVM\2k22\amd64` (network) and `viostor\2k22\amd64` (storage).
+4. Select the VirtIO disk and install.
+5. Complete OOBE with local admin account.
+
+**Step 3: Post-Install Driver & Agent Setup**
+
+```powershell
+# Install ALL VirtIO drivers from the mounted ISO
+# Open Device Manager > right-click unknown devices > Update driver > Browse VirtIO ISO
+# Key drivers: VirtIO Serial, VirtIO Balloon, VirtIO RNG, QEMU PVPANIC
+
+# Install QEMU Guest Agent (MANDATORY for Harvester IP detection)
+msiexec /i D:\guest-agent\qemu-ga-x86_64.msi /qn /norestart
+
+# Verify QEMU Guest Agent is running
+Get-Service QEMU-GA
+```
+
+**Step 4: Enable Remote Desktop**
+
+```powershell
+# Enable RDP
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' \
+  -Name "fDenyTSConnections" -Value 0
+
+# Allow RDP through firewall
+Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+# Enable audio service (for session audio streaming)
+Set-Service Audiosrv -StartupType Automatic
+Start-Service Audiosrv
+
+# Enable NLA (Network Level Authentication)
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' \
+  -Name "UserAuthentication" -Value 1
+```
+
+**Step 5: Install Kasm Desktop Service**
+
+The Kasm Desktop Service enables file transfer, screenshots, user creation,
+and RemoteApp cleanup for browser-based RDP sessions.
+
+```powershell
+# Download Kasm Desktop Service installer
+# Get the latest from: https://kasmweb.com/docs/latest/guide/windows/desktop_service.html
+Invoke-WebRequest -Uri "https://kasm-static-content.s3.amazonaws.com/kasm_desktop_service_installer_x86_64_1.0.0.exe" `
+  -OutFile "C:\kasm_desktop_service_installer.exe"
+
+# Install (silent)
+Start-Process -Wait -FilePath "C:\kasm_desktop_service_installer.exe" -ArgumentList "/S"
+```
+
+**Step 6: Install Cloudbase-Init (for auto-provisioning)**
+
+Cloudbase-Init is the Windows equivalent of cloud-init. It runs startup
+scripts injected by Harvester/KubeVirt at VM boot.
+
+```powershell
+# Download Cloudbase-Init
+Invoke-WebRequest -Uri "https://cloudbase.it/downloads/CloudbaseInitSetup_Stable_x64.msi" `
+  -OutFile "C:\CloudbaseInitSetup.msi"
+
+# Install -- IMPORTANT options:
+# - Run as LocalSystem
+# - Do NOT run Sysprep
+# - Do NOT shutdown
+msiexec /i C:\CloudbaseInitSetup.msi /qn /norestart `
+  CLOUDBASEINIT_RUN_SYSPREP=false `
+  CLOUDBASEINIT_SHUTDOWN=false
+```
+
+**Step 7: Hardening**
+
+```powershell
+# Disable unnecessary services
+$services = @('Spooler', 'MapsBroker', 'lfsvc', 'RetailDemo')
+foreach ($svc in $services) {
+  Set-Service $svc -StartupType Disabled -ErrorAction SilentlyContinue
+}
+
+# Set power plan to High Performance
+powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+
+# Disable Windows Update auto-reboot (manage via WSUS/SCCM instead)
+Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' \
+  -Name "NoAutoRebootWithLoggedOnUsers" -Value 1 -Force
+
+# Install Windows updates before templating
+Install-Module PSWindowsUpdate -Force
+Get-WindowsUpdate -Install -AcceptAll -AutoReboot:$false
+```
+
+**Step 8: Clean up and template**
+
+```powershell
+# Clear event logs
+wevtutil el | ForEach-Object { wevtutil cl $_ }
+
+# Clear temp files
+Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+# Shut down
+Stop-Computer -Force
+```
+
+In Harvester: remove CD-ROM drives from the VM, then **Generate Template** >
+**With Data** > name: `win2022-kasm-rdp`.
+
+### 23.3 Cloudbase-Init vs Sysprep
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Cloudbase-Init only** (recommended) | Fast clone, simple, handles startup scripts | Machine SID not unique (OK for non-domain VMs) |
+| **Sysprep + Cloudbase-Init** | Unique SID, AD-ready | Slower boot (OOBE re-runs), fragile |
+| **Sysprep only** | Traditional, well-documented | No cloud-init support, manual config |
+
+**Recommendation**: Use Cloudbase-Init without Sysprep for KASM workloads.
+SID uniqueness only matters for Active Directory domain joins. For standalone
+RDP desktops, Cloudbase-Init alone is sufficient and significantly faster.
+
+### 23.4 Windows Startup Script for KASM
+
+The Harvester VM Provider injects this PowerShell script via Cloudbase-Init
+at boot to register the VM with the KASM Manager:
+
+```powershell
+# This is set in the KASM VM Provider Config "Startup Script" field.
+# Template variables are replaced by KASM at provisioning time.
+
+$ErrorActionPreference = "Stop"
+
+# Wait for network
+while (-not (Test-Connection -ComputerName 1.1.1.1 -Count 1 -Quiet)) {
+    Start-Sleep -Seconds 5
+}
+
+$serverIp = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+    $_.InterfaceAlias -notlike "*Loopback*" -and $_.IPAddress -ne "127.0.0.1"
+}).IPAddress | Select-Object -First 1
+
+# Create local user for KASM RDP sessions (SSO_CREATE_USER mode)
+$password = ConvertTo-SecureString "{manager_token}" -AsPlainText -Force
+New-LocalUser -Name "kasm" -Password $password -FullName "Kasm User" `
+    -PasswordNeverExpires -UserMayNotChangePassword -ErrorAction SilentlyContinue
+Add-LocalGroupMember -Group "Remote Desktop Users" -Member "kasm" -ErrorAction SilentlyContinue
+Add-LocalGroupMember -Group "Administrators" -Member "kasm" -ErrorAction SilentlyContinue
+
+# Checkin with KASM Manager (signal readiness)
+$body = @{
+    server_id = "{server_id}"
+    server_ip = $serverIp
+    provider_name = "{provider_name}"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+    -Uri "https://{upstream_auth_address}/manager_api/rpc/server/checkin" `
+    -Body $body -ContentType "application/json" `
+    -Headers @{ "Authorization" = "Bearer {manager_token}" }
+```
+
+> See [kasmtech/workspaces-autoscale-startup-scripts/windows_vms](https://github.com/kasmtech/workspaces-autoscale-startup-scripts/tree/release/1.18.1/windows_vms)
+> for official startup scripts.
+
+### 23.5 RDP Optimization Settings
+
+Apply via Group Policy (gpedit.msc) or registry before templating:
+
+| Setting | Path | Value |
+|---------|------|-------|
+| Max color depth | `HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` > `ColorDepth` | `4` (32-bit) |
+| Disable wallpaper | `...\Terminal Services` > `fNoRemoteDesktopWallpaper` | `0` (allow KASM to control) |
+| Audio redirection | `...\Terminal Services` > `fDisableCam` | `0` (allow) |
+| Clipboard | `...\Terminal Services` > `fDisableClip` | `0` (KASM controls via DLP) |
+| Printer redirection | `...\Terminal Services` > `fDisableCpm` | `1` (disable, security) |
+| Max sessions per user | `...\Terminal Services` > `fSingleSessionPerUser` | `1` (for VDI) |
+
+---
+
+## 24. Image Lifecycle Automation
+
+### 24.1 Docker Image Pull Behavior on Agents
+
+When a user requests a workspace, the Docker Agent:
+
+1. Checks if the image exists locally.
+2. If missing, pulls from the configured registry (Docker Hub or Harbor).
+3. Starts the container.
+
+First-session pull can take 30-120 seconds for large images. Mitigate with:
+
+- **Pre-pulling in cloud-init** (see Section 22.2): bake common images into the
+  golden image or pull them in the startup script.
+- **Harbor proxy cache**: agents pull from Harbor, which caches upstream images.
+  Subsequent pulls from other agents are served from Harbor's local cache.
+- **Session staging** (Section 6): pre-warmed containers eliminate pull + start time.
+
+### 24.2 Image Pre-Loading on Agents
+
+KASM can force-pull images on all agents when a workspace is created or updated:
+
+1. Admin > Workspaces > workspace > **Docker Registry** section.
+2. Check **Preload Image**.
+3. KASM triggers a `docker pull` on all agents in the assigned pool.
+
+Use sparingly -- pre-loading 10 images across 10 agents = 100 pulls.
+
+### 24.3 Agent Draining & Rotation
+
+When updating agent golden images:
+
+1. **Mark old agents for drain**: Infrastructure > Docker Agents > select agent >
+   **Enable Drain**.
+2. Drained agents accept no new sessions but allow existing sessions to complete.
+3. Once all sessions end, the agent is automatically deprovisioned (if auto-scaled)
+   or can be manually removed.
+4. New agents from the updated golden image are provisioned by autoscale.
+
+For Server Pool VMs:
+1. Infrastructure > Servers > select server > **Remove from Pool**.
+2. Server completes existing sessions, then KASM destroys the VM.
+3. Autoscale provisions replacement VMs from the updated template.
+
+### 24.4 Rolling Update Strategy
+
+To update workspace images across a fleet with zero downtime:
+
+```
+1. Build new image: harbor.<DOMAIN>/kasm/aegis-developer:1.18.0-v2
+2. Push to Harbor
+3. In KASM Admin > Workspaces:
+   a. Duplicate the workspace definition
+   b. Set new image tag on the copy
+   c. Assign to the same groups
+   d. Disable the old workspace (or set "Require Approval")
+4. New sessions use the new image; existing sessions continue on the old image
+5. Once all old sessions end, delete the old workspace definition
+```
+
+Alternative (in-place update):
+- Edit workspace > change Docker Image tag > Save.
+- **Existing sessions are NOT affected** (containers already running).
+- New sessions use the updated tag.
+- If the tag is mutable (`:latest`), agents re-pull on next session start.
+
+### 24.5 Automatic Image Pruning
+
+Agent VMs accumulate old images over time. Configure cleanup:
+
+**Docker daemon auto-prune** (add to agent cloud-init or golden image):
+
+```bash
+# /etc/cron.daily/docker-prune
+#!/bin/bash
+# Remove images not used in the last 72 hours
+docker image prune -a --filter "until=72h" --force
+# Remove dangling volumes
+docker volume prune --force
+```
+
+**KASM-native cleanup**:
+KASM agents automatically remove session containers on destroy. Unused images
+are NOT automatically cleaned -- use the cron job above or Docker's built-in
+`docker system prune` on a schedule.
+
+**Disk usage monitoring**:
+- Alert when agent VM disk exceeds 80%: integrate with Prometheus node_exporter
+  on agent VMs (if installed in golden image).
+- KASM reports per-agent disk usage in Infrastructure > Docker Agents.
+
+### 24.6 Image Version Matrix
+
+Maintain a tracking document or ConfigMap for deployed image versions:
+
+| Workspace | Image | Tag | Harbor Path | Updated |
+|-----------|-------|-----|-------------|---------|
+| Chrome | `kasmweb/chrome` | `1.18.0` | `harbor.<DOMAIN>/dockerhub/kasmweb/chrome:1.18.0` | Initial |
+| Firefox | `kasmweb/firefox` | `1.18.0` | `harbor.<DOMAIN>/dockerhub/kasmweb/firefox:1.18.0` | Initial |
+| Aegis Dev | custom | `1.18.0-v1` | `harbor.<DOMAIN>/kasm/aegis-developer:1.18.0-v1` | Custom |
+
+Update this matrix whenever workspace images change.
+
+---
+
+# Appendix
+
+## 25. References
 
 ### Official Documentation
 - [KASM Keycloak OIDC Setup](https://www.kasmweb.com/docs/develop/guide/oidc/keycloak.html)
@@ -1170,9 +1811,22 @@ kubectl apply -f services/harbor/traefik-timeout-helmchartconfig.yaml
 - [KASM Kubernetes Installation](https://www.kasmweb.com/docs/develop/install/kubernetes.html)
 - [KASM 1.18.0 Release Notes](https://docs.kasm.com/docs/release_notes/1.18.0)
 
+### Golden Images & Lifecycle
+- [KASM Building Custom Images](https://www.kasmweb.com/docs/develop/how_to/building_images.html)
+- [KASM Default Images](https://hub.docker.com/u/kasmweb) (Docker Hub)
+- [KasmVNC Releases](https://github.com/kasmtech/KasmVNC/releases)
+- [KASM Windows Desktop Service](https://kasmweb.com/docs/latest/guide/windows/desktop_service.html)
+- [KASM Kasm Desktop Service Install](https://www.kasmweb.com/docs/latest/guide/windows/desktop_service_install.html)
+- [Cloudbase-Init Documentation](https://cloudbase-init.readthedocs.io/en/latest/)
+- [VirtIO-Win Drivers](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/)
+- [KASM Image Preloading](https://www.kasmweb.com/docs/latest/guide/workspace_registry.html)
+- [KASM Agent Management](https://docs.kasm.com/docs/latest/guide/compute/servers/index.html)
+- [Harvester VM Templates](https://docs.harvesterhci.io/v1.4/vm/create-vm#create-a-vm-template)
+
 ### GitHub
 - [kasmtech/kasm-helm](https://github.com/kasmtech/kasm-helm)
 - [kasmtech/workspaces-autoscale-startup-scripts](https://github.com/kasmtech/workspaces-autoscale-startup-scripts)
+- [kasmtech/workspaces-images](https://github.com/kasmtech/workspaces-images) (Dockerfiles for all official images)
 - [kasmtech/workspaces-issues](https://github.com/kasmtech/workspaces-issues)
 - [SiM22/terraform-provider-kasm](https://github.com/SiM22/terraform-provider-kasm)
 - [kasmweb-decompilation/api](https://github.com/kasmweb-decompilation/api)

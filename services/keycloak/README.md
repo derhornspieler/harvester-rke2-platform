@@ -208,7 +208,7 @@ kubectl --context rke2-prod -n keycloak exec -it deployment/keycloak -- bash
   --server http://localhost:8080 \
   --realm master \
   --user admin \
-  --password 'CHANGEME_KC_ADMIN_PASSWORD'
+  --password '<KC_ADMIN_PASSWORD from credentials.txt>'
 
 # Create example realm
 /opt/keycloak/bin/kcadm.sh create realms \
@@ -229,7 +229,7 @@ kubectl --context rke2-prod -n keycloak exec -it deployment/keycloak -- bash
 /opt/keycloak/bin/kcadm.sh set-password \
   -r example \
   --username admin \
-  --new-password 'CHANGEME_KC_ADMIN_PASSWORD'
+  --new-password '<STRONG_RANDOM_PASSWORD>'
 
 # Assign realm-admin role
 /opt/keycloak/bin/kcadm.sh add-roles \

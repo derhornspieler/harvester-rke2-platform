@@ -282,6 +282,23 @@ variable "autoscaler_scale_down_utilization_threshold" {
 }
 
 # -----------------------------------------------------------------------------
+# Docker Hub Auth (rate-limit workaround until Harbor mirrors are in place)
+# -----------------------------------------------------------------------------
+
+variable "dockerhub_username" {
+  description = "Docker Hub username for authenticated pulls"
+  type        = string
+  default     = ""
+}
+
+variable "dockerhub_token" {
+  description = "Docker Hub personal access token"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+# -----------------------------------------------------------------------------
 # Cloud Provider
 # -----------------------------------------------------------------------------
 

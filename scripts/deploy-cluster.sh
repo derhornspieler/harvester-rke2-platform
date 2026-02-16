@@ -317,6 +317,8 @@ clusterNamespace: fleet-default" \
 
   helm_install_if_needed cluster-autoscaler autoscaler/cluster-autoscaler kube-system \
     --set cloudProvider=rancher \
+    --set replicaCount=3 \
+    --set "extraArgs.leader-elect=true" \
     --set "autoDiscovery.clusterName=${cluster_name}" \
     --set "extraArgs.cloud-config=/config/cloud-config" \
     --set "extraArgs.scale-down-delay-after-add=5m" \
@@ -852,8 +854,10 @@ configure_harbor_projects() {
   fi
 
   local harbor_api="http://harbor-core.harbor.svc.cluster.local/api/v2.0"
-  local admin_pass
-  admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  local admin_pass="${HARBOR_ADMIN_PASSWORD:-}"
+  if [[ -z "$admin_pass" ]]; then
+    admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  fi
   local auth="admin:${admin_pass}"
 
   # Wait for API readiness
@@ -874,7 +878,8 @@ configure_harbor_projects() {
 
   # Proxy cache registries — all use type "docker-registry" in Harbor API
   # Bash 3.2 compatible (no associative arrays)
-  local registry_names="dockerhub quay ghcr gcr k8s elastic"
+  # Project names match the registry domain they proxy (e.g., docker.io, quay.io)
+  local registry_names="docker.io quay.io ghcr.io gcr.io registry.k8s.io docker.elastic.co"
   local registry_urls
 
   if [[ "${AIRGAPPED:-false}" == "true" ]]; then
@@ -882,7 +887,7 @@ configure_harbor_projects() {
       die "AIRGAPPED=true but UPSTREAM_PROXY_REGISTRY is not set in .env"
     fi
     log_info "Airgapped mode: using upstream proxy ${UPSTREAM_PROXY_REGISTRY}"
-    registry_urls="https://${UPSTREAM_PROXY_REGISTRY}/dockerhub https://${UPSTREAM_PROXY_REGISTRY}/quay https://${UPSTREAM_PROXY_REGISTRY}/ghcr https://${UPSTREAM_PROXY_REGISTRY}/gcr https://${UPSTREAM_PROXY_REGISTRY}/k8s https://${UPSTREAM_PROXY_REGISTRY}/elastic"
+    registry_urls="https://${UPSTREAM_PROXY_REGISTRY}/docker.io https://${UPSTREAM_PROXY_REGISTRY}/quay.io https://${UPSTREAM_PROXY_REGISTRY}/ghcr.io https://${UPSTREAM_PROXY_REGISTRY}/gcr.io https://${UPSTREAM_PROXY_REGISTRY}/registry.k8s.io https://${UPSTREAM_PROXY_REGISTRY}/docker.elastic.co"
   else
     registry_urls="https://registry-1.docker.io https://quay.io https://ghcr.io https://gcr.io https://registry.k8s.io https://docker.elastic.co"
   fi
@@ -915,14 +920,20 @@ configure_harbor_projects() {
     fi
   done
 
-  # CICD projects
-  for project in library charts dev; do
-    log_info "Creating CICD project: ${project}"
+  # CICD projects — charts is public (stores Helm charts pulled from internet
+  # for offline use), dev is private
+  for project in library charts; do
+    log_info "Creating public project: ${project}"
     kubectl exec -n harbor "$harbor_core_pod" -- \
       curl -sf -u "$auth" -X POST "${harbor_api}/projects" \
       -H "Content-Type: application/json" \
-      -d "{\"project_name\":\"${project}\",\"public\":false}" 2>/dev/null || true
+      -d "{\"project_name\":\"${project}\",\"public\":true,\"metadata\":{\"public\":\"true\"}}" 2>/dev/null || true
   done
+  log_info "Creating private project: dev"
+  kubectl exec -n harbor "$harbor_core_pod" -- \
+    curl -sf -u "$auth" -X POST "${harbor_api}/projects" \
+    -H "Content-Type: application/json" \
+    -d '{"project_name":"dev","public":false}' 2>/dev/null || true
 
   log_ok "Harbor projects configured"
 }
@@ -1515,6 +1526,16 @@ phase_10_keycloak_setup() {
         --dry-run=client -o yaml | kubectl apply -f -
       log_ok "Secret oauth2-proxy-${name} created in ${ns}"
     done
+
+    # Distribute oauth2-proxy Redis credentials to cross-namespace consumers
+    # (monitoring namespace gets it via kustomize; kube-system and argo-rollouts need copies)
+    log_step "Distributing oauth2-proxy Redis credentials to kube-system and argo-rollouts..."
+    for ns in kube-system argo-rollouts; do
+      kubectl create secret generic oauth2-proxy-redis-credentials \
+        --from-literal=password="${OAUTH2_PROXY_REDIS_PASSWORD}" \
+        -n "$ns" --dry-run=client -o yaml | kubectl apply -f -
+    done
+    log_ok "oauth2-proxy Redis credentials distributed"
 
     # Apply oauth2-proxy deployments + ForwardAuth middlewares
     kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/oauth2-proxy.yaml"

@@ -75,6 +75,10 @@ resources:
   - grafana/service.yaml
   - grafana/gateway.yaml
   - grafana/httproute.yaml
+  # oauth2-proxy Redis session store
+  - oauth2-proxy-redis/secret.yaml
+  - oauth2-proxy-redis/replication.yaml
+  - oauth2-proxy-redis/sentinel.yaml
   # kube-system resources
   - kube-system/oauth2-proxy-hubble.yaml
   - kube-system/middleware-oauth2-proxy-hubble.yaml

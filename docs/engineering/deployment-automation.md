@@ -37,7 +37,7 @@ graph TB
     end
 
     subgraph "Lifecycle Scripts"
-        DEPLOY["deploy-cluster.sh<br/><i>Full Deployment</i><br/>11 phases, zero-touch<br/>Terraform to OIDC"]
+        DEPLOY["deploy-cluster.sh<br/><i>Full Deployment</i><br/>12 phases (0-11), zero-touch<br/>Terraform to GitLab"]
         DESTROY["destroy-cluster.sh<br/><i>Full Teardown</i><br/>4 phases, Harvester cleanup<br/>orphan removal"]
         UPGRADE["upgrade-cluster.sh<br/><i>Version Upgrade</i><br/>tfvars update, rolling upgrade<br/>via Rancher"]
     end
@@ -274,7 +274,7 @@ All variables are defined in `scripts/.env` (generated from `.env.example`). If 
 | `MATTERMOST_DB_PASSWORD` | *(random 32 chars)* | Yes | PostgreSQL password for Mattermost CNPG cluster |
 | `MATTERMOST_MINIO_ROOT_USER` | `mattermost-minio-admin` | No | MinIO root user for Mattermost object storage |
 | `MATTERMOST_MINIO_ROOT_PASSWORD` | *(random 32 chars)* | Yes | MinIO root password for Mattermost |
-| `HARBOR_REDIS_PASSWORD` | *(random 32 chars)* | Yes | Password for Harbor Redis Sentinel cluster |
+| `HARBOR_REDIS_PASSWORD` | *(random 32 chars)* | Yes | Password for Harbor Valkey Sentinel cluster |
 | `GRAFANA_ADMIN_PASSWORD` | *(random 24 chars)* | Yes | Grafana admin password |
 | `BASIC_AUTH_PASSWORD` | *(random 24 chars)* | Yes | **Deprecated**: kept for rollback compatibility. oauth2-proxy secrets are auto-generated at deploy time. |
 | `BASIC_AUTH_HTPASSWD` | *(derived)* | Yes | **Deprecated**: bcrypt htpasswd hash. No longer used — oauth2-proxy handles authentication. |
@@ -351,7 +351,7 @@ The `_subst_changeme` function performs inline substitution of placeholder token
 | Argument | Description |
 |----------|-------------|
 | `--skip-tf` | Skip Terraform (Phase 0). Assumes cluster already exists. |
-| `--from N` | Resume from phase N (0-10). Requires `kubeconfig-rke2.yaml` for N > 0. |
+| `--from N` | Resume from phase N (0-11). Requires `kubeconfig-rke2.yaml` for N > 0. |
 | `-h`, `--help` | Print usage and exit. |
 
 ### 4.2 Master Execution Flow
@@ -405,9 +405,13 @@ flowchart TD
 
     PHASE9 --> P10{"FROM_PHASE <= 10?"}
     P10 -->|Yes| PHASE10["phase_10_keycloak_setup()"]
-    P10 -->|No| DONE["Done"]
+    P10 -->|No| P11
 
-    PHASE10 --> DONE
+    PHASE10 --> P11{"FROM_PHASE <= 11?"}
+    P11 -->|Yes| PHASE11["phase_11_gitlab()"]
+    P11 -->|No| DONE["Done"]
+
+    PHASE11 --> DONE
 
     style START fill:#2d5aa0,color:#fff
     style PHASE0 fill:#4a4a4a,color:#fff
@@ -421,6 +425,7 @@ flowchart TD
     style PHASE8 fill:#7a5a2d,color:#fff
     style PHASE9 fill:#1a7a3a,color:#fff
     style PHASE10 fill:#2d7a9a,color:#fff
+    style PHASE11 fill:#7a2d5a,color:#fff
 ```
 
 ### 4.3 Phase 0: Terraform -- RKE2 Cluster Provisioning
@@ -533,8 +538,8 @@ flowchart TD
     BUCKET --> PG["Deploy CNPG harbor-pg<br/>secret -> cluster -> scheduled backup"]
     PG --> PGW["Wait for harbor-pg primary (600s)"]
 
-    PGW --> VALKEY["Deploy Redis Sentinel<br/>secret -> replication -> sentinel"]
-    VALKEY --> VALKEYW["Wait for Redis replication + sentinel pods"]
+    PGW --> VALKEY["Deploy Valkey Sentinel<br/>secret -> replication -> sentinel"]
+    VALKEY --> VALKEYW["Wait for Valkey replication + sentinel pods"]
 
     VALKEYW --> HARBOR["Helm install Harbor v1.18.2<br/>Values substituted via _subst_changeme"]
     HARBOR --> HW["Wait for harbor-core deployment (600s)"]
@@ -1614,8 +1619,8 @@ The scripts distinguish between blocking failures (which call `die`) and non-blo
 Both `deploy-cluster.sh` and `setup-keycloak.sh` support `--from N` to resume from a specific phase. The logic uses sequential `[[ $FROM_PHASE -le N ]]` checks, meaning:
 
 - `--from 0`: Runs all phases (default)
-- `--from 3`: Skips phases 0, 1, 2; runs phases 3 through 10
-- `--from 10`: Runs only phase 10
+- `--from 3`: Skips phases 0, 1, 2; runs phases 3 through 11
+- `--from 11`: Runs only phase 11
 
 **Prerequisites for resume:**
 - `--from N` (where N > 0) requires `kubeconfig-rke2.yaml` to exist
@@ -1637,6 +1642,7 @@ Both `deploy-cluster.sh` and `setup-keycloak.sh` support `--from N` to resume fr
 | 8 | deploy | Yes | Informational only (prints DNS records). |
 | 9 | deploy | Yes | Read-only validation checks. VolumeAutoscaler CRs applied idempotently. |
 | 10 | deploy | Yes | Delegates to `setup-keycloak.sh` which is fully idempotent. |
+| 11 | deploy | Yes | GitLab deployment. |
 | 1 | keycloak | Yes | Realm creation checks if exists. User creation checks if exists. TOTP config is a PUT (overwrite). |
 | 2 | keycloak | Yes | Client creation checks if exists and updates redirect URIs. Secret retrieval returns existing secret. |
 | 3 | keycloak | Yes | `kubectl set env` is idempotent. ConfigMap patches use `--type merge`. OIDC auth enable tolerates "already enabled". |
@@ -1658,6 +1664,7 @@ The following phases are recommended resume points after a failure:
 | `--from 7` | ArgoCD + Keycloak deployed, remaining services needed |
 | `--from 9` | All services deployed, need validation rerun |
 | `--from 10` | Need to rerun Keycloak OIDC setup |
+| `--from 11` | Need to rerun GitLab deployment |
 
 ---
 
@@ -1811,13 +1818,14 @@ deploy-cluster.sh
   Phase 1:  Traefik config, cert-manager, CNPG, Cluster Autoscaler, Redis Operator, Node Labeler, MariaDB Operator*
   Phase 2:  Vault HA + PKI (Root CA, Intermediate CA, ClusterIssuer)
   Phase 3:  Prometheus, Grafana, Loki, Alloy, Alertmanager, Storage Autoscaler
-  Phase 4:  MinIO, CNPG, Redis Sentinel, Harbor, Proxy Cache, Registry Mirrors
+  Phase 4:  MinIO, CNPG, Valkey Sentinel, Harbor, Proxy Cache, Registry Mirrors
   Phase 5:  ArgoCD HA + Argo Rollouts
   Phase 6:  CNPG, Keycloak HA + Infinispan
   Phase 7:  Mattermost, Kasm, Uptime Kuma, LibreNMS
   Phase 8:  DNS Records (informational)
   Phase 9:  Validation + Credentials File
   Phase 10: Keycloak OIDC Setup (delegates to setup-keycloak.sh)
+  Phase 11: GitLab
 
 destroy-cluster.sh
   Phase 0:  Pre-flight + Confirmation

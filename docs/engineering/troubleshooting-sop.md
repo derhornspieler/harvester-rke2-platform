@@ -353,11 +353,11 @@ kubectl get nodes --show-labels | grep workload-type
 kubectl -n node-labeler get pods
 kubectl -n node-labeler logs deployment/node-labeler --tail=50
 
-# Check if node-labeler image is available in Harbor
+# Check if node-labeler image is available (GHCR or Harbor)
 kubectl -n node-labeler describe pod -l app=node-labeler | grep -A 5 "Image:"
 ```
 
-**Root Cause**: The node-labeler operator is not running (image not pushed to Harbor yet on first deploy), or the `machine_selector_config` in `cluster.tf` has a race condition where the `rke.cattle.io/rke-machine-pool-name` label is not set early enough.
+**Root Cause**: The node-labeler operator is not running (image not yet available from GHCR or Harbor on first deploy), or the `machine_selector_config` in `cluster.tf` has a race condition where the `rke.cattle.io/rke-machine-pool-name` label is not set early enough.
 
 **Resolution**:
 ```bash
@@ -374,7 +374,7 @@ done
 # Or use the lib.sh function:
 # source scripts/lib.sh && label_unlabeled_nodes
 
-# Long-term fix: ensure node-labeler image is in Harbor
+# Long-term fix: ensure node-labeler image is available (GHCR or Harbor)
 # Push operator images: see deploy-cluster.sh Phase 4.10
 ```
 
@@ -1476,7 +1476,7 @@ graph TD
 
     DB_TYPE -->|"CNPG PostgreSQL"| CNPG_CHECK["kubectl get clusters -n database"]
     DB_TYPE -->|"MariaDB Galera"| GALERA_CHECK["kubectl get mariadbs -n librenms"]
-    DB_TYPE -->|"Redis Sentinel"| REDIS_CHECK["kubectl get redissentinels -A"]
+    DB_TYPE -->|"Valkey Sentinel"| REDIS_CHECK["kubectl get redissentinels -A"]
 
     CNPG_CHECK --> CNPG_STATUS{"Cluster status?"}
     CNPG_STATUS -->|"Healthy"| CNPG_CONN["Check application connections"]
@@ -1680,11 +1680,11 @@ kubectl exec -n librenms librenms-mariadb-0 -- mariadb -u root -e "SHOW STATUS L
 
 ---
 
-### 6.5 Redis Sentinel Failover
+### 6.5 Valkey Sentinel Failover
 
 **Severity**: P3
 
-**Symptom**: Harbor or LibreNMS experiences brief Redis connection errors. Sentinel promotes a new master.
+**Symptom**: Harbor or LibreNMS experiences brief Valkey/Redis connection errors. Sentinel promotes a new master.
 
 **Diagnostic Steps**:
 ```bash
@@ -1698,7 +1698,7 @@ kubectl exec -n harbor harbor-redis-sentinel-0 -- redis-cli -p 26379 SENTINEL ge
 kubectl get pods -n harbor -l app=harbor-redis -o wide
 ```
 
-**Root Cause**: Redis master pod crashed or became unreachable. Sentinel automatically promotes a replica.
+**Root Cause**: Valkey master pod crashed or became unreachable. Sentinel automatically promotes a replica.
 
 **Resolution**:
 ```bash
@@ -1715,7 +1715,7 @@ kubectl exec -n harbor harbor-redis-sentinel-0 -- redis-cli -p 26379 SENTINEL ma
 kubectl rollout restart deployment -n harbor harbor-core
 ```
 
-**Prevention**: Redis Sentinel handles failover automatically. Do not set `kubernetesConfig.redisSecret` on the `RedisSentinel` CRD (it adds `requirepass` which breaks Harbor).
+**Prevention**: Valkey Sentinel handles failover automatically. Do not set `kubernetesConfig.redisSecret` on the `RedisSentinel` CRD (it adds `requirepass` which breaks Harbor).
 
 **Escalation**: Not required unless failover loops repeatedly.
 
@@ -2427,7 +2427,7 @@ kubectl exec -n uptime-kuma deployment/uptime-kuma -- curl -sk https://mattermos
 
 ### 7.8 LibreNMS
 
-**Note**: LibreNMS is an optional service (deployed when `DEPLOY_LIBRENMS=true` in `.env`). Also see Section 6.4 (MariaDB Galera Split-Brain) and Section 6.5 (Redis Sentinel Failover) for database-related LibreNMS issues.
+**Note**: LibreNMS is an optional service (deployed when `DEPLOY_LIBRENMS=true` in `.env`). Also see Section 6.4 (MariaDB Galera Split-Brain) and Section 6.5 (Valkey Sentinel Failover) for database-related LibreNMS issues.
 
 #### LibreNMS Not Reachable
 
@@ -2461,14 +2461,14 @@ for pod in $(kubectl get pods -n librenms -l app.kubernetes.io/name=librenms-mar
   kubectl exec -n librenms $pod -- mariadb -u root -e "SHOW STATUS LIKE 'wsrep_cluster_size';" 2>/dev/null || echo "Not reachable"
 done
 
-# 2. Check Redis Sentinel master
+# 2. Check Valkey/Redis Sentinel master
 kubectl exec -n librenms librenms-redis-sentinel-0 -- redis-cli -p 26379 SENTINEL masters 2>/dev/null || echo "Sentinel not ready"
 
 # 3. Restart LibreNMS application
 kubectl rollout restart deployment -n librenms librenms
 ```
 
-**Prevention**: LibreNMS depends on both MariaDB Galera and Redis Sentinel. Ensure both are healthy before investigating application issues.
+**Prevention**: LibreNMS depends on both MariaDB Galera and Valkey/Redis Sentinel. Ensure both are healthy before investigating application issues.
 
 **Escalation**: If MariaDB Galera is in split-brain, see Section 6.4.
 
@@ -2696,7 +2696,7 @@ kubectl get volumeautoscalers -A
 kubectl exec -n storage-autoscaler deployment/storage-autoscaler -- curl -s http://prometheus.monitoring.svc:9090/api/v1/query?query=up
 ```
 
-**Root Cause**: Storage autoscaler operator not running (image not in Harbor), VolumeAutoscaler CR not applied, or Prometheus not reachable.
+**Root Cause**: Storage autoscaler operator not running (image not available from GHCR or Harbor), VolumeAutoscaler CR not applied, or Prometheus not reachable.
 
 **Resolution**:
 ```bash
@@ -2927,7 +2927,7 @@ cd cluster && ./terraform.sh destroy
 curl -sk https://keycloak.<DOMAIN>/realms/master/.well-known/openid-configuration
 
 # Check bootstrap admin credentials
-# Default: admin / CHANGEME_KC_ADMIN_PASSWORD (temporary bootstrap)
+# Password is randomly generated at deploy time -- check cluster/credentials.txt
 
 # Check kcadm.sh authentication
 POD=$(kubectl get pods -n keycloak -l app=keycloak -o name | head -1)

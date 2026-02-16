@@ -746,6 +746,9 @@ generate_or_load_env() {
   # GitLab API token (api scope) — leave empty to be prompted at runtime
   : "${GITLAB_API_TOKEN:=}"
 
+  # oauth2-proxy Redis session store password
+  : "${OAUTH2_PROXY_REDIS_PASSWORD:=$(gen_password 32)}"
+
   # DEPRECATED: basic-auth replaced by oauth2-proxy ForwardAuth
   # Kept for rollback compatibility
   : "${BASIC_AUTH_PASSWORD:=$(gen_password 24)}"
@@ -800,6 +803,7 @@ generate_or_load_env() {
   export GITLAB_ROOT_PASSWORD GITLAB_PRAEFECT_DB_PASSWORD GITLAB_REDIS_PASSWORD
   export GITLAB_GITALY_TOKEN GITLAB_PRAEFECT_TOKEN GITLAB_CHART_PATH
   export GITLAB_API_TOKEN
+  export OAUTH2_PROXY_REDIS_PASSWORD
   export GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD BASIC_AUTH_HTPASSWD
   export DOMAIN DOMAIN_DASHED DOMAIN_DOT TRAEFIK_LB_IP
   export ORG_NAME KC_REALM GIT_REPO_URL
@@ -839,6 +843,9 @@ KC_ADMIN_PASSWORD="${KC_ADMIN_PASSWORD}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}"
 BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD}"
 BASIC_AUTH_HTPASSWD='${BASIC_AUTH_HTPASSWD}'
+
+# oauth2-proxy Redis session store
+OAUTH2_PROXY_REDIS_PASSWORD="${OAUTH2_PROXY_REDIS_PASSWORD}"
 
 # LibreNMS credentials (only used if DEPLOY_LIBRENMS=true)
 LIBRENMS_DB_PASSWORD="${LIBRENMS_DB_PASSWORD}"
@@ -899,6 +906,7 @@ _subst_changeme() {
     -e "s|CHANGEME_KASM_PG_APP_PASSWORD|${KASM_PG_APP_PASSWORD}|g" \
     -e "s|CHANGEME_KC_ADMIN_PASSWORD|${KC_ADMIN_PASSWORD}|g" \
     -e "s|admin:CHANGEME_GENERATE_WITH_HTPASSWD|${BASIC_AUTH_HTPASSWD}|g" \
+    -e "s|CHANGEME_OAUTH2_PROXY_REDIS_PASSWORD|${OAUTH2_PROXY_REDIS_PASSWORD}|g" \
     -e "s|CHANGEME_TRAEFIK_LB_IP|${TRAEFIK_LB_IP}|g" \
     -e "s|CHANGEME_GIT_REPO_URL|${GIT_REPO_URL}|g" \
     -e "s|CHANGEME_TRAEFIK_FQDN|traefik.${DOMAIN}|g" \
@@ -1035,7 +1043,7 @@ distribute_root_ca() {
 
   log_info "Distributing Root CA ConfigMap to service namespaces..."
 
-  local namespaces=(kube-system monitoring argocd harbor mattermost gitlab keycloak)
+  local namespaces=(kube-system monitoring argocd argo-rollouts harbor mattermost gitlab keycloak)
   for ns in "${namespaces[@]}"; do
     ensure_namespace "$ns"
     kubectl create configmap vault-root-ca \
@@ -1111,27 +1119,27 @@ configure_rancher_registries() {
         "mirrors": {
           "docker.io": {
             "endpoint": ["https://${harbor_fqdn}"],
-            "rewrite": { "^(.*)\$": "dockerhub/\$1" }
+            "rewrite": { "^(.*)\$": "docker.io/\$1" }
           },
           "quay.io": {
             "endpoint": ["https://${harbor_fqdn}"],
-            "rewrite": { "^(.*)\$": "quay/\$1" }
+            "rewrite": { "^(.*)\$": "quay.io/\$1" }
           },
           "ghcr.io": {
             "endpoint": ["https://${harbor_fqdn}"],
-            "rewrite": { "^(.*)\$": "ghcr/\$1" }
+            "rewrite": { "^(.*)\$": "ghcr.io/\$1" }
           },
           "gcr.io": {
             "endpoint": ["https://${harbor_fqdn}"],
-            "rewrite": { "^(.*)\$": "gcr/\$1" }
+            "rewrite": { "^(.*)\$": "gcr.io/\$1" }
           },
           "registry.k8s.io": {
             "endpoint": ["https://${harbor_fqdn}"],
-            "rewrite": { "^(.*)\$": "k8s/\$1" }
+            "rewrite": { "^(.*)\$": "registry.k8s.io/\$1" }
           },
           "docker.elastic.co": {
             "endpoint": ["https://${harbor_fqdn}"],
-            "rewrite": { "^(.*)\$": "elastic/\$1" }
+            "rewrite": { "^(.*)\$": "docker.elastic.co/\$1" }
           },
           "${harbor_fqdn}": {
             "endpoint": ["https://${harbor_fqdn}"]
@@ -1186,12 +1194,12 @@ _configure_registries_curl() {
         ($hf): { "caBundle": $ca }
       },
       "mirrors": {
-        "docker.io":        { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "dockerhub/$1" } },
-        "quay.io":          { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "quay/$1" } },
-        "ghcr.io":          { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "ghcr/$1" } },
-        "gcr.io":           { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "gcr/$1" } },
-        "registry.k8s.io":  { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "k8s/$1" } },
-        "docker.elastic.co":{ "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "elastic/$1" } },
+        "docker.io":        { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "docker.io/$1" } },
+        "quay.io":          { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "quay.io/$1" } },
+        "ghcr.io":          { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "ghcr.io/$1" } },
+        "gcr.io":           { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "gcr.io/$1" } },
+        "registry.k8s.io":  { "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "registry.k8s.io/$1" } },
+        "docker.elastic.co":{ "endpoint": ["https://\($hf)"], "rewrite": { "^(.*)$": "docker.elastic.co/$1" } },
         ($hf):              { "endpoint": ["https://\($hf)"] }
       }
     }')
@@ -1241,11 +1249,13 @@ push_operator_images() {
 
   local harbor_fqdn="harbor.${DOMAIN}"
 
-  # Get Harbor admin password
-  local admin_pass
-  admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  # Get Harbor admin password (prefer .env, fall back to raw values file)
+  local admin_pass="${HARBOR_ADMIN_PASSWORD:-}"
   if [[ -z "$admin_pass" ]]; then
-    log_warn "Could not read Harbor admin password — skipping operator image push"
+    admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  fi
+  if [[ -z "$admin_pass" || "$admin_pass" == *CHANGEME* ]]; then
+    log_warn "Could not resolve Harbor admin password — skipping operator image push"
     return 0
   fi
 
@@ -1290,8 +1300,9 @@ push_operator_images() {
     kubectl cp "$tarball" "default/${pod_name}:/tmp/${filename}" 2>/dev/null
 
     log_info "Pushing ${ref}..."
+    local tarname="${filename%.gz}"
     if kubectl exec "$pod_name" -n default -- \
-      sh -c "gunzip -c '/tmp/${filename}' | crane push - '${ref}' --insecure" 2>/dev/null; then
+      sh -c "gunzip -kf '/tmp/${filename}' && crane push '/tmp/${tarname}' '${ref}' --insecure && rm -f '/tmp/${tarname}'" 2>/dev/null; then
       log_ok "Pushed ${ref}"
       push_count=$((push_count + 1))
     else

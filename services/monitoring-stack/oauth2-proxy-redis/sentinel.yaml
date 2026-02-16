@@ -1,0 +1,52 @@
+# OpsTree Redis Operator — RedisSentinel CRD for oauth2-proxy sessions
+# Monitors the RedisReplication and provides HA failover
+# Requires: redis-operator in redis-operator-system namespace
+#
+# Naming: CRD name "oauth2-proxy-redis" → operator creates:
+#   StatefulSet: oauth2-proxy-redis-sentinel   Pods: oauth2-proxy-redis-sentinel-{0,1,2}
+#   Service:     oauth2-proxy-redis-sentinel   Headless: oauth2-proxy-redis-sentinel-headless
+#
+# NOTE: oauth2-proxy uses --redis-sentinel-connection-urls which connects to
+# sentinel without auth, so we use redisSentinelConfig.redisReplicationPassword
+# (sets ONLY masterauth) instead of kubernetesConfig.redisSecret (which sets
+# both requirepass and masterauth). Same pattern as Harbor.
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisSentinel
+metadata:
+  name: oauth2-proxy-redis
+  namespace: monitoring
+spec:
+  clusterSize: 3
+  kubernetesConfig:
+    image: quay.io/opstree/redis-sentinel:v7.0.15
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  redisSentinelConfig:
+    redisReplicationName: oauth2-proxy-redis
+    masterGroupName: mymaster
+    redisPort: "6379"
+    quorum: "2"
+    redisReplicationPassword:
+      secretKeyRef:
+        name: oauth2-proxy-redis-credentials
+        key: password
+  nodeSelector:
+    workload-type: general
+  podSecurityContext:
+    runAsUser: 999
+    fsGroup: 999
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: oauth2-proxy-redis-sentinel
+            topologyKey: kubernetes.io/hostname

@@ -1,0 +1,60 @@
+# OpsTree Redis Operator — RedisReplication CRD for oauth2-proxy sessions
+# Provides: 3-replica Redis replication (1 master + 2 replicas)
+# Requires: redis-operator in redis-operator-system namespace
+#
+# Naming: CRD name "oauth2-proxy-redis" → operator creates:
+#   StatefulSet: oauth2-proxy-redis        Pods: oauth2-proxy-redis-{0,1,2}
+#   Service:     oauth2-proxy-redis        Headless: oauth2-proxy-redis-headless
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisReplication
+metadata:
+  name: oauth2-proxy-redis
+  namespace: monitoring
+spec:
+  clusterSize: 3
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v7.0.15
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    redisSecret:
+      name: oauth2-proxy-redis-credentials
+      key: password
+  redisExporter:
+    enabled: true
+    image: oliver006/redis_exporter:latest
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: harvester
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+  nodeSelector:
+    workload-type: general
+  podSecurityContext:
+    runAsUser: 999
+    fsGroup: 999
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: oauth2-proxy-redis
+            topologyKey: kubernetes.io/hostname

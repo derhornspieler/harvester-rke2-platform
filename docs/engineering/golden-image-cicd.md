@@ -1375,7 +1375,7 @@ graph TB
 
     subgraph "Steady State"
         HARBOR --> NODES["RKE2 Nodes pull from Harbor<br/>via registries.yaml"]
-        P4 --> P5["Phases 5-10:<br/>ArgoCD, Keycloak, Mattermost,<br/>Kasm, LibreNMS, DNS, Validation"]
+        P4 --> P5["Phases 5-11:<br/>ArgoCD, Keycloak, Mattermost,<br/>Kasm, LibreNMS, DNS, Validation"]
     end
 
     style GOLDEN fill:#2d5016,stroke:#4a8529
@@ -1391,7 +1391,7 @@ graph TB
 3. **Golden image**: Built independently on Harvester, contains OS-level config
    but not operator images
 4. **Cluster deployment**: Terraform provisions nodes from the golden image,
-   then `deploy-cluster.sh` walks through 11 phases
+   then `deploy-cluster.sh` walks through 12 phases (0-11)
 5. **Bootstrap resolution**: At Phase 4.10, `push_operator_images()` loads
    tarballs into Harbor, restarting operator pods to transition from
    `ErrImagePull` to `Running`
@@ -1547,5 +1547,5 @@ All source files documented in this guide:
 | `operators/node-labeler/Makefile` | Operator build targets including `docker-save` |
 | `operators/node-labeler/Dockerfile` | Multi-stage Go build with distroless runtime |
 | `scripts/lib.sh` | Library with `push_operator_images()` function |
-| `scripts/deploy-cluster.sh` | 11-phase cluster deployment script |
+| `scripts/deploy-cluster.sh` | 12-phase cluster deployment script (phases 0-11) |
 | `.gitignore` | Excludes golden-image secrets, state, kubeconfigs |

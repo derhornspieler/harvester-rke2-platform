@@ -6,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: node-labeler
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app.kubernetes.io/name: node-labeler
@@ -35,7 +35,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: manager
-          image: ghcr.io/derhornspieler/node-labeler:v0.1.0
+          image: harbor.example.com/library/node-labeler:v0.1.0
           args:
             - --leader-elect
             - --metrics-bind-address=:8080

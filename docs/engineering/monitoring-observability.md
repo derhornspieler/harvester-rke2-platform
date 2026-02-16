@@ -138,7 +138,7 @@ flowchart LR
     end
 
     subgraph Visualization["Visualization"]
-        Grafana["Grafana<br/>26 dashboards<br/>9 folders"]
+        Grafana["Grafana<br/>28 dashboards<br/>9 folders"]
     end
 
     NE -->|scrape 30s| Prometheus
@@ -227,7 +227,7 @@ Prometheus uses a dedicated `ServiceAccount` named `prometheus` in the `monitori
 | extensions, networking.k8s.io | ingresses | get, list, watch |
 | (non-resource) | /metrics, /metrics/cadvisor | get |
 
-### Scrape Jobs (27 total)
+### Scrape Jobs (28 total)
 
 | # | Job Name | Target | Discovery | Protocol | Port | Auth | Notes |
 |---|----------|--------|-----------|----------|------|------|-------|
@@ -259,10 +259,11 @@ Prometheus uses a dedicated `ServiceAccount` named `prometheus` in the `monitori
 | 25 | `keycloak` | Keycloak pods | pod SD (keycloak) | HTTP | 9000 | none | Management port (Keycloak 26+) |
 | 26 | `mattermost` | mattermost-metrics endpoints | endpoints SD (mattermost) | HTTP | metrics | none | Requires Enterprise license |
 | 27 | `alertmanager` | alertmanager endpoints | endpoints SD (monitoring) | HTTP | 9093 | none | |
+| 28 | `oauth2-proxy` | oauth2-proxy pods | pod SD (all namespaces) | HTTP | 4180 | none | Label: `app.kubernetes.io/name=oauth2-proxy`; relabels `instance` to `service` |
 
 ### Alert Rules
 
-Prometheus defines alert rules organized into 12 groups:
+Prometheus defines alert rules organized into 13 groups:
 
 #### Group: node-alerts
 
@@ -326,7 +327,7 @@ Prometheus defines alert rules organized into 12 groups:
 |-------|-----------|-----|----------|
 | PrometheusTargetDown | `up == 0` (any target) | 5m | warning |
 | PrometheusTSDBCompactionsFailing | Failed compactions in 3h > 0 | 1h | warning |
-| PrometheusStorageAlmostFull | TSDB storage > 80% of 100GB | 30m | warning |
+| PrometheusStorageAlmostFull | TSDB storage > 80% of 50GB | 30m | warning |
 | LokiDown | `up{job=~".*loki.*"} == 0` | 5m | critical |
 | AlloyDown | `up{job="alloy"} == 0` | 5m | warning |
 
@@ -370,6 +371,13 @@ Prometheus defines alert rules organized into 12 groups:
 |-------|-----------|-----|----------|
 | MattermostDown | `up{job="mattermost"} == 0` | 5m | critical |
 
+#### Group: oauth2-proxy-alerts
+
+| Alert | Expression | For | Severity |
+|-------|-----------|-----|----------|
+| OAuth2ProxyDown | `up{job="oauth2-proxy"} == 0` | 2m | critical |
+| OAuth2ProxyHighMemory | `process_resident_memory_bytes{job="oauth2-proxy"} > 100MB` | 10m | warning |
+
 #### Group: security-alerts
 
 | Alert | Expression | For | Severity |
@@ -377,7 +385,6 @@ Prometheus defines alert rules organized into 12 groups:
 | KeycloakBruteForceDetected | > 10 failed logins (user_not_found) in 5m | 2m | warning |
 | KeycloakHighLoginFailures | Login failure rate > 30% | 10m | warning |
 | UnusualPodNetworkTraffic | Pod outbound > 50MB/s | 15m | warning |
-| PrivilegedContainerRunning | (informational detection) | 0m | info |
 | APIServerUnusualRequestRate | Non-read requests > 100/s | 10m | warning |
 | HighDNSQueryRate | CoreDNS queries > 5000/s per server | 10m | warning |
 | SecretAccessSpike | Secret read requests > 50/s | 5m | warning |
@@ -827,10 +834,11 @@ Inter-component communication within the cluster uses plain HTTP over ClusterIP 
 | 21 | Cluster Security | Security | `grafana-dashboard-security` | `/var/lib/grafana/dashboards/security/cluster-security.json` | `cluster-security.json` | Prometheus |
 | 22 | Security Advanced | Security | `grafana-dashboard-security-advanced` | `/var/lib/grafana/dashboards/security/security-advanced.json` | `security-advanced.json` | Prometheus |
 | 23 | Keycloak Overview | Security | `grafana-dashboard-keycloak` | `/var/lib/grafana/dashboards/security/keycloak-overview.json` | `keycloak-overview.json` | Prometheus |
-| 24 | Cluster Operations | Operations | `grafana-dashboard-operations` | `/var/lib/grafana/dashboards/operations/cluster-operations.json` | `cluster-operations.json` | Prometheus |
-| 25 | Node Detail | Operations | `grafana-dashboard-node-detail` | `/var/lib/grafana/dashboards/operations/node-detail.json` | `node-detail.json` | Prometheus |
-| 26 | PV Usage | Operations | `grafana-dashboard-storage` | `/var/lib/grafana/dashboards/operations/pv-usage.json` | `pv-usage.json` | Prometheus |
-| 27 | Pipelines Overview | CI/CD | `grafana-dashboard-pipelines` | `/var/lib/grafana/dashboards/cicd/pipelines-overview.json` | `pipelines-overview.json` | Prometheus |
+| 24 | oauth2-proxy ForwardAuth | Security | `grafana-dashboard-oauth2-proxy` | `/var/lib/grafana/dashboards/security/oauth2-proxy-overview.json` | `oauth2-proxy-overview.json` | Prometheus + Loki |
+| 25 | Cluster Operations | Operations | `grafana-dashboard-operations` | `/var/lib/grafana/dashboards/operations/cluster-operations.json` | `cluster-operations.json` | Prometheus |
+| 26 | Node Detail | Operations | `grafana-dashboard-node-detail` | `/var/lib/grafana/dashboards/operations/node-detail.json` | `node-detail.json` | Prometheus |
+| 27 | PV Usage | Operations | `grafana-dashboard-storage` | `/var/lib/grafana/dashboards/operations/pv-usage.json` | `pv-usage.json` | Prometheus |
+| 28 | Pipelines Overview | CI/CD | `grafana-dashboard-pipelines` | `/var/lib/grafana/dashboards/cicd/pipelines-overview.json` | `pipelines-overview.json` | Prometheus |
 
 ### Dashboard Count by Folder
 
@@ -841,11 +849,11 @@ Inter-component communication within the cluster uses plain HTTP over ClusterIP 
 | Loki | 2 |
 | Services | 6 |
 | Networking | 3 |
-| Security | 4 |
+| Security | 5 |
 | Operations | 3 |
 | CI/CD | 1 |
 | Home | 1 |
-| **Total** | **26** |
+| **Total** | **28** |
 
 ### Home Dashboard Details
 
@@ -853,6 +861,7 @@ The home dashboard (`Cluster Home`, UID: `home-overview`) is a single-page comma
 
 - **Top row**: Nodes Ready, Total Pods, Pods Not Ready, Firing Alerts, CPU Usage %, Memory Usage %
 - **Infrastructure row**: Status tiles for etcd, API Server, Traefik, CoreDNS, Cilium, Prometheus, Loki, Alertmanager
+- **Authentication row**: oauth2-proxy ForwardAuth instances up (expected: 5)
 - **Application row**: Status tiles for Vault, GitLab, ArgoCD, Harbor, Keycloak, Mattermost, PostgreSQL, cert-manager
 - **Charts**: Cluster CPU by Node, Cluster Memory by Node, Firing Alerts table, Container Restarts (1h), Disk Usage by Node, PVC Usage Top 10
 

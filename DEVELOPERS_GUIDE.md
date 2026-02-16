@@ -31,27 +31,37 @@ Quick-start guide for setting up and operating the RKE2 cluster. For detailed ar
 │   ├── outputs.tf            # Cluster ID, image ID, credential ID
 │   └── terraform.sh          # Wrapper script (secret management + terraform commands)
 ├── services/                 # Kubernetes workloads
-│   ├── monitoring-stack/     # Prometheus, Grafana, Loki, Alloy, cert-manager
+│   ├── monitoring-stack/     # Prometheus, Grafana, Loki, Alloy, Alertmanager
 │   ├── vault/                # Vault HA (3-replica Raft)
 │   ├── cert-manager/         # ClusterIssuer, RBAC
 │   ├── keycloak/             # Keycloak HA IDP
 │   ├── argo/                 # ArgoCD + Argo Rollouts
 │   ├── harbor/               # Harbor HA container registry
 │   ├── mattermost/           # Mattermost team messaging
-│   └── kasm/                 # Kasm virtual desktops
-└── docs/                     # Architecture and flow diagrams
-    ├── architecture.md       # Node pools, infrastructure stack, storage
-    ├── service-architecture.md # All 8 services, dependencies, resources
-    ├── network-flow.md       # Cilium, L2, Traefik routing, dual-NIC
-    ├── data-flow.md          # Monitoring pipeline, cert lifecycle, GitOps
-    ├── deployment-flow.md    # Terraform + 5-phase service deployment
-    ├── decision-tree.md      # Ingress, pool, auth, database decisions
-    ├── security.md           # TLS chain, auth matrix, RBAC, security debt
-    ├── troubleshooting.md    # Categorized issues and fixes
-    ├── operations-runbook.md # Day-2 ops: unseal, backup, scaling, upgrades
-    ├── vault-ha.md           # Vault HA migration plan (implemented)
-    ├── vault-credential-storage.md  # Vault KV + ESO migration plan
-    └── golden-image-plan.md  # Pre-baked Rocky 9 image plan
+│   ├── kasm/                 # Kasm virtual desktops
+│   ├── rbac/                 # Kubernetes RBAC (ClusterRoles, bindings)
+│   ├── node-labeler/         # Custom operator: auto-labels nodes by pool
+│   ├── storage-autoscaler/   # Custom operator: PVC auto-expansion
+│   ├── uptime-kuma/          # Status monitoring (optional)
+│   ├── librenms/             # Network monitoring (optional)
+│   └── gitlab/               # GitLab (optional, Phase 11)
+└── docs/                    # Architecture and engineering references
+    ├── README.md            # Master documentation index
+    ├── engineering/          # 10 comprehensive engineering references
+    │   ├── system-architecture.md
+    │   ├── terraform-infrastructure.md
+    │   ├── deployment-automation.md
+    │   ├── services-reference.md
+    │   ├── monitoring-observability.md
+    │   ├── security-architecture.md
+    │   ├── custom-operators.md
+    │   ├── golden-image-cicd.md
+    │   ├── flow-charts.md
+    │   └── troubleshooting-sop.md
+    ├── kubectl-oidc-setup.md # End-user OIDC auth guide
+    ├── vault-ha.md          # Vault HA migration (implemented)
+    ├── vault-credential-storage.md # Vault KV + ESO plan
+    └── golden-image-plan.md # Golden image design record
 ```
 
 ---
@@ -117,13 +127,17 @@ Terraform state is stored in a Kubernetes secret on the Harvester cluster (`terr
 
 ### Service deployment
 
-After the cluster is ready, deploy services in 5 phases. See [docs/deployment-flow.md](docs/deployment-flow.md) for the complete sequence:
+After the cluster is ready, deploy services in 12 phases (0-11). See [docs/engineering/deployment-automation.md](docs/engineering/deployment-automation.md) for the complete sequence.
 
-1. **cert-manager** (Helm)
-2. **Vault** (Helm + init + unseal + PKI setup)
-3. **Monitoring Stack** (Kustomize)
-4. **Keycloak, Harbor, Mattermost, Kasm** (parallel)
-5. **ArgoCD + Argo Rollouts** (Helm + app-of-apps bootstrap)
+The recommended approach is to use the automated zero-touch deployment script:
+
+```bash
+./scripts/deploy-cluster.sh              # Full 12-phase deployment
+./scripts/deploy-cluster.sh --from 3     # Resume from phase 3
+./scripts/deploy-cluster.sh --skip-tf    # Skip Terraform (phase 0)
+```
+
+**Phase overview:** 0: Terraform, 1: Foundation (cert-manager, CNPG, Redis Operator, Node Labeler, Cluster Autoscaler), 2: Vault + PKI, 3: Monitoring, 4: Harbor, 5: ArgoCD + Rollouts, 6: Keycloak, 7: Remaining Services (Mattermost, Kasm, Uptime Kuma, LibreNMS), 8: DNS Records, 9: Validation + RBAC, 10: Keycloak OIDC + oauth2-proxy ForwardAuth, 11: GitLab.
 
 Each service has its own README in `services/<name>/README.md` with step-by-step deployment instructions.
 
@@ -161,7 +175,7 @@ IngressRoute is only used for services requiring Traefik-specific features with 
 - **Traefik Dashboard**: Routes to `api@internal` (TraefikService, not a K8s Service)
 - **Kasm**: Backend HTTPS with `serversTransport` insecureSkipVerify
 
-All other services use Gateway API. Basic-auth is supported via `extensionRef` filter in HTTPRoute pointing to existing Traefik Middleware CRDs. See [docs/decision-tree.md](docs/decision-tree.md) for routing method selection.
+All other services use Gateway API. oauth2-proxy ForwardAuth is used for services without native login (Prometheus, Alertmanager, Hubble, Traefik Dashboard, Rollouts). See [docs/engineering/flow-charts.md](docs/engineering/flow-charts.md) for routing method selection.
 
 ---
 
@@ -193,11 +207,11 @@ After deployment, `deploy-cluster.sh` writes `cluster/credentials.txt` with all 
 | Topic | Document |
 |-------|----------|
 | Platform overview | [README.md](README.md) |
-| Architecture & node pools | [docs/architecture.md](docs/architecture.md) |
-| All services & dependencies | [docs/service-architecture.md](docs/service-architecture.md) |
-| Networking & ingress | [docs/network-flow.md](docs/network-flow.md) |
-| Deployment sequence | [docs/deployment-flow.md](docs/deployment-flow.md) |
-| Routing & pool decisions | [docs/decision-tree.md](docs/decision-tree.md) |
-| Security & TLS | [docs/security.md](docs/security.md) |
-| Known issues & fixes | [docs/troubleshooting.md](docs/troubleshooting.md) |
-| Day-2 operations | [docs/operations-runbook.md](docs/operations-runbook.md) |
+| Architecture & node pools | [docs/engineering/system-architecture.md](docs/engineering/system-architecture.md) |
+| All services & dependencies | [docs/engineering/services-reference.md](docs/engineering/services-reference.md) |
+| Networking & ingress | [docs/engineering/system-architecture.md](docs/engineering/system-architecture.md) |
+| Deployment sequence | [docs/engineering/deployment-automation.md](docs/engineering/deployment-automation.md) |
+| Routing & pool decisions | [docs/engineering/flow-charts.md](docs/engineering/flow-charts.md) |
+| Security & TLS | [docs/engineering/security-architecture.md](docs/engineering/security-architecture.md) |
+| Known issues & fixes | [docs/engineering/troubleshooting-sop.md](docs/engineering/troubleshooting-sop.md) |
+| Day-2 operations | [docs/engineering/troubleshooting-sop.md](docs/engineering/troubleshooting-sop.md) |

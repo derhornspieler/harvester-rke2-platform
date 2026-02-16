@@ -208,13 +208,13 @@ helm install argo-rollouts argo/argo-rollouts \
 # Create Gateway for Rollouts dashboard (triggers cert-manager gateway-shim)
 kubectl apply -f services/argo/argo-rollouts/gateway.yaml
 
-# Create basic-auth credentials (htpasswd) for dashboard
-kubectl apply -f services/argo/argo-rollouts/basic-auth-secret.yaml
+# Deploy oauth2-proxy ForwardAuth sidecar for dashboard
+kubectl apply -f services/argo/argo-rollouts/oauth2-proxy.yaml
 
-# Create middleware for basic-auth
-kubectl apply -f services/argo/argo-rollouts/middleware-basic-auth.yaml
+# Create oauth2-proxy ForwardAuth middleware
+kubectl apply -f services/argo/argo-rollouts/middleware-oauth2-proxy.yaml
 
-# Create HTTPRoute with basic-auth via extensionRef filter
+# Create HTTPRoute with oauth2-proxy ForwardAuth filter
 kubectl apply -f services/argo/argo-rollouts/httproute.yaml
 ```
 
@@ -274,7 +274,7 @@ trafficRouterPlugins:
   argoproj_labs_rollouts_gateway_api:
     className: gatewayapi
 
-# Dashboard (single replica, basic-auth required)
+# Dashboard (single replica, oauth2-proxy ForwardAuth)
 dashboard:
   enabled: true
   replicas: 1
@@ -342,7 +342,7 @@ kubectl -n argo-rollouts get httproute
 
 # Access dashboard
 # https://rollouts.<DOMAIN>
-# Basic auth credentials from basic-auth-secret.yaml
+# Authenticated via oauth2-proxy (Keycloak OIDC, rollouts-oidc client)
 ```
 
 ### Verify Redis HA
@@ -553,9 +553,9 @@ services/argo/
 │   ├── namespace.yaml                 # argo-rollouts namespace
 │   ├── argo-rollouts-values.yaml      # Argo Rollouts values (trafficRouterPlugins top-level)
 │   ├── gateway.yaml                   # Gateway with cert-manager annotation (auto-creates TLS secret)
-│   ├── httproute.yaml                 # HTTPRoute with basic-auth via extensionRef filter
-│   ├── basic-auth-secret.yaml         # htpasswd credentials for dashboard
-│   └── middleware-basic-auth.yaml     # Traefik basic-auth middleware
+│   ├── httproute.yaml                 # HTTPRoute with oauth2-proxy ForwardAuth filter
+│   ├── oauth2-proxy.yaml              # oauth2-proxy ForwardAuth sidecar (rollouts-oidc client)
+│   └── middleware-oauth2-proxy.yaml   # Traefik ForwardAuth middleware
 │
 └── bootstrap/
     ├── app-of-apps.yaml               # Root Application (auto-syncs children)

@@ -42,7 +42,7 @@ Comprehensive visual reference for all deployment, operational, and controller f
 
 ### 1. Complete Cluster Deployment
 
-The full `deploy-cluster.sh` pipeline across all 11 phases (0 through 10). Each phase is idempotent and supports resumption via `--from N`.
+The full `deploy-cluster.sh` pipeline across all 12 phases (0 through 11). Each phase is idempotent and supports resumption via `--from N`.
 
 ```mermaid
 flowchart TD
@@ -131,7 +131,7 @@ flowchart TD
     subgraph Phase4 [Phase 4: Harbor]
         P4_NS[Create harbor, minio, database namespaces] --> P4_MinIO[Deploy MinIO + create buckets]
         P4_MinIO --> P4_PG[Deploy CNPG harbor-pg cluster]
-        P4_PG --> P4_Redis[Deploy Redis Sentinel via OpsTree]
+        P4_PG --> P4_Redis[Deploy Valkey Sentinel via OpsTree]
         P4_Redis --> P4_Helm[Helm install Harbor v1.18.2]
         P4_Helm --> P4_GW[Apply Gateway + HTTPRoute + HPAs]
         P4_GW --> P4_Proxy[Configure proxy cache projects<br/>dockerhub, quay, ghcr, gcr, k8s, elastic]
@@ -207,7 +207,12 @@ flowchart TD
 
     P10{Phase 10?} -->|FROM_PHASE <= 10| Phase10[Phase 10: Keycloak OIDC Setup<br/>Runs setup-keycloak.sh<br/>Realm, users, TOTP, clients, bindings, groups]
 
-    Phase10 --> Done([Deployment Complete])
+    Phase10 --> P11
+    P10 -->|skip| P11
+
+    P11{Phase 11?} -->|FROM_PHASE <= 11| Phase11[Phase 11: GitLab]
+
+    Phase11 --> Done([Deployment Complete])
 ```
 
 ---
@@ -512,8 +517,8 @@ flowchart TD
 
     CNPG --> Redis
 
-    subgraph Redis [Redis Sentinel via OpsTree]
-        R_Secret[Apply Redis secret<br/>with generated password] --> R_Replication[Apply RedisReplication CR]
+    subgraph Redis [Valkey Sentinel via OpsTree]
+        R_Secret[Apply Valkey secret<br/>with generated password] --> R_Replication[Apply RedisReplication CR]
         R_Replication --> R_Sentinel[Apply RedisSentinel CR]
         R_Sentinel --> R_WaitRepl[Wait for harbor-redis pods]
         R_WaitRepl --> R_WaitSent[Wait for harbor-redis-sentinel pods]
@@ -1096,7 +1101,7 @@ flowchart TD
 
     General --> GeneralSpec[nodeSelector:<br/>  workload-type: general<br/><br/>Includes: cert-manager, Vault,<br/>Grafana, Prometheus, ArgoCD,<br/>Keycloak, Harbor core,<br/>Mattermost, Kasm, Uptime Kuma,<br/>Cluster Autoscaler, Node Labeler,<br/>Storage Autoscaler]
 
-    DatabasePool --> DBSpec[nodeSelector:<br/>  workload-type: database<br/><br/>Includes: harbor-pg, keycloak-pg,<br/>mattermost-pg, kasm-pg,<br/>Redis Sentinel clusters,<br/>MariaDB Galera]
+    DatabasePool --> DBSpec[nodeSelector:<br/>  workload-type: database<br/><br/>Includes: harbor-pg, keycloak-pg,<br/>mattermost-pg, kasm-pg,<br/>Valkey Sentinel clusters,<br/>MariaDB Galera]
 
     Compute --> ComputeSpec[nodeSelector:<br/>  workload-type: compute<br/><br/>Includes: CI/CD runners,<br/>batch processing jobs,<br/>image builds]
 

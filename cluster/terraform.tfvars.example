@@ -45,7 +45,7 @@ controlplane_disk_size = 80
 general_cpu       = "4"
 general_memory    = "8"
 general_disk_size = 60
-general_min_count = 2
+general_min_count = 4
 general_max_count = 10
 
 # -----------------------------------------------------------------------------
@@ -63,8 +63,14 @@ compute_max_count = 10
 database_cpu       = "4"
 database_memory    = "16"
 database_disk_size = 80
-database_min_count = 3
+database_min_count = 4
 database_max_count = 10
+
+# -----------------------------------------------------------------------------
+# Docker Hub Auth (optional — avoids rate limits until Harbor mirrors are up)
+# -----------------------------------------------------------------------------
+# dockerhub_username = "your-dockerhub-user"
+# dockerhub_token    = "dckr_pat_xxxxx"
 
 # -----------------------------------------------------------------------------
 # Cloud Provider

@@ -1,3 +1,19 @@
+# -----------------------------------------------------------------------------
+# Docker Hub registry auth secret (avoids anonymous pull rate limits)
+# Created in fleet-default on the local (Rancher) cluster so RKE2 nodes
+# pick it up via registries.yaml.
+# -----------------------------------------------------------------------------
+resource "rancher2_secret_v2" "dockerhub_auth" {
+  cluster_id = "local"
+  name       = "${var.cluster_name}-dockerhub-auth"
+  namespace  = "fleet-default"
+  type       = "kubernetes.io/basic-auth"
+  data = {
+    username = var.dockerhub_username
+    password = var.dockerhub_token
+  }
+}
+
 resource "rancher2_cluster_v2" "rke2" {
   name               = var.cluster_name
   kubernetes_version = var.kubernetes_version
@@ -270,6 +286,16 @@ resource "rancher2_cluster_v2" "rke2" {
       "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
       "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
     })
+
+    # -----------------------------------------------------------------
+    # Private Registry Auth (Docker Hub rate-limit workaround)
+    # -----------------------------------------------------------------
+    registries {
+      configs {
+        hostname                = "docker.io"
+        auth_config_secret_name = rancher2_secret_v2.dockerhub_auth.name
+      }
+    }
 
     # -----------------------------------------------------------------
     # Upgrade Strategy

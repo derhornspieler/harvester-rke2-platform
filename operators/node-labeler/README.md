@@ -42,8 +42,11 @@ make test
 # Build binary
 make build
 
-# Build and push Docker image (local, amd64 only)
-make docker-buildx IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0 PLATFORMS=linux/amd64
+# Build and push Docker image to GHCR (multi-arch)
+make docker-buildx IMG=ghcr.io/derhornspieler/node-labeler:v0.1.0
+
+# Or build for local/airgapped deployment (amd64 only, saves tarball)
+make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0
 
 # Run locally (requires KUBECONFIG)
 make run

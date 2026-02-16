@@ -15,7 +15,7 @@
 
 # RKE2 Cluster Platform
 
-Production-grade RKE2 Kubernetes platform on Harvester, managed via Rancher Terraform provider. Includes 8 integrated services: Vault PKI, cert-manager, full monitoring stack, Keycloak SSO, ArgoCD GitOps, Harbor container registry, Mattermost messaging, and Kasm virtual desktops.
+Production-grade RKE2 Kubernetes platform on Harvester, managed via Rancher Terraform provider. Includes 8+ integrated services: Vault PKI, cert-manager, full monitoring stack, Keycloak SSO, ArgoCD GitOps, Harbor container registry, Mattermost messaging, Kasm virtual desktops, plus optional Uptime Kuma, LibreNMS, and GitLab.
 
 > **Note**: Throughout this document, `<DOMAIN>` refers to the root domain
 > configured in `scripts/.env` (e.g., `example.com`). Derived formats:
@@ -33,9 +33,9 @@ graph TD
         subgraph RKE2["RKE2 Cluster v1.34"]
             CP["Control Plane<br/>3 nodes fixed<br/>etcd + API Server"]
 
-            General["General Pool<br/>2‑10 autoscale<br/>Web Apps, Monitoring, Ingress"]
+            General["General Pool<br/>4‑10 autoscale<br/>Web Apps, Monitoring, Ingress"]
             Compute["Compute Pool<br/>0‑10 scale‑from‑zero<br/>ML, Batch, CI Runners"]
-            Database["Database Pool<br/>3‑10 autoscale<br/>Vault, CNPG, Redis"]
+            Database["Database Pool<br/>4‑10 autoscale<br/>Vault, CNPG, Valkey"]
         end
     end
 
@@ -56,7 +56,7 @@ graph TD
 | **Storage** | Harvester CSI (Longhorn) |
 | **TLS** | Vault PKI via cert-manager (auto-renewed) |
 | **GitOps** | ArgoCD 3.3 + Argo Rollouts (progressive delivery) |
-| **Services** | 8 integrated services across 12 TLS endpoints |
+| **Services** | 8+ integrated services across 12 TLS endpoints |
 
 ## Service Dependency Map
 
@@ -68,10 +68,9 @@ graph BT
     end
 
     subgraph Data["Data Layer"]
-        CNPG["CNPG PostgreSQL<br/>harbor-pg, kasm-pg"]
-        Redis["Redis Sentinel<br/>Harbor cache"]
+        CNPG["CNPG PostgreSQL<br/>harbor-pg, kasm-pg,<br/>keycloak-pg, mattermost-pg"]
+        Redis["Valkey Sentinel<br/>Harbor cache"]
         MinIO["MinIO<br/>Harbor + Mattermost S3"]
-        PG["PostgreSQL<br/>Keycloak, Mattermost"]
     end
 
     subgraph Apps["Application Layer"]
@@ -93,11 +92,11 @@ graph BT
 
     CNPG --> Harbor
     CNPG --> Kasm
+    CNPG --> KC
+    CNPG --> MM
     Redis --> Harbor
     MinIO --> Harbor
     MinIO --> MM
-    PG --> KC
-    PG --> MM
 ```
 
 ## Repository Structure
@@ -109,14 +108,16 @@ graph BT
 │   ├── terraform.sh             # Wrapper script (secret sync + terraform commands)
 │   └── terraform.tfvars.example
 ├── services/                    # Kubernetes workloads (deployed post-cluster)
-│   ├── monitoring-stack/        # Kustomize: Prometheus, Grafana, Loki, Alloy
+│   ├── monitoring-stack/        # Kustomize: Prometheus, Grafana, Loki, Alloy, Alertmanager
 │   ├── vault/                   # Vault HA: Helm values, Gateway + HTTPRoute
 │   ├── cert-manager/            # ClusterIssuer (vault-issuer), RBAC
 │   ├── keycloak/                # Keycloak HA: 2-replica IDP, PostgreSQL, HPA
 │   ├── argo/                    # ArgoCD + Argo Rollouts, app-of-apps bootstrap
-│   ├── harbor/                  # Harbor HA: registry, CNPG, Redis, MinIO, HPAs
+│   ├── harbor/                  # Harbor HA: registry, CNPG, Valkey, MinIO, HPAs
 │   ├── mattermost/              # Mattermost: team messaging, PostgreSQL + MinIO
-│   └── kasm/                    # Kasm Workspaces: virtual desktops, CNPG PG 14
+│   ├── kasm/                    # Kasm Workspaces: virtual desktops, CNPG PG 14
+│   ├── rbac/                    # Kubernetes RBAC (ClusterRoles, bindings)
+│   └── ...                      # + node-labeler, storage-autoscaler, uptime-kuma, librenms, gitlab
 └── docs/                        # Architecture, flows, operations
 ```
 
@@ -133,9 +134,9 @@ cp terraform.tfvars.example terraform.tfvars
 ./terraform.sh plan
 ./terraform.sh apply
 
-# 3. Deploy services (see docs/engineering/deployment-automation.md for full sequence)
-# Phase 1: cert-manager → Phase 2: Vault → Phase 3: Monitoring
-# Phase 4: Keycloak, Harbor, Mattermost, Kasm → Phase 5: ArgoCD
+# 3. Deploy services
+# Full 12-phase deployment (0-11): see docs/engineering/deployment-automation.md
+# Or use: ./scripts/deploy-cluster.sh (automated zero-touch deployment)
 ```
 
 See [DEVELOPERS_GUIDE.md](DEVELOPERS_GUIDE.md) for prerequisites and detailed setup.
@@ -145,9 +146,9 @@ See [DEVELOPERS_GUIDE.md](DEVELOPERS_GUIDE.md) for prerequisites and detailed se
 | Pool | Count | CPU | Memory | Disk | NICs | Autoscale | Purpose |
 |------|-------|-----|--------|------|------|-----------|---------|
 | Control Plane | 3 (fixed) | 8 | 32 GiB | 80 GiB | 1 (eth0) | No | etcd + API server |
-| General | 2-10 | 4 | 8 GiB | 80 GiB | 2 (eth0, eth1) | Yes | Web apps, monitoring, APIs |
+| General | 4-10 | 4 | 8 GiB | 60 GiB | 2 (eth0, eth1) | Yes | Web apps, monitoring, APIs |
 | Compute | 0-10 | 8 | 32 GiB | 80 GiB | 2 (eth0, eth1) | Yes (scale-from-zero) | ML, batch, event-driven |
-| Database | 3-10 | 4 | 16 GiB | 80 GiB | 2 (eth0, eth1) | Yes | Vault, CNPG, Redis, stateful workloads |
+| Database | 4-10 | 4 | 16 GiB | 80 GiB | 2 (eth0, eth1) | Yes | Vault, CNPG, Valkey, stateful workloads |
 
 Autoscaling is managed by Rancher Cluster Autoscaler deployed in `kube-system`.
 
@@ -180,7 +181,7 @@ See the **[Documentation Index](docs/README.md)** for a complete master index wi
 |----------|-------------|
 | [System Architecture](docs/engineering/system-architecture.md) | Infrastructure topology, networking, cluster topology, storage architecture |
 | [Terraform Infrastructure](docs/engineering/terraform-infrastructure.md) | All Terraform resources, 44 variables, cloud-init templates, state management |
-| [Deployment Automation](docs/engineering/deployment-automation.md) | All scripts, 11-phase deployment, lib.sh reference, upgrade procedures |
+| [Deployment Automation](docs/engineering/deployment-automation.md) | All scripts, 12-phase deployment, lib.sh reference, upgrade procedures |
 | [Services Reference](docs/engineering/services-reference.md) | All 14+ K8s services: architecture, resources, networking, storage, HA design |
 | [Monitoring & Observability](docs/engineering/monitoring-observability.md) | Prometheus, Grafana, Loki, Alloy, Alertmanager deep dive |
 | [Security Architecture](docs/engineering/security-architecture.md) | PKI, Vault, cert-manager, Keycloak OIDC, RBAC, secrets management |

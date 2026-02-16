@@ -71,6 +71,8 @@ global:
   ## ── External Redis (OpsTree Sentinel HA) ──────────────────────────────────
   ## Sentinel-aware: GitLab discovers the current primary via Sentinel.
   ## "host" is the Sentinel master name, NOT a hostname.
+  ## Uses the ClusterIP service created by OpsTree Redis Operator — it
+  ## load-balances across all sentinel pods, so a single entry suffices.
   redis:
     host: mymaster
     port: 6379
@@ -79,11 +81,7 @@ global:
       secret: gitlab-redis-credentials
       key: password
     sentinels:
-      - host: gitlab-redis-sentinel-0.gitlab-redis-sentinel.gitlab.svc.cluster.local
-        port: 26379
-      - host: gitlab-redis-sentinel-1.gitlab-redis-sentinel.gitlab.svc.cluster.local
-        port: 26379
-      - host: gitlab-redis-sentinel-2.gitlab-redis-sentinel.gitlab.svc.cluster.local
+      - host: gitlab-redis-sentinel.gitlab.svc.cluster.local
         port: 26379
 
   ## ── Gitaly ─────────────────────────────────────────────────────────────────

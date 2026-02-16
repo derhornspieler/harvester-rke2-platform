@@ -5,7 +5,7 @@ metadata:
   namespace: kube-system
 spec:
   forwardAuth:
-    address: http://oauth2-proxy-traefik-dashboard.kube-system.svc.cluster.local:4180/oauth2/auth
+    address: http://oauth2-proxy-traefik-dashboard.kube-system.svc.cluster.local:4180/
     trustForwardHeader: true
     authResponseHeaders:
       - X-Auth-Request-User

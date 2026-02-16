@@ -38,7 +38,7 @@ The RKE2 cluster implements a defense-in-depth security model with the following
 | **Secrets Management** | Kubernetes Secrets with CHANGEME placeholders; Vault KV migration planned | Partial |
 | **Network Security** | Cilium CNI, iptables host firewall, VPN-only access, ARP hardening | Implemented |
 | **Container Security** | Non-root users, read-only filesystems where possible, resource limits | Implemented (partial) |
-| **Monitoring / Detection** | Prometheus security alerts (brute force, anomalous traffic, secret access spikes) | Implemented |
+| **Monitoring / Detection** | Prometheus security alerts (brute force, anomalous traffic, secret access spikes, oauth2-proxy health) | Implemented |
 
 ### Security Architecture Overview
 
@@ -776,7 +776,7 @@ Credentials are stored in Kubernetes Secret manifests committed to git with plac
 
 | Secret | Namespace | Keys | Current State |
 |--------|-----------|------|---------------|
-| `keycloak-admin-secret` | keycloak | `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD`, `KC_BOOTSTRAP_ADMIN_CLIENT_ID`, `KC_BOOTSTRAP_ADMIN_CLIENT_SECRET` | Password is weak (`CHANGEME_KC_ADMIN_PASSWORD`), client secret is placeholder |
+| `keycloak-admin-secret` | keycloak | `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD`, `KC_BOOTSTRAP_ADMIN_CLIENT_ID`, `KC_BOOTSTRAP_ADMIN_CLIENT_SECRET` | Randomly generated at deploy time (`gen_password 24`), placeholder in git |
 | `keycloak-postgres-secret` | keycloak | `POSTGRES_USER`, `POSTGRES_PASSWORD` | Password is placeholder |
 | `grafana-admin-secret` | monitoring | `admin-password` | Placeholder |
 | `oauth2-proxy-*` | monitoring, kube-system, argo-rollouts | OIDC client + cookie secrets | Created at deploy time |
@@ -785,7 +785,7 @@ Credentials are stored in Kubernetes Secret manifests committed to git with plac
 
 | Issue | Risk | Status |
 |-------|------|--------|
-| Keycloak admin password `CHANGEME_KC_ADMIN_PASSWORD` in git | Credential exposure | Must rotate after deployment |
+| Keycloak admin password was `CHANGEME_KC_ADMIN_PASSWORD` in early git history | Credential exposure | **Resolved** -- `deploy-cluster.sh` now generates strong random passwords via `gen_password 24` |
 | `CHANGEME_*` placeholders in committed Secrets | Non-functional until replaced | By design -- forces operator to set real values |
 | Historical plaintext passwords in git history | Credential exposure | Rotated, placeholders committed |
 
