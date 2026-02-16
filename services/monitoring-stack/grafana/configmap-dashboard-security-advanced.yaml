@@ -68,7 +68,7 @@ data:
           },
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [
-            {"expr": "sum(increase(keycloak_login_errors_total{job=\"keycloak\"}[1h])) OR on() vector(0)", "legendFormat": "Failures", "refId": "A"}
+            {"expr": "sum(increase(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[1h])) OR on() vector(0)", "legendFormat": "Failures", "refId": "A"}
           ]
         },
         {
@@ -116,7 +116,7 @@ data:
           },
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [
-            {"expr": "sum(rate(apiserver_request_total{resource=\"secrets\",verb=~\"get|list\"}[5m]))", "legendFormat": "Secret ops/s", "refId": "A"}
+            {"expr": "sum(rate(apiserver_request_total{resource=\"secrets\",verb=~\"GET|LIST\"}[5m]))", "legendFormat": "Secret ops/s", "refId": "A"}
           ]
         },
         {
@@ -191,8 +191,8 @@ data:
           },
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
-            {"expr": "sum(rate(keycloak_logins_total{job=\"keycloak\"}[5m])) by (realm)", "legendFormat": "Success {{realm}}", "refId": "A"},
-            {"expr": "sum(rate(keycloak_login_errors_total{job=\"keycloak\"}[5m])) by (realm, error)", "legendFormat": "Fail {{realm}} {{error}}", "refId": "B"}
+            {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=\"200\"}[5m]))", "legendFormat": "Success", "refId": "A"},
+            {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m]))", "legendFormat": "Fail", "refId": "B"}
           ]
         },
         {
@@ -215,7 +215,7 @@ data:
           },
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
-            {"expr": "sum by (error) (rate(keycloak_login_errors_total{job=\"keycloak\"}[5m]))", "legendFormat": "{{error}}", "refId": "A"}
+            {"expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m]))", "legendFormat": "{{status}}", "refId": "A"}
           ]
         },
         {
@@ -250,6 +250,7 @@ data:
           "fieldConfig": {
             "defaults": {
               "unit": "ops",
+              "noValue": "0",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 10,

@@ -25,34 +25,34 @@ data:
           "targets": [{"expr": "up{job=\"argo-rollouts\"}", "refId": "A", "instant": true}]
         },
         {
-          "title": "Total Rollouts",
+          "title": "Controller Info",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
           "id": 2,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "fieldConfig": {"defaults": {"noValue": "N/A", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "count(rollout_info{job=\"argo-rollouts\"})", "refId": "A", "instant": true}]
+          "targets": [{"expr": "argo_rollouts_controller_info{job=\"argo-rollouts\"}", "refId": "A", "instant": true}]
         },
         {
-          "title": "Active Rollouts",
+          "title": "Queue Depth",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
           "id": 3,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}},
+          "fieldConfig": {"defaults": {"noValue": "N/A", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5}, {"color": "red", "value": 20}]}}},
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "count(rollout_phase{job=\"argo-rollouts\",phase=\"Progressing\"})", "refId": "A", "instant": true}]
+          "targets": [{"expr": "sum(workqueue_depth{job=\"argo-rollouts\"})", "refId": "A", "instant": true}]
         },
         {
-          "title": "Failed Rollouts",
+          "title": "K8s API Request Rate",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
           "id": 4,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
-          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "count(rollout_phase{job=\"argo-rollouts\",phase=~\"Degraded|Error\"})", "refId": "A", "instant": true}]
+          "fieldConfig": {"defaults": {"noValue": "N/A", "unit": "reqps", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(rate(controller_clientset_k8s_request_total{job=\"argo-rollouts\"}[5m]))", "refId": "A", "instant": true}]
         },
         {
           "title": "Rollout Reconciliation",
@@ -95,10 +95,20 @@ data:
           "targets": [{"expr": "histogram_quantile(0.99, sum(rate(workqueue_queue_duration_seconds_bucket{job=\"argo-rollouts\"}[5m])) by (le, name))", "legendFormat": "{{name}}", "refId": "A"}]
         },
         {
-          "title": "Go Memory",
+          "title": "K8s API Requests by Status",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "id": 11,
+          "fieldConfig": {"defaults": {"noValue": "N/A", "unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(controller_clientset_k8s_request_total{job=\"argo-rollouts\"}[5m])) by (status_code, verb)", "legendFormat": "{{verb}} {{status_code}}", "refId": "A"}]
+        },
+        {
+          "title": "Go Memory",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 9,
           "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
@@ -108,7 +118,7 @@ data:
           "title": "Go Goroutines",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 10,
           "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
@@ -123,6 +133,6 @@ data:
       "timezone": "",
       "title": "Argo Rollouts Overview",
       "uid": "argo-rollouts-overview",
-      "version": 1,
-      "description": "Argo Rollouts monitoring dashboard covering controller health, rollout phases, reconciliation performance, workqueue metrics, and Go runtime statistics."
+      "version": 2,
+      "description": "Argo Rollouts monitoring dashboard covering controller health, K8s API request rates, reconciliation performance, workqueue metrics, and Go runtime statistics. CRD-level rollout metrics (rollout_info, rollout_phase) replaced with controller-level metrics."
     }

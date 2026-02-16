@@ -1,0 +1,304 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-firing-alerts
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  firing-alerts.json: |
+    {
+      "annotations": {"list": []},
+      "description": "Dedicated view of all currently firing Prometheus alerts with severity breakdown, details table, and history.",
+      "editable": true,
+      "id": null,
+      "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}
+      ],
+      "panels": [
+        {
+          "title": "Total Firing",
+          "description": "Total number of alerts currently in firing state",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 1},
+                  {"color": "red", "value": 5}
+                ]
+              },
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(ALERTS{alertstate=\"firing\"}) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Critical",
+          "description": "Critical severity alerts currently firing",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "red", "value": 1}
+                ]
+              },
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(ALERTS{alertstate=\"firing\",severity=\"critical\"}) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Warning",
+          "description": "Warning severity alerts currently firing",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 1}
+                ]
+              },
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(ALERTS{alertstate=\"firing\",severity=\"warning\"}) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Info",
+          "description": "Info severity alerts currently firing",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "blue", "value": 1}
+                ]
+              },
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(ALERTS{alertstate=\"firing\",severity=\"info\"}) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Alert Details",
+          "description": "All currently firing alerts with full label details",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "displayMode": "auto"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "severity"},
+                "properties": [
+                  {
+                    "id": "custom.displayMode",
+                    "value": "color-background-solid"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {"type": "value", "options": {"critical": {"color": "red", "text": "CRITICAL"}, "warning": {"color": "orange", "text": "WARNING"}, "info": {"color": "blue", "text": "INFO"}}}
+                    ]
+                  },
+                  {"id": "custom.width", "value": 100}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "alertname"},
+                "properties": [
+                  {"id": "custom.width", "value": 250}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "description"},
+                "properties": [
+                  {"id": "custom.width", "value": 400}
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "sortBy": [{"displayName": "Severity", "desc": true}],
+            "footer": {"show": true, "countRows": true, "reducer": ["count"]}
+          },
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "alertstate": true,
+                  "Value": true,
+                  "instance": true,
+                  "endpoint": true,
+                  "service": true,
+                  "container": true,
+                  "pod": true,
+                  "uid": true,
+                  "prometheus": true
+                },
+                "indexByName": {
+                  "severity": 0,
+                  "alertname": 1,
+                  "namespace": 2,
+                  "job": 3,
+                  "description": 4,
+                  "node": 5
+                },
+                "renameByName": {
+                  "alertname": "Alert Name",
+                  "severity": "Severity",
+                  "namespace": "Namespace",
+                  "job": "Job",
+                  "description": "Description",
+                  "node": "Node"
+                }
+              }
+            }
+          ],
+          "targets": [
+            {
+              "expr": "ALERTS{alertstate=\"firing\"}",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Alert History",
+          "description": "Number of firing alerts over time, grouped by alert name",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+          "id": 6,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "lineWidth": 1,
+                "stacking": {"mode": "normal"},
+                "spanNulls": false,
+                "showPoints": "never"
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "count(ALERTS{alertstate=\"firing\"}) by (alertname)",
+              "legendFormat": "{{alertname}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 22},
+          "id": 7,
+          "options": {
+            "mode": "markdown",
+            "content": "### Quick Links\n\n[Alertmanager UI](https://alertmanager.example.com) | [Prometheus Alerts](https://prometheus.example.com/alerts) | [Back to Cluster Home](/d/home-overview/cluster-home?orgId=1)"
+          }
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["alerts", "home", "noc"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Firing Alerts",
+      "uid": "firing-alerts",
+      "version": 1
+    }

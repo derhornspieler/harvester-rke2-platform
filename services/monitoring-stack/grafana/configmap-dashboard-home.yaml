@@ -10,7 +10,7 @@ data:
   home-overview.json: |
     {
       "annotations": {"list": []},
-      "description": "Single-page command center view of all RKE2 cluster components and services.",
+      "description": "NOC/SOC command center for the RKE2 cluster. Resource utilization, service health with instance counts, GatewayAPI traffic, and operational alerts.",
       "editable": true,
       "id": null,
       "links": [],
@@ -18,165 +18,24 @@ data:
         {
           "title": "",
           "type": "text",
-          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 0},
           "id": 1,
           "options": {
             "mode": "markdown",
-            "content": "## Cluster Health Overview\nReal-time snapshot of all RKE2 cluster components and services. Each service tile shows the number of Prometheus scrape targets responding. Click any tile to open its detailed dashboard."
+            "content": "## Cluster Health Overview\nService tiles show **UP N/N** (all instances running), **DEGRADED N/N** (partial availability), or **DOWN** (no instances). Colors: \ud83d\udfe2 healthy \ud83d\udfe0 degraded \ud83d\udd34 down. Click any tile to open its detailed dashboard."
           }
         },
         {
-          "title": "Nodes Ready",
-          "description": "Number of Kubernetes nodes in Ready state",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
-          "id": 2,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} == 1)",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Total Pods",
-          "description": "Total number of pods across all namespaces",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 4},
-          "id": 3,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "blue", "value": null}
-                ]
-              },
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(kube_pod_info{job=\"kube-state-metrics\"})",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Pods Not Ready",
-          "description": "Pods in Pending, Failed, or Unknown phase (excludes Running and Succeeded). Check the Firing Alerts table below for details.",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 4},
-          "id": 4,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "orange", "value": 1},
-                  {"color": "red", "value": 5}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(kube_pod_status_phase{phase=~\"Pending|Unknown|Failed\",job=\"kube-state-metrics\"} == 1) OR on() vector(0)",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Firing Alerts",
-          "description": "Number of Prometheus alert rules currently in firing state. See the Firing Alerts table below for details.",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 4},
-          "id": 5,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "orange", "value": 1},
-                  {"color": "red", "value": 5}
-                ]
-              },
-              "noValue": "0",
-              "mappings": [],
-              "links": [
-                {
-                  "title": "View in Alertmanager",
-                  "url": "https://alertmanager.example.com",
-                  "targetBlank": true
-                }
-              ]
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(ALERTS{alertstate=\"firing\"}) OR on() vector(0)",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "CPU Usage %",
+          "title": "CPU %",
           "description": "Average CPU utilization across all nodes",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
+          "gridPos": {"h": 4, "w": 8, "x": 0, "y": 2},
           "id": 6,
           "fieldConfig": {
             "defaults": {
               "unit": "percent",
+              "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -191,7 +50,7 @@ data:
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
             "colorMode": "background",
-            "graphMode": "none",
+            "graphMode": "area",
             "textMode": "auto"
           },
           "targets": [
@@ -203,15 +62,16 @@ data:
           ]
         },
         {
-          "title": "Memory Usage %",
+          "title": "Memory %",
           "description": "Average memory utilization across all nodes",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
+          "gridPos": {"h": 4, "w": 8, "x": 8, "y": 2},
           "id": 7,
           "fieldConfig": {
             "defaults": {
               "unit": "percent",
+              "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -226,7 +86,7 @@ data:
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
             "colorMode": "background",
-            "graphMode": "none",
+            "graphMode": "area",
             "textMode": "auto"
           },
           "targets": [
@@ -238,823 +98,16 @@ data:
           ]
         },
         {
-          "title": "",
-          "type": "text",
-          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 8},
-          "id": 30,
-          "options": {
-            "mode": "markdown",
-            "content": "### Infrastructure Components — targets up"
-          }
-        },
-        {
-          "title": "etcd",
-          "description": "etcd cluster members responding to Prometheus scrapes. Requires mTLS certs at /etc/prometheus/etcd-certs/. Expected: 3",
+          "title": "Storage %",
+          "description": "Average root filesystem usage across all nodes",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 10},
-          "id": 8,
-          "links": [{"title": "etcd Dashboard", "url": "/d/etcd-dashboard/etcd?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "orange", "value": 1},
-                  {"color": "green", "value": 3}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"etcd\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "API Server",
-          "description": "Kubernetes API server instances responding. Expected: 3 (one per control-plane node)",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 10},
-          "id": 9,
-          "links": [{"title": "API Server Dashboard", "url": "/d/apiserver-performance/api-server-performance?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "orange", "value": 1},
-                  {"color": "green", "value": 3}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"kubernetes-apiservers\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Traefik",
-          "description": "Traefik ingress controller pods responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 10},
-          "id": 10,
-          "links": [{"title": "Traefik Dashboard", "url": "/d/traefik-ingress-controller/traefik-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"traefik\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "CoreDNS",
-          "description": "CoreDNS pods responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 10},
-          "id": 11,
-          "links": [{"title": "CoreDNS Dashboard", "url": "/d/coredns-dashboard/coredns?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"coredns\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Cilium",
-          "description": "Cilium CNI agent pods responding (one per node). Expected: matches node count.",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 12, "y": 10},
-          "id": 12,
-          "links": [{"title": "Cilium Dashboard", "url": "/d/cilium-cni-overview/cilium-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"cilium-agent\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Prometheus",
-          "description": "Prometheus server self-scrape target",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 15, "y": 10},
-          "id": 13,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "up{job=\"prometheus\"}",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Loki",
-          "description": "Loki log aggregation service responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 18, "y": 10},
-          "id": 14,
-          "links": [{"title": "Loki Dashboard", "url": "/d/loki-logs/loki-logs?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"loki\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Alertmanager",
-          "description": "Alertmanager instances responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 21, "y": 10},
-          "id": 15,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"alertmanager\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "",
-          "type": "text",
-          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 13},
-          "id": 32,
-          "options": {
-            "mode": "markdown",
-            "content": "### Authentication — oauth2-proxy ForwardAuth targets up"
-          }
-        },
-        {
-          "title": "oauth2-proxy",
-          "description": "oauth2-proxy ForwardAuth instances responding. Protects Prometheus, AlertManager, Hubble, Traefik Dashboard, and Argo Rollouts. Expected: 5",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 6, "x": 0, "y": 15},
-          "id": 33,
-          "links": [{"title": "oauth2-proxy Dashboard", "url": "/d/oauth2-proxy-overview/oauth2-proxy-forwardauth?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "orange", "value": 3},
-                  {"color": "green", "value": 5}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"oauth2-proxy\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "",
-          "type": "text",
-          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 18},
-          "id": 31,
-          "options": {
-            "mode": "markdown",
-            "content": "### Application Services — targets up"
-          }
-        },
-        {
-          "title": "Vault",
-          "description": "HashiCorp Vault instances responding. Standby nodes need unauthenticated_metrics_access=true in telemetry config.",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 20},
-          "id": 16,
-          "links": [{"title": "Vault Dashboard", "url": "/d/vault-cluster-overview/vault-cluster-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"vault\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "GitLab",
-          "description": "GitLab service endpoints responding (webservice, sidekiq, gitaly, etc.)",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 20},
-          "id": 17,
-          "links": [{"title": "GitLab Dashboard", "url": "/d/gitlab-overview/gitlab-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"gitlab-exporter\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "ArgoCD",
-          "description": "ArgoCD component metrics endpoints responding (controller, server, repo-server, applicationSet)",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 20},
-          "id": 18,
-          "links": [{"title": "ArgoCD Dashboard", "url": "/d/argocd-overview/argocd-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"argocd\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Harbor",
-          "description": "Harbor registry component endpoints responding (core, registry, exporter)",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 20},
-          "id": 19,
-          "links": [{"title": "Harbor Dashboard", "url": "/d/harbor-overview/harbor-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"harbor\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Keycloak",
-          "description": "Keycloak IAM instances responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 12, "y": 20},
-          "id": 20,
-          "links": [{"title": "Keycloak Dashboard", "url": "/d/keycloak-overview/keycloak-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"keycloak\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Mattermost",
-          "description": "Mattermost messaging service responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 15, "y": 20},
-          "id": 21,
-          "links": [{"title": "Mattermost Dashboard", "url": "/d/mattermost-overview/mattermost-overview?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"mattermost\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "PostgreSQL",
-          "description": "CloudNativePG PostgreSQL instances responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 18, "y": 20},
-          "id": 22,
-          "links": [{"title": "CNPG Dashboard", "url": "/d/cnpg-cluster/cloudnativepg-cluster?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(up{job=\"cnpg-postgresql\"} == 1) OR on() vector(0)",
-              "legendFormat": "targets up",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "cert-manager",
-          "description": "cert-manager controller responding",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 21, "y": 20},
-          "id": 23,
-          "links": [{"title": "cert-manager Dashboard", "url": "/d/cert-manager-certificates/cert-manager?orgId=1", "targetBlank": false}],
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "green", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "up{job=\"cert-manager\"}",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Cluster CPU by Node",
-          "type": "timeseries",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
-          "id": 24,
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 1,
-                "stacking": {"mode": "none"},
-                "spanNulls": false
-              }
-            }
-          },
-          "options": {
-            "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
-          },
-          "targets": [
-            {
-              "expr": "sum(rate(node_cpu_seconds_total{mode!=\"idle\",job=\"node-exporter\"}[5m])) by (node)",
-              "legendFormat": "{{node}}",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Cluster Memory by Node",
-          "type": "timeseries",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
-          "id": 25,
-          "fieldConfig": {
-            "defaults": {
-              "unit": "bytes",
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 1,
-                "stacking": {"mode": "none"},
-                "spanNulls": false
-              }
-            }
-          },
-          "options": {
-            "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
-          },
-          "targets": [
-            {
-              "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\"}",
-              "legendFormat": "{{node}}",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Firing Alerts",
-          "description": "All Prometheus alert rules currently in firing state. Sorted by severity.",
-          "type": "table",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
-          "id": 26,
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "align": "auto",
-                "displayMode": "auto"
-              }
-            },
-            "overrides": [
-              {
-                "matcher": {"id": "byName", "options": "severity"},
-                "properties": [
-                  {
-                    "id": "custom.displayMode",
-                    "value": "color-background-solid"
-                  },
-                  {
-                    "id": "mappings",
-                    "value": [
-                      {"type": "value", "options": {"critical": {"color": "red", "text": "critical"}, "warning": {"color": "orange", "text": "warning"}, "info": {"color": "blue", "text": "info"}}}
-                    ]
-                  },
-                  {"id": "custom.width", "value": 80}
-                ]
-              },
-              {
-                "matcher": {"id": "byName", "options": "alertname"},
-                "properties": [
-                  {"id": "custom.width", "value": 220}
-                ]
-              }
-            ]
-          },
-          "options": {
-            "showHeader": true,
-            "sortBy": [{"displayName": "severity", "desc": true}]
-          },
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true,
-                  "__name__": true,
-                  "alertstate": true,
-                  "Value": true,
-                  "instance": true,
-                  "endpoint": true,
-                  "service": true,
-                  "container": true,
-                  "pod": true,
-                  "uid": true
-                },
-                "indexByName": {
-                  "alertname": 0,
-                  "severity": 1,
-                  "namespace": 2,
-                  "job": 3,
-                  "node": 4
-                },
-                "renameByName": {
-                  "alertname": "Alert",
-                  "severity": "Severity",
-                  "namespace": "Namespace",
-                  "job": "Job",
-                  "node": "Node"
-                }
-              }
-            }
-          ],
-          "targets": [
-            {
-              "expr": "ALERTS{alertstate=\"firing\"}",
-              "format": "table",
-              "instant": true,
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Container Restarts (1h)",
-          "type": "timeseries",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
-          "id": 27,
-          "fieldConfig": {
-            "defaults": {
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 1,
-                "stacking": {"mode": "none"},
-                "spanNulls": false
-              }
-            }
-          },
-          "options": {
-            "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
-          },
-          "targets": [
-            {
-              "expr": "topk(10, increase(kube_pod_container_status_restarts_total[1h])) > 0",
-              "legendFormat": "{{namespace}}/{{pod}}",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Disk Usage by Node",
-          "type": "timeseries",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 39},
-          "id": 28,
+          "gridPos": {"h": 4, "w": 8, "x": 16, "y": 2},
+          "id": 41,
           "fieldConfig": {
             "defaults": {
               "unit": "percent",
-              "min": 0,
-              "max": 100,
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 1,
-                "stacking": {"mode": "none"},
-                "spanNulls": false
-              },
+              "decimals": 1,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -1062,61 +115,795 @@ data:
                   {"color": "orange", "value": 70},
                   {"color": "red", "value": 90}
                 ]
-              }
+              },
+              "mappings": []
             }
           },
           "options": {
-            "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "area",
+            "textMode": "auto"
           },
           "targets": [
             {
-              "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\",job=\"node-exporter\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\",job=\"node-exporter\"}) * 100",
-              "legendFormat": "{{node}}",
+              "expr": "avg((1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\",job=\"node-exporter\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\",job=\"node-exporter\"}) * 100)",
+              "legendFormat": "",
               "refId": "A"
             }
           ]
         },
         {
+          "title": "Nodes Ready",
+          "description": "Kubernetes nodes in Ready state",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 0, "y": 6},
+          "id": 2,
+          "links": [{"title": "Node Detail", "url": "/d/node-detail/node-deep-dive?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": null},
+                  {"color": "green", "value": 1}
+                ]
+              },
+              "mappings": []
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} == 1)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Total Pods",
+          "description": "Total pods across all namespaces",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 4, "y": 6},
+          "id": 3,
+          "links": [{"title": "Pod Monitoring", "url": "/d/pod-monitoring/pod-monitoring?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+              "mappings": []
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(kube_pod_info{job=\"kube-state-metrics\"})", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Pods Not Ready",
+          "description": "Pods in Pending, Failed, or Unknown phase",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 8, "y": 6},
+          "id": 4,
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]},
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(kube_pod_status_phase{phase=~\"Pending|Unknown|Failed\",job=\"kube-state-metrics\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Firing Alerts",
+          "description": "Prometheus alerts currently firing. Click to view details.",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 12, "y": 6},
+          "id": 5,
+          "links": [{"title": "Firing Alerts Dashboard", "url": "/d/firing-alerts/firing-alerts?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]},
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(ALERTS{alertstate=\"firing\"}) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Traefik RPS",
+          "description": "Total HTTP request rate across all Traefik entrypoints (GatewayAPI controller)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 16, "y": 6},
+          "id": 42,
+          "links": [{"title": "Traefik Dashboard", "url": "/d/traefik-ingress-controller/traefik-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 1,
+              "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+              "noValue": "0"
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_requests_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Active Connections",
+          "description": "Total open connections across all Traefik entrypoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 20, "y": 6},
+          "id": 43,
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+              "noValue": "0"
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(traefik_open_connections)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 9},
+          "id": 30,
+          "options": {"mode": "markdown", "content": "### Infrastructure Components"}
+        },
+        {
+          "title": "etcd",
+          "description": "etcd cluster members responding. Expected: 3",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 11},
+          "id": 8,
+          "links": [{"title": "etcd Dashboard", "url": "/d/etcd-dashboard/etcd?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/3", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/3", "color": "orange", "index": 2}, "2": {"text": "DEGRADED 2/3", "color": "orange", "index": 3}, "3": {"text": "UP 3/3", "color": "green", "index": 4}}},
+                {"type": "range", "options": {"from": 4, "to": 999, "result": {"text": "UP", "color": "green", "index": 5}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"etcd\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "API Server",
+          "description": "Kubernetes API server instances. Expected: 3 (one per control-plane node)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 11},
+          "id": 9,
+          "links": [{"title": "API Server Dashboard", "url": "/d/apiserver-performance/api-server-performance?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/3", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/3", "color": "orange", "index": 2}, "2": {"text": "DEGRADED 2/3", "color": "orange", "index": 3}, "3": {"text": "UP 3/3", "color": "green", "index": 4}}},
+                {"type": "range", "options": {"from": 4, "to": 999, "result": {"text": "UP", "color": "green", "index": 5}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"kubernetes-apiservers\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Traefik",
+          "description": "Traefik GatewayAPI controller pods (DaemonSet on all nodes)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 11},
+          "id": 10,
+          "links": [{"title": "Traefik Dashboard", "url": "/d/traefik-ingress-controller/traefik-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"traefik\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "CoreDNS",
+          "description": "CoreDNS pods responding. Expected: 2",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 11},
+          "id": 11,
+          "links": [{"title": "CoreDNS Dashboard", "url": "/d/coredns-dashboard/coredns?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/2", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/2", "color": "orange", "index": 2}, "2": {"text": "UP 2/2", "color": "green", "index": 3}}},
+                {"type": "range", "options": {"from": 3, "to": 999, "result": {"text": "UP", "color": "green", "index": 4}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"coredns\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Cilium",
+          "description": "Cilium hubble-relay responding (agent scraping blocked by host firewall on port 9962)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 12, "y": 11},
+          "id": 12,
+          "links": [{"title": "Cilium Dashboard", "url": "/d/cilium-cni-overview/cilium-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"hubble-relay\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Prometheus",
+          "description": "Prometheus server self-scrape target",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 15, "y": 11},
+          "id": 13,
+          "links": [{"title": "Prometheus UI", "url": "https://prometheus.example.com", "targetBlank": true}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"prometheus\"}", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Loki",
+          "description": "Loki log aggregation service responding",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 18, "y": 11},
+          "id": 14,
+          "links": [{"title": "Loki Dashboard", "url": "/d/loki-logs/loki-logs?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"loki\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Alertmanager",
+          "description": "Alertmanager instances responding",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 21, "y": 11},
+          "id": 15,
+          "links": [{"title": "Alertmanager UI", "url": "https://alertmanager.example.com", "targetBlank": true}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"alertmanager\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 14},
+          "id": 32,
+          "options": {"mode": "markdown", "content": "### Security & Authentication"}
+        },
+        {
+          "title": "Keycloak",
+          "description": "Keycloak IAM instances responding. Expected: 2",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 16},
+          "id": 20,
+          "links": [{"title": "Keycloak Dashboard", "url": "/d/keycloak-overview/keycloak-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/2", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/2", "color": "orange", "index": 2}, "2": {"text": "UP 2/2", "color": "green", "index": 3}}},
+                {"type": "range", "options": {"from": 3, "to": 999, "result": {"text": "UP", "color": "green", "index": 4}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"keycloak\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "oauth2-proxy",
+          "description": "oauth2-proxy ForwardAuth deployments with ready replicas. Expected: 5",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 16},
+          "id": 33,
+          "links": [{"title": "oauth2-proxy Dashboard", "url": "/d/oauth2-proxy-overview/oauth2-proxy-forwardauth?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/5", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/5", "color": "orange", "index": 2}, "2": {"text": "DEGRADED 2/5", "color": "orange", "index": 3}, "3": {"text": "DEGRADED 3/5", "color": "orange", "index": 4}, "4": {"text": "DEGRADED 4/5", "color": "orange", "index": 5}, "5": {"text": "UP 5/5", "color": "green", "index": 6}}},
+                {"type": "range", "options": {"from": 6, "to": 999, "result": {"text": "UP", "color": "green", "index": 7}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(kube_deployment_status_replicas_ready{deployment=~\"oauth2-proxy.*\"} > 0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "cert-manager",
+          "description": "cert-manager controller responding",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 16},
+          "id": 23,
+          "links": [{"title": "cert-manager Dashboard", "url": "/d/cert-manager-certificates/cert-manager?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"cert-manager\"}", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Grafana",
+          "description": "Grafana dashboard service responding",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 16},
+          "id": 34,
+          "links": [],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "up{job=\"grafana\"}", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 19},
+          "id": 31,
+          "options": {"mode": "markdown", "content": "### Application Services"}
+        },
+        {
+          "title": "Vault",
+          "description": "HashiCorp Vault instances responding. Expected: 3",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 21},
+          "id": 16,
+          "links": [{"title": "Vault Dashboard", "url": "/d/vault-cluster-overview/vault-cluster-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/3", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/3", "color": "orange", "index": 2}, "2": {"text": "DEGRADED 2/3", "color": "orange", "index": 3}, "3": {"text": "UP 3/3", "color": "green", "index": 4}}},
+                {"type": "range", "options": {"from": 4, "to": 999, "result": {"text": "UP", "color": "green", "index": 5}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"vault\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "GitLab",
+          "description": "GitLab service endpoints responding (webservice, sidekiq, gitaly, etc.)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 21},
+          "id": 17,
+          "links": [{"title": "GitLab Dashboard", "url": "/d/gitlab-overview/gitlab-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"gitlab-exporter\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "ArgoCD",
+          "description": "ArgoCD components responding (server, repo-server, controller, applicationSet)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 21},
+          "id": 18,
+          "links": [{"title": "ArgoCD Dashboard", "url": "/d/argocd-overview/argocd-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"argocd\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Harbor",
+          "description": "Harbor registry components responding (core, registry, exporter)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 21},
+          "id": 19,
+          "links": [{"title": "Harbor Dashboard", "url": "/d/harbor-overview/harbor-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"harbor\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Mattermost",
+          "description": "Mattermost messaging service responding",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 12, "y": 21},
+          "id": 21,
+          "links": [{"title": "Mattermost Dashboard", "url": "/d/mattermost-overview/mattermost-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}, "1": {"text": "UP", "color": "green", "index": 2}}},
+                {"type": "range", "options": {"from": 2, "to": 999, "result": {"text": "UP", "color": "green", "index": 3}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"mattermost\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "PostgreSQL",
+          "description": "CloudNativePG PostgreSQL instances responding",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 15, "y": 21},
+          "id": 22,
+          "links": [{"title": "CNPG Dashboard", "url": "/d/cnpg-cluster/cloudnativepg-cluster?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"cnpg-postgresql\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Redis",
+          "description": "Redis session store for oauth2-proxy. Expected: 3",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 18, "y": 21},
+          "id": 35,
+          "links": [{"title": "Redis Dashboard", "url": "/d/redis-overview/redis-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/3", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/3", "color": "orange", "index": 2}, "2": {"text": "DEGRADED 2/3", "color": "orange", "index": 3}, "3": {"text": "UP 3/3", "color": "green", "index": 4}}},
+                {"type": "range", "options": {"from": 4, "to": 999, "result": {"text": "UP", "color": "green", "index": 5}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"redis-exporter\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Argo Rollouts",
+          "description": "Argo Rollouts controller instances. Expected: 2",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 21, "y": 21},
+          "id": 40,
+          "links": [{"title": "Argo Rollouts Dashboard", "url": "/d/argo-rollouts-overview/argo-rollouts-overview?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN 0/2", "color": "red", "index": 1}, "1": {"text": "DEGRADED 1/2", "color": "orange", "index": 2}, "2": {"text": "UP 2/2", "color": "green", "index": 3}}},
+                {"type": "range", "options": {"from": 3, "to": 999, "result": {"text": "UP", "color": "green", "index": 4}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"argo-rollouts\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 24},
+          "id": 36,
+          "options": {"mode": "markdown", "content": "### Custom Operators"}
+        },
+        {
+          "title": "Storage Autoscaler",
+          "description": "PVC storage autoscaler controller instances",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 26},
+          "id": 37,
+          "links": [{"title": "Storage Autoscaler Dashboard", "url": "/d/storage-autoscaler/storage-autoscaler?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"kubernetes-pods\",namespace=\"storage-autoscaler\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Node Labeler",
+          "description": "Node labeler controller instances (DaemonSet on control-plane nodes)",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 26},
+          "id": 44,
+          "links": [{"title": "Node Labeler Dashboard", "url": "/d/node-labeler/node-labeler?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "DOWN", "color": "red", "index": 0}}},
+                {"type": "value", "options": {"0": {"text": "DOWN", "color": "red", "index": 1}}},
+                {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green", "index": 2}}}
+              ]
+            }
+          },
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
+          "targets": [{"expr": "count(up{job=\"kubernetes-pods\",namespace=\"node-labeler\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 29},
+          "id": 45,
+          "options": {"mode": "markdown", "content": "### Traffic & Ingress (Traefik GatewayAPI)"}
+        },
+        {
+          "title": "Entrypoint RPS",
+          "description": "Total HTTP request rate across all Traefik entrypoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 0, "y": 31},
+          "id": 46,
+          "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 1, "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_requests_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "TLS RPS",
+          "description": "TLS-terminated request rate through Traefik",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 4, "y": 31},
+          "id": 47,
+          "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 1, "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_requests_tls_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Error Rate %",
+          "description": "Percentage of 5xx responses across all Traefik services",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 8, "y": 31},
+          "id": 48,
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_service_requests_total{code=~\"5..\"}[5m])) / sum(rate(traefik_service_requests_total[5m])) * 100", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Avg Latency",
+          "description": "Average request duration across all Traefik entrypoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 12, "y": 31},
+          "id": 49,
+          "fieldConfig": {"defaults": {"unit": "ms", "decimals": 1, "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 500}, {"color": "red", "value": 2000}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_request_duration_seconds_sum[5m])) / sum(rate(traefik_entrypoint_request_duration_seconds_count[5m])) * 1000", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Inbound Bytes/s",
+          "description": "Total inbound request bytes across all Traefik entrypoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 16, "y": 31},
+          "id": 50,
+          "fieldConfig": {"defaults": {"unit": "Bps", "decimals": 1, "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_requests_bytes_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Outbound Bytes/s",
+          "description": "Total outbound response bytes across all Traefik entrypoints",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 4, "x": 20, "y": 31},
+          "id": 51,
+          "fieldConfig": {"defaults": {"unit": "Bps", "decimals": 1, "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(traefik_entrypoint_responses_bytes_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Cluster CPU by Node",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+          "id": 24,
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum(rate(node_cpu_seconds_total{mode!=\"idle\",job=\"node-exporter\"}[5m])) by (node)", "legendFormat": "{{node}}", "refId": "A"}]
+        },
+        {
+          "title": "Cluster Memory by Node",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
+          "id": 25,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "node_memory_MemTotal_bytes{job=\"node-exporter\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\"}", "legendFormat": "{{node}}", "refId": "A"}]
+        },
+        {
+          "title": "Traefik RPS by Service (Top 15)",
+          "description": "Request rate through Traefik per backend service (GatewayAPI routes)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 42},
+          "id": 52,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "topk(15, sum(rate(traefik_service_requests_total[5m])) by (service))", "legendFormat": "{{service}}", "refId": "A"}]
+        },
+        {
+          "title": "Traefik Service Latency p99",
+          "description": "99th percentile request duration per Traefik backend service",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 42},
+          "id": 53,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "topk(10, histogram_quantile(0.99, sum(rate(traefik_service_request_duration_seconds_bucket[5m])) by (le, service)))", "legendFormat": "{{service}}", "refId": "A"}]
+        },
+        {
+          "title": "Firing Alerts",
+          "description": "Prometheus alerts currently firing, sorted by severity",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 50},
+          "id": 26,
+          "fieldConfig": {
+            "defaults": {"custom": {"align": "auto", "displayMode": "auto"}},
+            "overrides": [
+              {"matcher": {"id": "byName", "options": "severity"}, "properties": [{"id": "custom.displayMode", "value": "color-background-solid"}, {"id": "mappings", "value": [{"type": "value", "options": {"critical": {"color": "red", "text": "critical"}, "warning": {"color": "orange", "text": "warning"}, "info": {"color": "blue", "text": "info"}}}]}, {"id": "custom.width", "value": 80}]},
+              {"matcher": {"id": "byName", "options": "alertname"}, "properties": [{"id": "custom.width", "value": 220}]}
+            ]
+          },
+          "options": {"showHeader": true, "sortBy": [{"displayName": "severity", "desc": true}]},
+          "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "alertstate": true, "Value": true, "instance": true, "endpoint": true, "service": true, "container": true, "pod": true, "uid": true}, "indexByName": {"alertname": 0, "severity": 1, "namespace": 2, "job": 3, "node": 4}, "renameByName": {"alertname": "Alert", "severity": "Severity", "namespace": "Namespace", "job": "Job", "node": "Node"}}}],
+          "targets": [{"expr": "ALERTS{alertstate=\"firing\"}", "format": "table", "instant": true, "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Container Restarts (1h)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 50},
+          "id": 27,
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "topk(10, increase(kube_pod_container_status_restarts_total[1h])) > 0", "legendFormat": "{{namespace}}/{{pod}}", "refId": "A"}]
+        },
+        {
+          "title": "Disk Usage by Node",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 58},
+          "id": 28,
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\",job=\"node-exporter\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\",job=\"node-exporter\"}) * 100", "legendFormat": "{{node}}", "refId": "A"}]
+        },
+        {
           "title": "PVC Usage Top 10",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 39},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 58},
           "id": 29,
-          "fieldConfig": {
-            "defaults": {
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
-              "custom": {
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "lineWidth": 1,
-                "stacking": {"mode": "none"},
-                "spanNulls": false
-              }
-            }
-          },
-          "options": {
-            "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
-          },
-          "targets": [
-            {
-              "expr": "topk(10, kubelet_volume_stats_used_bytes{job=\"kubelet\"} / kubelet_volume_stats_capacity_bytes{job=\"kubelet\"} * 100)",
-              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
-              "refId": "A"
-            }
-          ]
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "topk(10, kubelet_volume_stats_used_bytes{job=\"kubelet\"} / kubelet_volume_stats_capacity_bytes{job=\"kubelet\"} * 100)", "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,
-      "tags": ["home", "overview", "rke2"],
+      "tags": ["home", "overview", "rke2", "noc"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},
       "timezone": "browser",
       "title": "Cluster Home",
       "uid": "home-overview",
-      "version": 2
+      "version": 3
     }

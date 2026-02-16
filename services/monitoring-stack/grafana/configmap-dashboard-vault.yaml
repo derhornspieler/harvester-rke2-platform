@@ -21,7 +21,7 @@ data:
           "id": 13,
           "options": {
             "mode": "markdown",
-            "content": "### Vault HA Metrics\nVault standby nodes only serve metrics if `unauthenticated_metrics_access = true` is set in the telemetry stanza. If you see **DOWN** for standby instances, enable this in your Vault Helm values under `server.ha.config`. Only the active leader exposes request/audit metrics. Some metrics like `vault_core_handle_request_count` use Vault's summary format."
+            "content": "### Vault HA Metrics\nVault standby nodes only serve metrics if `unauthenticated_metrics_access = true` is set in the telemetry stanza. If you see **DOWN** for standby instances, enable this in your Vault Helm values under `server.ha.config`. Barrier ops show combined `vault_barrier_get` + `vault_barrier_put` rates. Raft commit times and in-flight requests are sourced from `vault_raft_commitTime` and `vault_core_in_flight_requests` gauges."
           }
         },
         {
@@ -45,14 +45,14 @@ data:
           "targets": [{"expr": "vault_core_active{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
-          "title": "HA Enabled",
+          "title": "Autopilot Health",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 4, "x": 8, "y": 4},
           "id": 3,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "NO", "color": "red"}, "1": {"text": "YES", "color": "green"}}}]}},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "UNHEALTHY", "color": "red"}, "1": {"text": "HEALTHY", "color": "green"}}}]}},
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "vault_core_ha_enabled{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+          "targets": [{"expr": "vault_autopilot_healthy{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
           "title": "Vault Up",
@@ -65,14 +65,14 @@ data:
           "targets": [{"expr": "up{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
-          "title": "Token Count",
+          "title": "Active Leases",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
           "id": 5,
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5000}, {"color": "red", "value": 10000}]}}},
           "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "vault_token_count{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+          "targets": [{"expr": "vault_expire_num_leases{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
           "title": "Lease Count",
@@ -85,24 +85,24 @@ data:
           "targets": [{"expr": "vault_expire_num_leases{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
-          "title": "Request Rate",
+          "title": "Barrier Ops Rate",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
           "id": 7,
           "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "vault_core_handle_request_count{quantile=\"0.5\",job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+          "targets": [{"expr": "rate(vault_barrier_get{job=\"vault\"}[5m]) + rate(vault_barrier_put{job=\"vault\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
-          "title": "Request Duration (p99)",
+          "title": "Raft Commit p99",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "fieldConfig": {"defaults": {"unit": "ms", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "histogram_quantile(0.99, rate(vault_core_handle_request_duration_seconds_bucket{job=\"vault\"}[5m]))", "legendFormat": "p99 {{instance}}", "refId": "A"}]
+          "targets": [{"expr": "vault_raft_commitTime{quantile=\"0.99\",job=\"vault\"}", "legendFormat": "p99 {{instance}}", "refId": "A"}]
         },
         {
           "title": "Raft Commit Time",
@@ -125,16 +125,27 @@ data:
           "targets": [{"expr": "vault_raft_leader_lastContact{job=\"vault\"}", "legendFormat": "{{quantile}} {{instance}}", "refId": "A"}]
         },
         {
-          "title": "Audit Log Request/Response",
+          "title": "In-Flight Requests",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "gridPos": {"h": 8, "w": 6, "x": 0, "y": 24},
           "id": 11,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "vault_core_in_flight_requests{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "Rollback Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 6, "x": 6, "y": 24},
+          "id": 14,
           "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
-            {"expr": "rate(vault_audit_log_request_count{job=\"vault\"}[5m])", "legendFormat": "request {{instance}}", "refId": "A"},
-            {"expr": "rate(vault_audit_log_response_count{job=\"vault\"}[5m])", "legendFormat": "response {{instance}}", "refId": "B"}
+            {"expr": "rate(vault_rollback_attempt_count{job=\"vault\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}
           ]
         },
         {

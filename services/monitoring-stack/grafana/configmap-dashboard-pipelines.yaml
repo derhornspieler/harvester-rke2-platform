@@ -141,8 +141,8 @@ data:
           },
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
-            {"expr": "histogram_quantile(0.99, sum(rate(sidekiq_jobs_execution_time_bucket{namespace=\"gitlab\"}[5m])) by (le))", "legendFormat": "p99", "refId": "A"},
-            {"expr": "histogram_quantile(0.50, sum(rate(sidekiq_jobs_execution_time_bucket{namespace=\"gitlab\"}[5m])) by (le))", "legendFormat": "p50", "refId": "B"}
+            {"expr": "histogram_quantile(0.99, sum(rate(sidekiq_jobs_completion_seconds_bucket{namespace=\"gitlab\"}[5m])) by (le))", "legendFormat": "p99", "refId": "A"},
+            {"expr": "histogram_quantile(0.50, sum(rate(sidekiq_jobs_completion_seconds_bucket{namespace=\"gitlab\"}[5m])) by (le))", "legendFormat": "p50", "refId": "B"}
           ]
         },
         {
@@ -173,7 +173,7 @@ data:
             }
           },
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "sidekiq_queue_latency{namespace=\"gitlab\"}", "legendFormat": "{{name}}", "refId": "A"}]
+          "targets": [{"expr": "sidekiq_queue_latency_seconds{namespace=\"gitlab\"}", "legendFormat": "{{name}}", "refId": "A"}]
         },
         {
           "title": "Gitaly Operations",
@@ -203,7 +203,7 @@ data:
             }
           },
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "sum(rate(gitaly_service_client_requests_total{namespace=\"gitlab\",grpc_method=~\"PostReceivePack|SSHReceivePack|PostUploadPackWithSidechannel|SSHUploadPackWithSidechannel\"}[5m])) by (grpc_method)", "legendFormat": "{{grpc_method}}", "refId": "A"}]
+          "targets": [{"expr": "sum(rate(gitaly_service_client_requests_total{namespace=\"gitlab\",grpc_method=~\".*ReceivePack.*|.*UploadPack.*\"}[5m])) by (grpc_method)", "legendFormat": "{{grpc_method}}", "refId": "A"}]
         },
         {
           "title": "Sidekiq Job Activity Heatmap",

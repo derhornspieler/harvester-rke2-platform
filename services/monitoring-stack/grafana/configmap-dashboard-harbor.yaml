@@ -42,7 +42,7 @@ data:
           "id": 3,
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "harbor_repo_total{job=\"harbor\"}", "legendFormat": "Repositories", "refId": "A"}]
+          "targets": [{"expr": "harbor_statistics_total_repo_amount{job=\"harbor\"}", "legendFormat": "Repositories", "refId": "A"}]
         },
         {
           "title": "Storage Used",
@@ -55,16 +55,16 @@ data:
           "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor\"}", "legendFormat": "Storage", "refId": "A"}]
         },
         {
-          "title": "Artifact Push/Pull Rate",
+          "title": "Artifact Pull / Push Request Rate",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "fieldConfig": {"defaults": {"unit": "ops", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
-            {"expr": "rate(harbor_artifact_pulled_total{job=\"harbor\"}[5m])", "legendFormat": "Pulls", "refId": "A"},
-            {"expr": "rate(harbor_artifact_pushed_total{job=\"harbor\"}[5m])", "legendFormat": "Pushes", "refId": "B"}
+            {"expr": "rate(harbor_artifact_pulled{job=\"harbor\"}[5m])", "legendFormat": "Pulls", "refId": "A"},
+            {"expr": "rate(harbor_core_http_request_total{job=\"harbor\", operation=\"push\"}[5m])", "legendFormat": "Push Request Rate", "refId": "B"}
           ]
         },
         {
@@ -88,17 +88,18 @@ data:
           "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor\"}", "legendFormat": "{{project_name}}", "refId": "A"}]
         },
         {
-          "title": "System Volumes / GC",
+          "title": "Task Queue",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "description": "Harbor task queue metrics: scheduled tasks, queue latency, and queue size.",
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
-            {"expr": "harbor_gc_run_count{job=\"harbor\"}", "legendFormat": "GC Runs", "refId": "A"},
-            {"expr": "harbor_gc_deleted_blobs{job=\"harbor\"}", "legendFormat": "GC Deleted Blobs", "refId": "B"},
-            {"expr": "harbor_gc_freed_bytes{job=\"harbor\"}", "legendFormat": "GC Freed Bytes", "refId": "C"}
+            {"expr": "harbor_task_scheduled_total{job=\"harbor\"}", "legendFormat": "Scheduled Tasks", "refId": "A"},
+            {"expr": "harbor_task_queue_latency{job=\"harbor\"}", "legendFormat": "Queue Latency", "refId": "B"},
+            {"expr": "harbor_task_queue_size{job=\"harbor\"}", "legendFormat": "Queue Size", "refId": "C"}
           ]
         },
         {
@@ -109,19 +110,20 @@ data:
           "id": 9,
           "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "harbor_task_run_count{job=\"harbor\"}", "legendFormat": "{{status}}", "refId": "A"}]
+          "targets": [{"expr": "harbor_task_scheduled_total{job=\"harbor\"}", "legendFormat": "{{status}}", "refId": "A"}]
         },
         {
-          "title": "Scan Results",
+          "title": "Registry Health & Storage Operations",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "description": "Harbor registry health status and storage operation counts.",
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
-            {"expr": "harbor_artifact_scanned_total{job=\"harbor\"}", "legendFormat": "Scanned Artifacts", "refId": "A"},
-            {"expr": "harbor_scan_total{job=\"harbor\"}", "legendFormat": "{{status}}", "refId": "B"}
+            {"expr": "harbor_health{job=\"harbor\"}", "legendFormat": "Registry Health", "refId": "A"},
+            {"expr": "rate(registry_storage_action_seconds_count{job=\"harbor\"}[5m])", "legendFormat": "Storage Ops ({{action}})", "refId": "B"}
           ]
         }
       ],
@@ -134,5 +136,5 @@ data:
       "title": "Harbor Registry Overview",
       "uid": "harbor-overview",
       "version": 1,
-      "description": "Harbor container registry monitoring dashboard covering component health, project and repository counts, artifact push/pull rates, HTTP request metrics, quota usage, garbage collection, replication tasks, and vulnerability scanning results."
+      "description": "Harbor container registry monitoring dashboard covering component health, project and repository counts, artifact pull and push request rates, HTTP request metrics, quota usage, task queue status, replication tasks, and registry health with storage operations."
     }

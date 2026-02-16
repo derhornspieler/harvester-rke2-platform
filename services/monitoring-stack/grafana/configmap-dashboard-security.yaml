@@ -116,6 +116,7 @@ data:
         },
         {
           "title": "Cilium Policy Violations",
+          "description": "Empty when no violations detected — this is healthy.",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
@@ -123,6 +124,7 @@ data:
           "fieldConfig": {
             "defaults": {
               "unit": "ops",
+              "noValue": "0",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 10,
@@ -243,7 +245,7 @@ data:
           ]
         },
         {
-          "title": "Vault Audit Events",
+          "title": "Vault Barrier Reads",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
@@ -262,19 +264,43 @@ data:
           },
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
-            {"expr": "rate(vault_audit_log_request_count[5m])", "legendFormat": "requests {{instance}}", "refId": "A"},
-            {"expr": "rate(vault_audit_log_response_count[5m])", "legendFormat": "responses {{instance}}", "refId": "B"}
+            {"expr": "rate(vault_barrier_get[5m])", "legendFormat": "reads {{instance}}", "refId": "A"}
+          ]
+        },
+        {
+          "title": "Vault In-Flight Requests",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "id": 20,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "auto"
+              }
+            }
+          },
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "vault_core_in_flight_requests", "legendFormat": "{{instance}}", "refId": "A"}
           ]
         },
         {
           "title": "Network Policy Drops",
+          "description": "Empty when no violations detected — this is healthy.",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 9,
           "fieldConfig": {
             "defaults": {
               "unit": "ops",
+              "noValue": "0",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 10,
@@ -291,9 +317,10 @@ data:
         },
         {
           "title": "RBAC Denied Requests",
+          "description": "Empty when no violations detected — this is healthy.",
           "type": "logs",
           "datasource": {"type": "loki", "uid": "loki"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
           "id": 10,
           "options": {
             "showTime": true,

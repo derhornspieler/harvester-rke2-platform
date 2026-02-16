@@ -28,9 +28,10 @@ data:
           "title": "Cilium Agents Up",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Requires cilium-agent scrape job. Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
           "id": 1,
-          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A (agent port blocked)", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
           "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "count(up{job=\"cilium-agent\"} == 1)", "refId": "A"}]
         },
@@ -38,9 +39,10 @@ data:
           "title": "Cilium Agents Down",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Requires cilium-agent scrape job. Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 4, "w": 4, "x": 4, "y": 4},
           "id": 2,
-          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A (agent port blocked)", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
           "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "count(up{job=\"cilium-agent\"} == 0)", "refId": "A"}]
         },
@@ -68,21 +70,22 @@ data:
           "title": "Endpoints Not Ready",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Counts endpoints in any state other than ready. Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
           "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
-          "targets": [{"expr": "sum(cilium_endpoint_state{endpoint_state=\"not-ready\"})", "refId": "A"}]
+          "targets": [{"expr": "sum(cilium_endpoint_state{endpoint_state!=\"ready\"}) OR on() vector(0)", "refId": "A"}]
         },
         {
-          "title": "Policy Import Errors",
+          "title": "Policy Change Rate",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
           "id": 6,
           "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
           "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
-          "targets": [{"expr": "sum(cilium_policy_import_errors_total)", "refId": "A"}]
+          "targets": [{"expr": "rate(cilium_policy_change_total[5m])", "refId": "A"}]
         },
         {
           "title": "Endpoint State by Node",
@@ -95,19 +98,20 @@ data:
           "targets": [{"expr": "cilium_endpoint_state", "legendFormat": "{{instance}} - {{endpoint_state}}", "refId": "A"}]
         },
         {
-          "title": "Network Policy Count",
+          "title": "Policy Count",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
           "id": 8,
           "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
-          "targets": [{"expr": "cilium_policy_count", "legendFormat": "{{instance}}", "refId": "A"}]
+          "targets": [{"expr": "cilium_policy", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
           "title": "Forwarded Bytes",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
           "id": 9,
           "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
@@ -118,6 +122,7 @@ data:
           "title": "Forwarded Packets",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
           "id": 10,
           "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
@@ -128,6 +133,7 @@ data:
           "title": "Drop Reason",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
           "id": 11,
           "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
@@ -135,19 +141,21 @@ data:
           "targets": [{"expr": "rate(cilium_drop_count_total[5m])", "legendFormat": "{{reason}}", "refId": "A"}]
         },
         {
-          "title": "API Call Duration (p99)",
+          "title": "API Limiter Processing Duration",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
           "id": 12,
           "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
-          "targets": [{"expr": "histogram_quantile(0.99, rate(cilium_api_limiter_processing_duration_seconds_bucket[5m]))", "legendFormat": "{{api_call}}", "refId": "A"}]
+          "targets": [{"expr": "cilium_api_limiter_processing_duration_seconds", "legendFormat": "{{api_call}}", "refId": "A"}]
         },
         {
           "title": "BPF Map Operations",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
           "id": 13,
           "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
@@ -155,14 +163,45 @@ data:
           "targets": [{"expr": "rate(cilium_bpf_map_ops_total[5m])", "legendFormat": "{{operation}}", "refId": "A"}]
         },
         {
-          "title": "IPAM Available IPs",
+          "title": "IP Addresses by Family",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
           "id": 14,
           "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
-          "targets": [{"expr": "cilium_ip_addresses{type=\"available\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+          "targets": [{"expr": "sum(cilium_ip_addresses) by (family)", "legendFormat": "{{family}}", "refId": "A"}]
+        },
+        {
+          "title": "Hubble Relay",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 40},
+          "id": 16,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Hubble gRPC Requests",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "Rate of gRPC requests handled by hubble-relay, broken down by method.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 41},
+          "id": 17,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum(rate(grpc_server_handled_total{job=\"hubble-relay\"}[5m])) by (grpc_method)", "legendFormat": "{{grpc_method}}", "refId": "A"}]
+        },
+        {
+          "title": "Hubble gRPC Latency p99",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "description": "99th percentile latency of gRPC requests handled by hubble-relay.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 41},
+          "id": 18,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{job=\"hubble-relay\"}[5m])) by (le))", "legendFormat": "p99", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,

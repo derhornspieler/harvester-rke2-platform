@@ -75,9 +75,6 @@ spec:
             - name: dashboard-rke2
               mountPath: /var/lib/grafana/dashboards/rke2/rke2-cluster.json
               subPath: rke2-cluster.json
-            - name: dashboard-rke-cluster
-              mountPath: /var/lib/grafana/dashboards/rke2/rke-cluster.json
-              subPath: rke-cluster.json
             - name: dashboard-etcd
               mountPath: /var/lib/grafana/dashboards/rke2/etcd.json
               subPath: etcd.json
@@ -163,10 +160,24 @@ spec:
             - name: dashboard-pipelines
               mountPath: /var/lib/grafana/dashboards/cicd/pipelines-overview.json
               subPath: pipelines-overview.json
+            # Operations folder (additional)
+            - name: dashboard-storage-autoscaler
+              mountPath: /var/lib/grafana/dashboards/operations/storage-autoscaler.json
+              subPath: storage-autoscaler.json
+            - name: dashboard-node-labeler
+              mountPath: /var/lib/grafana/dashboards/operations/node-labeler.json
+              subPath: node-labeler.json
+            # Services folder (additional)
+            - name: dashboard-redis
+              mountPath: /var/lib/grafana/dashboards/services/redis-overview.json
+              subPath: redis-overview.json
             # Home folder dashboards
             - name: dashboard-home
               mountPath: /var/lib/grafana/dashboards/home/home-overview.json
               subPath: home-overview.json
+            - name: dashboard-firing-alerts
+              mountPath: /var/lib/grafana/dashboards/home/firing-alerts.json
+              subPath: firing-alerts.json
             - name: vault-root-ca
               mountPath: /etc/ssl/certs/vault-root-ca.pem
               subPath: ca.crt
@@ -184,9 +195,6 @@ spec:
         - name: dashboard-rke2
           configMap:
             name: grafana-dashboard-rke2
-        - name: dashboard-rke-cluster
-          configMap:
-            name: grafana-dashboard-rke-cluster
         - name: dashboard-cluster
           configMap:
             name: grafana-dashboard-cluster
@@ -256,6 +264,18 @@ spec:
         - name: dashboard-home
           configMap:
             name: grafana-dashboard-home
+        - name: dashboard-firing-alerts
+          configMap:
+            name: grafana-dashboard-firing-alerts
+        - name: dashboard-storage-autoscaler
+          configMap:
+            name: grafana-dashboard-storage-autoscaler
+        - name: dashboard-node-labeler
+          configMap:
+            name: grafana-dashboard-node-labeler
+        - name: dashboard-redis
+          configMap:
+            name: grafana-dashboard-redis
         - name: dashboard-pipelines
           configMap:
             name: grafana-dashboard-pipelines

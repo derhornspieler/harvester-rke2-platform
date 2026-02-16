@@ -16,199 +16,139 @@ data:
       "links": [],
       "panels": [
         {
-          "title": "Nodes Ready",
-          "type": "stat",
+          "title": "Scheduler Latency p99",
+          "description": "kube-scheduler end-to-end scheduling latency (99th percentile)",
+          "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 0},
           "id": 1,
           "fieldConfig": {
             "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
-                  {"color": "red", "value": null},
-                  {"color": "orange", "value": 8},
-                  {"color": "green", "value": 10}
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 1},
+                  {"color": "red", "value": 5}
                 ]
-              },
-              "mappings": []
+              }
             }
           },
           "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
-              "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})",
-              "legendFormat": "",
+              "expr": "histogram_quantile(0.99, sum(rate(scheduler_scheduling_attempt_duration_seconds_bucket{job=\"kube-scheduler\"}[5m])) by (le, instance))",
+              "legendFormat": "{{instance}}",
               "refId": "A"
             }
           ]
         },
         {
-          "title": "Pods Running",
-          "type": "stat",
+          "title": "Controller Manager Workqueue Depth",
+          "description": "kube-controller-manager workqueue depth by queue name",
+          "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 0},
           "id": 2,
           "fieldConfig": {
             "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "green", "value": null}
-                ]
-              },
-              "mappings": []
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              }
             }
           },
           "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
-              "expr": "count(kube_pod_status_phase{phase=\"Running\"} == 1)",
-              "legendFormat": "",
+              "expr": "topk(10, sum(workqueue_depth{job=\"kube-controller-manager\"}) by (name))",
+              "legendFormat": "{{name}}",
               "refId": "A"
             }
           ]
         },
         {
-          "title": "Pods Not Ready",
-          "type": "stat",
+          "title": "Scheduler Pending Pods",
+          "description": "Number of pods waiting to be scheduled",
+          "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
-          "id": 3,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "red", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(kube_pod_status_phase{phase=~\"Pending|Failed|Unknown\"} == 1)",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Firing Alerts",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
-          "id": 4,
-          "fieldConfig": {
-            "defaults": {
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "red", "value": 1}
-                ]
-              },
-              "noValue": "0",
-              "mappings": []
-            }
-          },
-          "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "background",
-            "graphMode": "none",
-            "textMode": "auto"
-          },
-          "targets": [
-            {
-              "expr": "count(ALERTS{alertstate=\"firing\"})",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "title": "Cluster CPU Usage",
-          "type": "gauge",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 4},
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 6},
           "id": 5,
           "fieldConfig": {
             "defaults": {
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {"color": "green", "value": null},
-                  {"color": "orange", "value": 70},
-                  {"color": "red", "value": 90}
+                  {"color": "orange", "value": 5},
+                  {"color": "red", "value": 20}
                 ]
               }
             }
           },
           "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "showThresholdMarkers": true,
-            "showThresholdLabels": false
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
-              "expr": "(1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * 100",
-              "legendFormat": "",
+              "expr": "scheduler_pending_pods{job=\"kube-scheduler\"}",
+              "legendFormat": "{{instance}} {{queue}}",
               "refId": "A"
             }
           ]
         },
         {
-          "title": "Cluster Memory Usage",
-          "type": "gauge",
+          "title": "Controller Reconcile Rate",
+          "description": "kube-controller-manager work rate by controller",
+          "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 4},
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 6},
           "id": 6,
           "fieldConfig": {
             "defaults": {
-              "unit": "percent",
-              "min": 0,
-              "max": 100,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "orange", "value": 70},
-                  {"color": "red", "value": 90}
-                ]
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
           "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"]},
-            "showThresholdMarkers": true,
-            "showThresholdLabels": false
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
-              "expr": "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100",
-              "legendFormat": "",
+              "expr": "topk(10, sum(rate(workqueue_adds_total{job=\"kube-controller-manager\"}[5m])) by (name))",
+              "legendFormat": "{{name}}",
               "refId": "A"
             }
           ]
@@ -217,7 +157,7 @@ data:
           "title": "CPU Usage by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 7,
           "fieldConfig": {
             "defaults": {
@@ -249,7 +189,7 @@ data:
           "title": "Memory Usage by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 8,
           "fieldConfig": {
             "defaults": {
@@ -281,7 +221,7 @@ data:
           "title": "Pod Restarts (last 1h)",
           "type": "table",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 18},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 9,
           "fieldConfig": {
             "defaults": {
@@ -347,7 +287,7 @@ data:
           "title": "Disk Usage by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 18},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 10,
           "fieldConfig": {
             "defaults": {
@@ -387,7 +327,7 @@ data:
           "title": "Network I/O by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 11,
           "fieldConfig": {
             "defaults": {
@@ -422,7 +362,7 @@ data:
           "title": "Deployment Status",
           "type": "table",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
           "id": 12,
           "fieldConfig": {
             "defaults": {
@@ -476,7 +416,7 @@ data:
           ],
           "targets": [
             {
-              "expr": "kube_deployment_status_ready_replicas / kube_deployment_spec_replicas",
+              "expr": "kube_deployment_status_replicas_ready / kube_deployment_spec_replicas",
               "format": "table",
               "instant": true,
               "legendFormat": "",

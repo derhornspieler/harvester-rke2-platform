@@ -32,14 +32,14 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {
             "defaults": {
-              "max": 100,
+              "max": 1,
               "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {"color": "#299c46", "value": null},
-                  {"color": "rgba(237, 129, 40, 0.89)", "value": 80},
-                  {"color": "#d44a3a", "value": 90}
+                  {"color": "rgba(237, 129, 40, 0.89)", "value": 0.8},
+                  {"color": "#d44a3a", "value": 0.9}
                 ]
               },
               "unit": "percentunit"
@@ -56,7 +56,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(kube_pod_info{node=~\".*\"}) / sum(kube_node_status_allocatable{resource=\"pods\",node=~\".*\"})",
+              "expr": "sum(kube_pod_info) / sum(kube_node_status_allocatable{resource=\"pods\"})",
               "legendFormat": "",
               "refId": "A"
             }
@@ -68,14 +68,14 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {
             "defaults": {
-              "max": 100,
+              "max": 1,
               "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {"color": "#299c46", "value": null},
-                  {"color": "rgba(237, 129, 40, 0.89)", "value": 80},
-                  {"color": "#d44a3a", "value": 90}
+                  {"color": "rgba(237, 129, 40, 0.89)", "value": 0.8},
+                  {"color": "#d44a3a", "value": 0.9}
                 ]
               },
               "unit": "percentunit"
@@ -104,14 +104,14 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "fieldConfig": {
             "defaults": {
-              "max": 100,
+              "max": 1,
               "min": 0,
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   {"color": "#299c46", "value": null},
-                  {"color": "rgba(237, 129, 40, 0.89)", "value": 80},
-                  {"color": "#d44a3a", "value": 90}
+                  {"color": "rgba(237, 129, 40, 0.89)", "value": 0.8},
+                  {"color": "#d44a3a", "value": 0.9}
                 ]
               },
               "unit": "percentunit"

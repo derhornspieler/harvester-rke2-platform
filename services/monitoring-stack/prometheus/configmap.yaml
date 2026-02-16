@@ -497,6 +497,38 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
 
+      # 29. Redis exporter (oauth2-proxy session store)
+      - job_name: "redis-exporter"
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ["monitoring"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: oauth2-proxy-redis
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: "9121"
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+      # 30. Grafana self-monitoring
+      - job_name: "grafana"
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ["monitoring"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: grafana
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: http
+
   rules.yml: |
     groups:
       - name: node-alerts
@@ -603,7 +635,7 @@ data:
               description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} state for more than 15 minutes."
 
           - alert: KubeDeploymentReplicasMismatch
-            expr: kube_deployment_spec_replicas != kube_deployment_status_ready_replicas
+            expr: kube_deployment_spec_replicas != kube_deployment_status_replicas_ready
             for: 15m
             labels:
               severity: warning
@@ -766,13 +798,13 @@ data:
               description: "Prometheus TSDB has had {{ $value }} failed compactions in the last 3 hours."
 
           - alert: PrometheusStorageAlmostFull
-            expr: (prometheus_tsdb_storage_blocks_bytes / (100 * 1024 * 1024 * 1024)) * 100 > 80
+            expr: (prometheus_tsdb_storage_blocks_bytes / (40 * 1024 * 1024 * 1024)) * 100 > 80
             for: 30m
             labels:
               severity: warning
             annotations:
               summary: "Prometheus storage is almost full"
-              description: "Prometheus TSDB storage is at {{ $value | printf \"%.1f\" }}% of 100GB limit."
+              description: "Prometheus TSDB storage is at {{ $value | printf \"%.1f\" }}% of 40GB retention limit."
 
           - alert: LokiDown
             expr: up{job=~".*loki.*"} == 0
@@ -791,6 +823,15 @@ data:
             annotations:
               summary: "Alloy is down"
               description: "Alloy instance {{ $labels.instance }} has been unreachable for more than 5 minutes."
+
+          - alert: GrafanaDown
+            expr: up{job="grafana"} == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Grafana is down"
+              description: "Grafana has been unreachable for more than 5 minutes."
 
       - name: traefik-alerts
         rules:
@@ -815,13 +856,13 @@ data:
       - name: cilium-alerts
         rules:
           - alert: CiliumAgentDown
-            expr: up{job="cilium-agent"} == 0
+            expr: up{job="hubble-relay"} == 0
             for: 2m
             labels:
               severity: critical
             annotations:
-              summary: "Cilium agent is down"
-              description: "Cilium agent on {{ $labels.node }} has been unreachable for more than 2 minutes."
+              summary: "Cilium networking is down (via hubble-relay)"
+              description: "Hubble relay has been unreachable for more than 2 minutes. Direct cilium-agent scraping is blocked by host firewall on port 9962."
 
           - alert: CiliumEndpointNotReady
             expr: cilium_endpoint_state{endpoint_state="not-ready"} > 0
@@ -969,3 +1010,70 @@ data:
             annotations:
               summary: "Spike in Kubernetes secret access"
               description: "{{ $value | printf \"%.0f\" }} secret access requests/s detected. Possible credential harvesting."
+
+      - name: redis-alerts
+        rules:
+          - alert: RedisDown
+            expr: up{job="redis-exporter"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Redis is down"
+              description: "Redis exporter has been unreachable for more than 2 minutes. oauth2-proxy session persistence is at risk."
+
+          - alert: RedisHighMemory
+            expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Redis memory usage is high"
+              description: "Redis memory usage is at {{ $value | printf \"%.1f\" }}% of max for more than 10 minutes."
+
+      - name: operator-alerts
+        rules:
+          - alert: StorageAutoscalerDown
+            expr: absent(up{job="kubernetes-pods",namespace="storage-autoscaler"} == 1)
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Storage autoscaler is down"
+              description: "Storage autoscaler has been unreachable for more than 5 minutes."
+
+          - alert: StorageAutoscalerPollErrors
+            expr: increase(volume_autoscaler_poll_errors_total[15m]) > 5
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Storage autoscaler poll errors"
+              description: "Storage autoscaler has had {{ $value | printf \"%.0f\" }} poll errors in the last 15 minutes."
+
+          - alert: NodeLabelerDown
+            expr: absent(up{job="kubernetes-pods",namespace="node-labeler"} == 1)
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node labeler is down"
+              description: "Node labeler has been unreachable for more than 5 minutes."
+
+          - alert: NodeLabelerErrors
+            expr: increase(node_labeler_errors_total[15m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Node labeler errors detected"
+              description: "Node labeler has had {{ $value | printf \"%.0f\" }} errors in the last 15 minutes."
+
+          - alert: ArgoRolloutsDown
+            expr: up{job="argo-rollouts"} == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Argo Rollouts is down"
+              description: "Argo Rollouts controller has been unreachable for more than 5 minutes."

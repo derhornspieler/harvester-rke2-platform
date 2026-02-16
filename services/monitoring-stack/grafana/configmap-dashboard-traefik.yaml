@@ -106,7 +106,7 @@ data:
           "id": 9,
           "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
-          "targets": [{"expr": "traefik_entrypoint_open_connections", "legendFormat": "{{entrypoint}}", "refId": "A"}]
+          "targets": [{"expr": "traefik_open_connections", "legendFormat": "{{entrypoint}}", "refId": "A"}]
         },
         {
           "title": "Requests by Service (Top 10)",
@@ -126,7 +126,7 @@ data:
           "id": 11,
           "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
-          "targets": [{"expr": "sum by (tls_version) (traefik_tls_certs_not_after_timestamp_seconds)", "legendFormat": "{{tls_version}}", "refId": "A"}]
+          "targets": [{"expr": "sum by (tls_version) (traefik_tls_certs_not_after)", "legendFormat": "{{tls_version}}", "refId": "A"}]
         },
         {
           "title": "Config Reloads",
@@ -137,8 +137,7 @@ data:
           "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
-            {"expr": "rate(traefik_config_reloads_total[5m])", "legendFormat": "Reloads", "refId": "A"},
-            {"expr": "rate(traefik_config_reloads_failure_total[5m])", "legendFormat": "Failures", "refId": "B"}
+            {"expr": "rate(traefik_config_reloads_total[5m])", "legendFormat": "Reloads", "refId": "A"}
           ]
         }
       ],
