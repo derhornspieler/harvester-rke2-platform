@@ -106,14 +106,14 @@ func (r *VolumeAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	pvcs, err := r.resolvePVCs(ctx, &va)
 	if err != nil {
 		log.Error(err, "failed to resolve PVCs")
-		r.setCondition(&va, conditionReady, metav1.ConditionFalse, "NoPVCsFound", err.Error())
+		r.setCondition(&va, metav1.ConditionFalse, "NoPVCsFound", err.Error())
 		_ = r.Status().Update(ctx, &va)
 		appmetrics.PollErrorsTotal.WithLabelValues(va.Namespace, va.Name, "resolve_pvcs").Inc()
 		return ctrl.Result{RequeueAfter: pollInterval}, nil
 	}
 	if len(pvcs) == 0 {
 		log.Info("no PVCs found for target, will retry", "target", va.Spec.Target)
-		r.setCondition(&va, conditionReady, metav1.ConditionFalse, "NoPVCsFound", "no matching PVCs found")
+		r.setCondition(&va, metav1.ConditionFalse, "NoPVCsFound", "no matching PVCs found")
 		_ = r.Status().Update(ctx, &va)
 		return ctrl.Result{RequeueAfter: pollInterval}, nil
 	}
@@ -273,9 +273,9 @@ func (r *VolumeAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	va.Status.PVCs = pvcStatuses
 
 	if allHealthy {
-		r.setCondition(&va, conditionReady, metav1.ConditionTrue, "Polling", "successfully polling volume metrics")
+		r.setCondition(&va, metav1.ConditionTrue, "Polling", "successfully polling volume metrics")
 	} else {
-		r.setCondition(&va, conditionReady, metav1.ConditionFalse, "PrometheusUnavailable", "some metrics queries failed")
+		r.setCondition(&va, metav1.ConditionFalse, "PrometheusUnavailable", "some metrics queries failed")
 	}
 
 	if err := r.Status().Update(ctx, &va); err != nil {
@@ -409,12 +409,11 @@ func (r *VolumeAutoscalerReconciler) calculateNewSize(
 // setCondition updates or adds a condition on the VolumeAutoscaler status.
 func (r *VolumeAutoscalerReconciler) setCondition(
 	va *autoscalingv1alpha1.VolumeAutoscaler,
-	condType string,
 	status metav1.ConditionStatus,
 	reason, message string,
 ) {
 	meta.SetStatusCondition(&va.Status.Conditions, metav1.Condition{
-		Type:               condType,
+		Type:               conditionReady,
 		Status:             status,
 		ObservedGeneration: va.Generation,
 		LastTransitionTime: metav1.Now(),

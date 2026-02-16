@@ -116,7 +116,7 @@ func (c *Client) queryRaw(ctx context.Context, promql string) ([]promResult, err
 	if err != nil {
 		return nil, fmt.Errorf("querying prometheus: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

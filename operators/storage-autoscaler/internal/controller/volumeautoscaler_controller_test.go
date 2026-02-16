@@ -64,11 +64,11 @@ var _ = Describe("VolumeAutoscaler Controller", func() {
 				val = 0
 			default:
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+				_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(fmt.Sprintf(`{
+			_, _ = w.Write([]byte(fmt.Sprintf(`{
 				"status": "success",
 				"data": {
 					"resultType": "vector",

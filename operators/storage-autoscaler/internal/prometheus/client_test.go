@@ -33,7 +33,7 @@ func TestQuery_Success(t *testing.T) {
 			t.Error("missing query parameter")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"status": "success",
 			"data": {
 				"resultType": "vector",
@@ -59,7 +59,7 @@ func TestQuery_Success(t *testing.T) {
 func TestQuery_NoResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"status": "success",
 			"data": {
 				"resultType": "vector",
@@ -79,7 +79,7 @@ func TestQuery_NoResults(t *testing.T) {
 func TestQuery_MultipleResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"status": "success",
 			"data": {
 				"resultType": "vector",
@@ -102,7 +102,7 @@ func TestQuery_MultipleResults(t *testing.T) {
 func TestQueryMulti_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"status": "success",
 			"data": {
 				"resultType": "vector",
@@ -134,7 +134,7 @@ func TestQueryMulti_Success(t *testing.T) {
 func TestQuery_PrometheusError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"status": "error",
 			"errorType": "bad_data",
 			"error": "invalid query"
@@ -152,7 +152,7 @@ func TestQuery_PrometheusError(t *testing.T) {
 func TestQuery_HTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("service unavailable"))
+		_, _ = w.Write([]byte("service unavailable"))
 	}))
 	defer server.Close()
 
