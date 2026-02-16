@@ -69,6 +69,7 @@ resources:
   - grafana/configmap-dashboard-home.yaml
   - grafana/configmap-dashboard-pipelines.yaml
   - grafana/configmap-dashboard-security-advanced.yaml
+  - grafana/configmap-dashboard-oauth2-proxy.yaml
   - grafana/secret-admin.yaml
   - grafana/deployment.yaml
   - grafana/service.yaml

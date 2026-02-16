@@ -156,6 +156,9 @@ spec:
             - name: dashboard-security-advanced
               mountPath: /var/lib/grafana/dashboards/security/security-advanced.json
               subPath: security-advanced.json
+            - name: dashboard-oauth2-proxy
+              mountPath: /var/lib/grafana/dashboards/security/oauth2-proxy-overview.json
+              subPath: oauth2-proxy-overview.json
             # CI/CD folder dashboards
             - name: dashboard-pipelines
               mountPath: /var/lib/grafana/dashboards/cicd/pipelines-overview.json
@@ -259,6 +262,9 @@ spec:
         - name: dashboard-security-advanced
           configMap:
             name: grafana-dashboard-security-advanced
+        - name: dashboard-oauth2-proxy
+          configMap:
+            name: grafana-dashboard-oauth2-proxy
         - name: vault-root-ca
           configMap:
             name: vault-root-ca

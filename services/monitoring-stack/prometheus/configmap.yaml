@@ -479,6 +479,24 @@ data:
             action: keep
             regex: http
 
+      # 28. oauth2-proxy (ForwardAuth authentication proxies)
+      - job_name: "oauth2-proxy"
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: oauth2-proxy
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: "4180"
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+            target_label: service
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
   rules.yml: |
     groups:
       - name: node-alerts
@@ -876,6 +894,26 @@ data:
               summary: "Mattermost is down"
               description: "Mattermost instance {{ $labels.instance }} has been unreachable for more than 5 minutes."
 
+      - name: oauth2-proxy-alerts
+        rules:
+          - alert: OAuth2ProxyDown
+            expr: up{job="oauth2-proxy"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "oauth2-proxy {{ $labels.service }} is down"
+              description: "oauth2-proxy for {{ $labels.service }} in {{ $labels.namespace }} has been unreachable for more than 2 minutes. ForwardAuth will fail and users cannot access the protected service."
+
+          - alert: OAuth2ProxyHighMemory
+            expr: process_resident_memory_bytes{job="oauth2-proxy"} > 100 * 1024 * 1024
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "oauth2-proxy {{ $labels.service }} high memory usage"
+              description: "oauth2-proxy for {{ $labels.service }} is using {{ $value | humanize }}B of memory (>100MB for 10min). Pod limit is 64Mi."
+
       - name: security-alerts
         rules:
           - alert: KeycloakBruteForceDetected
@@ -904,12 +942,6 @@ data:
             annotations:
               summary: "Unusual outbound network traffic from {{ $labels.namespace }}/{{ $labels.pod }}"
               description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is transmitting {{ $value | humanize }}B/s outbound (>50MB/s for 15min)."
-
-          - alert: PrivilegedContainerRunning
-            expr: kube_pod_spec_volumes_persistentvolumeclaims_info == 0 and on(namespace, pod) kube_pod_container_info{container!=""}
-            for: 0m
-            labels:
-              severity: info
 
           - alert: APIServerUnusualRequestRate
             expr: sum(rate(apiserver_request_total{verb!~"GET|LIST|WATCH"}[5m])) > 100

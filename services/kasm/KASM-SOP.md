@@ -1,8 +1,9 @@
 # Kasm Workspaces -- Post-Install Configuration SOP
 
-> Standard Operating Procedure for configuring Kasm Workspaces after Helm
-> deployment. Covers Keycloak SSO, Harvester VDI autoscaling, and workspace
-> image registration.
+> Standard Operating Procedure for configuring Kasm Workspaces 1.18.1 after
+> Helm deployment. Covers all session delivery models, Keycloak SSO
+> (including automation), Harvester VDI autoscaling, and workspace image
+> registration.
 >
 > **Audience**: Platform engineer with Harvester admin + Kasm admin access.
 >
@@ -13,26 +14,396 @@
 
 ## Table of Contents
 
-1. [Gather Credentials](#1-gather-credentials)
-2. [Configure Keycloak OIDC (SSO)](#2-configure-keycloak-oidc-sso)
-3. [Configure KASM Group Mappings](#3-configure-kasm-group-mappings)
-4. [Set the Zone Upstream Auth Address](#4-set-the-zone-upstream-auth-address)
-5. [Prepare Harvester for Autoscaling](#5-prepare-harvester-for-autoscaling)
-6. [Configure KASM Harvester VM Provider](#6-configure-kasm-harvester-vm-provider)
-7. [Create a Docker Agent Pool with Autoscaling](#7-create-a-docker-agent-pool-with-autoscaling)
-8. [Register Workspace Images](#8-register-workspace-images)
-9. [End-to-End Validation](#9-end-to-end-validation)
-10. [Windows RDP Server Pool (Optional)](#10-windows-rdp-server-pool-optional)
-11. [Troubleshooting](#11-troubleshooting)
-12. [References](#12-references)
+**Part I -- Session Delivery Models**
+1. [Session Delivery Overview](#1-session-delivery-overview)
+2. [Docker Agent Pools (Container Workspaces)](#2-docker-agent-pools-container-workspaces)
+3. [Server Pools (Full VM Desktops)](#3-server-pools-full-vm-desktops)
+4. [Multi-Session Servers (RDS / Shared)](#4-multi-session-servers-rds--shared)
+5. [Persistent Sessions & Profiles](#5-persistent-sessions--profiles)
+6. [Session Staging (Pre-Warmed)](#6-session-staging-pre-warmed)
+7. [Choosing a Deployment Model](#7-choosing-a-deployment-model)
+
+**Part II -- Keycloak OIDC Integration**
+8. [Gather Credentials](#8-gather-credentials)
+9. [Configure Keycloak OIDC (SSO)](#9-configure-keycloak-oidc-sso)
+10. [Automating OIDC Configuration via API](#10-automating-oidc-configuration-via-api)
+11. [Configure KASM Group Mappings](#11-configure-kasm-group-mappings)
+
+**Part III -- Harvester VDI Autoscaling**
+12. [Set the Zone Upstream Auth Address](#12-set-the-zone-upstream-auth-address)
+13. [Prepare Harvester for Autoscaling](#13-prepare-harvester-for-autoscaling)
+14. [Configure KASM Harvester VM Provider](#14-configure-kasm-harvester-vm-provider)
+15. [Create a Docker Agent Pool with Autoscaling](#15-create-a-docker-agent-pool-with-autoscaling)
+16. [Create a Linux KasmVNC Server Pool](#16-create-a-linux-kasmvnc-server-pool)
+17. [Create a Windows RDP Server Pool](#17-create-a-windows-rdp-server-pool)
+
+**Part IV -- Workspaces & Validation**
+18. [Register Workspace Images](#18-register-workspace-images)
+19. [End-to-End Validation](#19-end-to-end-validation)
+20. [Troubleshooting](#20-troubleshooting)
+21. [References](#21-references)
 
 ---
 
-## 1. Gather Credentials
+# Part I -- Session Delivery Models
 
-Before touching any UI, collect these values. You will need them repeatedly.
+## 1. Session Delivery Overview
 
-### 1.1 Kasm Admin Credentials
+KASM Workspaces supports four workspace types visible to users, backed by
+multiple infrastructure provisioning models. Understanding these is critical
+before choosing what to deploy.
+
+### 1.1 Workspace Types
+
+| Type | Protocol | What the User Gets | Infrastructure |
+|------|----------|--------------------|----------------|
+| **Container** | KasmVNC | Linux desktop/app in a Docker container | Docker Agent Pool |
+| **Server** | RDP / KasmVNC / VNC / SSH | Fixed single server | Static registration |
+| **Server Pool** | RDP / KasmVNC / VNC / SSH | VM from a pool of identical servers | Server Pool (auto-scaled or static) |
+| **Link** | HTTP redirect | URL bookmark on dashboard | None |
+
+### 1.2 Complete Session Delivery Matrix
+
+| Model | OS | Protocol | Density | Boot Time | Auto-scale? | Persistence |
+|-------|----|----------|---------|-----------|-------------|-------------|
+| Docker container (single app) | Linux | KasmVNC | 8-48/VM | 7-10s | Yes (Agent pools) | Ephemeral (profiles optional) |
+| Docker container (full desktop) | Linux | KasmVNC | 8-48/VM | 7-10s | Yes (Agent pools) | Ephemeral (profiles optional) |
+| Pre-staged container | Linux | KasmVNC | 8-48/VM | 1-2s | N/A (uses pools) | Ephemeral only |
+| Server Pool (RDP) | Windows | RDP | 1:1 per VM | Minutes | Yes | VM state persists |
+| Server Pool (KasmVNC) | Linux | KasmVNC | 1:1 per VM | Minutes | Yes | VM state persists |
+| Server Pool (VNC) | Any | VNC | 1:1 per VM | Minutes | Yes | VM state persists |
+| Server Pool (SSH) | Any | SSH | Multi-session | Minutes | Yes | VM state persists |
+| Multi-session RDS | Windows | RDP | Multi-user | Seconds (on running server) | Via RDS | Server state persists |
+| Windows RemoteApp | Windows | RDP | Multi-app | Seconds (on running server) | Via RDS | Server state persists |
+| Fixed Server | Any | RDP/VNC/KasmVNC/SSH | 1:1 | Always on | No | Persistent VM |
+| Link (URL redirect) | N/A | HTTP | N/A | Instant | N/A | N/A |
+
+### 1.3 Harvester vs KubeVirt Provider
+
+Both providers create KubeVirt `VirtualMachine` CRDs. The difference:
+
+| Aspect | Harvester Provider | KubeVirt Provider |
+|--------|-------------------|-------------------|
+| Target | SUSE Harvester HCI | Any K8s + KubeVirt |
+| Disk Image | Harvester image name (native) | PVC to clone (CDI) |
+| KubeConfig | Downloaded from Harvester Support page | Standard K8s kubeconfig |
+| Networking | Same (pod or multus) | Same (pod or multus) |
+| When to use | **You are running Harvester** | Generic K8s with KubeVirt |
+
+**Use the Harvester provider** for this deployment since we run Harvester.
+
+---
+
+## 2. Docker Agent Pools (Container Workspaces)
+
+This is KASM's flagship model -- **Containerized Desktop Infrastructure (CDI)**.
+Multiple Docker containers run on a single VM, each streaming an isolated
+desktop or application to a user's browser via KasmVNC.
+
+### 2.1 How It Works
+
+```
+User Browser
+    |
+    v (WebSocket / HTTPS)
+Traefik -> Kasm Proxy -> Kasm Manager
+                            |
+                            v (selects Agent with available resources)
+                    Docker Agent VM
+                    ├── Container: Chrome (user A)
+                    ├── Container: VS Code (user B)
+                    ├── Container: Desktop (user C)
+                    └── ... up to 8-48 per VM
+```
+
+- Each Agent VM runs Docker Engine + the KASM Agent service.
+- Agent reports available CPU, RAM, and GPUs to the Manager every 30 seconds.
+- Manager assigns sessions to Agents based on resource availability.
+- Containers are ephemeral by default -- destroyed when the session ends.
+
+### 2.2 Resource Allocation Per Container
+
+Each workspace definition specifies cores, memory, and optional GPUs.
+Default: 2 cores, 2768 MB RAM per container.
+
+Density examples (from KASM sizing guide):
+
+| Workspace | Agent VM | Override | Sessions/Agent |
+|-----------|----------|----------|----------------|
+| 2 CPU, 4 GB | 16 CPU, 64 GB | None | ~8 |
+| 4 CPU, 4 GB | 16 CPU, 64 GB | 96 CPU, 80 GB | ~20 |
+| 4 CPU, 4 GB | 32 CPU, 128 GB | 192 CPU, 192 GB | ~48 |
+
+### 2.3 Static vs Auto-Scaled Agents
+
+**Static**: Manually install KASM Agent on a VM, register in Admin UI.
+Best for: bare metal, pre-existing VMs, fixed-capacity labs.
+
+**Auto-scaled**: KASM provisions/destroys VMs via Harvester API based on
+demand thresholds. Best for: elastic capacity, cost optimization.
+
+Both can coexist in the same pool.
+
+### 2.4 Custom Docker Images
+
+KASM provides base images for building custom workspaces:
+
+| Base Image | Purpose |
+|-----------|---------|
+| `kasmweb/core-ubuntu-jammy` | Minimal core (Ubuntu 22.04) |
+| `kasmweb/core-ubuntu-noble` | Minimal core (Ubuntu 24.04) |
+| `kasmweb/core-nvidia-focal` | Core + NVIDIA runtime |
+| `kasmweb/ubuntu-jammy-desktop` | Full XFCE desktop |
+
+Build custom images with a Dockerfile extending any core image. Push to
+Harbor for private distribution. Use rolling tags
+(`1.18.0-rolling-weekly`) for automatic security updates.
+
+### 2.5 Sysbox Runtime (Docker-in-Docker)
+
+For workspaces requiring `sudo`, `systemd`, or Docker-in-Docker:
+
+```json
+{
+  "runtime": "sysbox-runc",
+  "entrypoint": ["/sbin/init"],
+  "user": 0
+}
+```
+
+Install Sysbox on Agent VMs. Provides VM-like isolation within containers.
+**Incompatible with**: persistent profiles, NVIDIA GPU, cross-runtime storage.
+
+### 2.6 GPU Support (NVIDIA)
+
+- Requires NVIDIA Container Toolkit + drivers >= 560.28.03 on Agent VMs.
+- GPUs treated like CPU cores: each agent reports GPU count.
+- Default: 1 GPU workspace = 1 session per GPU.
+- Override: set agent GPU count higher for GPU sharing (security caveats).
+- Vulkan GPU acceleration for Chromium browsers added in 1.18.0.
+
+### 2.7 Network Isolation Per Container
+
+- Default: `kasm_default_network` (bridged Docker network).
+- Custom networks: create per-workspace isolation networks.
+- IPVLAN: place containers directly on VLANs.
+- **Managed Egress** (v1.16+): per-container VPN tunnels (OpenVPN/WireGuard).
+
+---
+
+## 3. Server Pools (Full VM Desktops)
+
+Server Pools deliver full VM desktops -- one VM per user session. This is
+the "thick" VDI model, providing complete OS isolation.
+
+### 3.1 Connection Types
+
+| Type | Default Port | Use Case | Multi-Session? |
+|------|-------------|----------|----------------|
+| **RDP** | 3389 | Windows desktops | Configurable (1:1 or multi) |
+| **KasmVNC** | 6901 | Linux desktops (richest features) | Single user |
+| **VNC** | 5901 | Generic VNC (basic) | Single user |
+| **SSH** | 22 | Terminal access | Multi-session |
+
+### 3.2 RDP Client Modes
+
+| Mode | How | Features |
+|------|-----|----------|
+| **Web Native** | Browser via Guacamole Connection Proxy | File transfer, clipboard, screenshots |
+| **RDP Thick Client** | Native RDP app via KASM RDP Gateway (port 3389) | Smartcard, USB, webcam passthrough |
+| **RDP HTTPS Gateway** | RDP tunneled over HTTPS (RD Gateway protocol) | Traverses restrictive firewalls |
+
+### 3.3 Credential Types
+
+| Type | Description |
+|------|-------------|
+| Static | Fixed username/password |
+| SSO_CREATE_USER | KASM creates a local account on the VM dynamically |
+| SSO_USERNAME | Pass-through from KASM SSO credentials |
+| Smartcard | PKI-based auth |
+| Prompt User | User enters credentials at session start |
+
+### 3.4 Require Checkin
+
+For auto-scaled Server Pools, "Require Checkin" prevents users from
+connecting to a VM that is still initializing. The VM must explicitly call
+the KASM API (via the Kasm Desktop Service on Windows, or a startup script
+on Linux) to signal readiness.
+
+### 3.5 Auto-Scale Configuration (Server Pools)
+
+| Field | Description |
+|-------|-------------|
+| Minimum Available Sessions | Scale up when fewer than N ready sessions exist |
+| Max Simultaneous Sessions Per Server | 1 for dedicated VDI, >1 for shared |
+| Downscale Backoff (seconds) | Wait before destroying idle VMs |
+| Aggressive Scaling | Queue requests and provision on-demand |
+
+---
+
+## 4. Multi-Session Servers (RDS / Shared)
+
+KASM integrates with Microsoft RDS (Remote Desktop Services) for shared
+Windows Server sessions.
+
+### 4.1 Architecture
+
+- KASM connects to an RDS Connection Broker (port 3389).
+- Multiple users share a single Windows Server VM via RDP sessions.
+- Requires Active Directory for SSO.
+- KASM handles DLP (clipboard, file transfer, watermarking) on top of RDS.
+
+### 4.2 RemoteApp Publishing
+
+Deliver individual Windows applications (not full desktops):
+
+- Register apps with double-pipe syntax: `||Microsoft Excel`
+- Two delivery modes: Web Native (browser) or RDP Thick Client
+- Requires the **Kasm Desktop Service** on Windows for web-native cleanup
+
+### 4.3 Kasm Desktop Service (Windows)
+
+A Windows service installed on target servers that provides:
+
+- File upload/download support
+- Desktop screenshot previews
+- PowerShell script execution at session start/end
+- Dynamic local user account creation
+- RemoteApp session cleanup
+- Cloud storage mapping via WinFSP
+
+Supported: Windows 10, 11, Server 2019, Server 2022 (x86_64).
+
+---
+
+## 5. Persistent Sessions & Profiles
+
+### 5.1 Container Lifecycle States
+
+| State | Disk | Processes | Resources |
+|-------|------|-----------|-----------|
+| **Running** | Active | Active | Full CPU/RAM |
+| **Paused** | Preserved | Frozen in memory | Still holds RAM/swap |
+| **Stopped** | Preserved | Terminated | CPU/RAM released |
+| **Destroyed** | Lost | Lost | Fully released |
+
+Users can pause, stop, and resume sessions from the KASM control panel.
+Session Time Limit controls max lifetime (default: 1 hour, max: 1 year).
+
+### 5.2 Persistent Profiles
+
+Two storage backends for persisting user home directories across
+ephemeral container sessions:
+
+**Volume Mount Profiles** (NFS/shared storage):
+```
+/mnt/kasm_profiles/{username}/{image_id}/
+```
+Requires shared storage for multi-agent deployments.
+
+**S3-Based Profiles** (recommended for Harvester):
+```
+s3://kasm-profiles@minio.minio.svc:9000/{username}/
+```
+Container requests presigned URLs from KASM API -- no S3 credentials
+in containers. Size limit enforced via `KASM_PROFILE_SIZE_LIMIT`.
+
+### 5.3 Cloud Storage Mappings
+
+Users can mount Google Drive, Dropbox, OneDrive, Nextcloud, or S3
+directly into container sessions. Admin configures providers, users
+self-enroll accounts.
+
+### 5.4 Persistent Containers vs Persistent Profiles
+
+| Feature | Persistent Container (Pause/Stop) | Persistent Profile |
+|---------|----------------------------------|--------------------|
+| What persists | Entire container filesystem + optional process state | User home directory only |
+| Container lifecycle | Container survives between sessions | Container destroyed/recreated each session |
+| Use case | Dev environments, long-running tasks | Standard user desktops |
+| Resource impact | Holds agent resources while paused/stopped | No resource impact when idle |
+
+---
+
+## 6. Session Staging (Pre-Warmed)
+
+### 6.1 What It Is
+
+Maintain a pool of pre-created, already-running containers so users
+connect in 1-2 seconds instead of waiting 7-10 seconds for on-demand
+provisioning.
+
+### 6.2 How It Works
+
+1. Admin creates a Staging Config: zone, workspace image, desired count.
+2. KASM continuously maintains the desired count of running containers.
+3. User requests a session -- KASM assigns a pre-staged container.
+4. When no staged container matches, falls back to on-demand creation.
+
+### 6.3 Limitations
+
+Staged sessions are **incompatible** with:
+- Persistent profiles
+- Volume mappings with `{username}` or `{user_id}` tokens
+- User-specific file mappings or SSH key injection
+- Group-level run configs or web filter policies
+
+### 6.4 Assignment Priority
+
+1. Staged session in current Zone
+2. Staged session in alternate Zones
+3. On-demand session in current Zone
+4. On-demand session in alternate Zones
+
+---
+
+## 7. Choosing a Deployment Model
+
+### Decision Tree
+
+```
+Do you need Windows desktops?
+├── Yes → Server Pool (RDP) with Harvester auto-scale
+│         ├── Full desktop → 1:1 VM per user
+│         └── Individual apps → RemoteApp on multi-session RDS
+└── No → Linux workloads
+         ├── Need VM-level isolation (high security / compliance)?
+         │   └── Yes → Server Pool (KasmVNC) with Harvester auto-scale
+         │   └── No → Docker Agent Pool (CDI)
+         │            ├── Need instant startup? → Add Session Staging
+         │            ├── Need Docker-in-Docker? → Enable Sysbox runtime
+         │            └── Need GPU? → NVIDIA Container Toolkit on agents
+```
+
+### Recommended Starting Architecture for Harvester
+
+| Pool | Type | Use Case | Start With |
+|------|------|----------|------------|
+| `harvester-agents` | Docker Agent | Linux containers (browsers, dev tools, desktops) | 2 VMs, auto-scale to 10 |
+| `harvester-linux-vdi` | Server (KasmVNC) | Full Linux VM desktops (high security) | Optional, 0 VMs standby |
+| `harvester-windows-rdp` | Server (RDP) | Windows desktops | Optional, 0 VMs standby |
+
+All three pool types can coexist. Users see a unified workspace dashboard
+and KASM routes sessions to the correct pool based on workspace type.
+
+### Comparison with Traditional VDI
+
+| Aspect | KASM CDI (Containers) | KASM Server Pools | Citrix/VMware Horizon |
+|--------|----------------------|-------------------|-----------------------|
+| Boot time | 7-10s (1-2s staged) | Minutes | Minutes |
+| Density | 8-48/VM | 1:1 | 5-15/host |
+| Client | Browser only | Browser or RDP client | Thick client preferred |
+| Protocol | KasmVNC (WebSocket) | RDP/KasmVNC/VNC/SSH | ICA/HDX, PCoIP/Blast |
+| Image mgmt | Docker images (CI/CD native) | VM templates | Golden images, linked clones |
+| Cost | Lowest | Higher (1:1) | Highest (proprietary stack) |
+
+---
+
+# Part II -- Keycloak OIDC Integration
+
+## 8. Gather Credentials
+
+### 8.1 Kasm Admin Credentials
 
 ```bash
 # Admin password
@@ -46,11 +417,10 @@ kubectl -n kasm get secret kasm-secrets \
 
 Login: `https://kasm.<DOMAIN>` as `admin@kasm.local`.
 
-### 1.2 Keycloak OIDC Client Secret
+### 8.2 Keycloak OIDC Client Secret
 
 The `setup-keycloak.sh` script already created a `kasm` OIDC client in the
-`<KC_REALM>` realm (default realm name = first segment of DOMAIN, e.g.
-`example` for `example.com`).
+`<KC_REALM>` realm (default = first segment of DOMAIN, e.g. `example`).
 
 ```bash
 # If you saved the secrets file during setup:
@@ -60,10 +430,7 @@ jq -r '.kasm' scripts/oidc-client-secrets.json
 # Keycloak Admin > Clients > kasm > Credentials tab > Client Secret
 ```
 
-### 1.3 Keycloak OIDC Endpoints
-
-All endpoints derive from the well-known URL. Replace `<DOMAIN>` and
-`<KC_REALM>` with your values:
+### 8.3 Keycloak OIDC Endpoints
 
 | Endpoint | URL |
 |----------|-----|
@@ -72,38 +439,32 @@ All endpoints derive from the well-known URL. Replace `<DOMAIN>` and
 | Token | `https://keycloak.<DOMAIN>/realms/<KC_REALM>/protocol/openid-connect/token` |
 | Userinfo | `https://keycloak.<DOMAIN>/realms/<KC_REALM>/protocol/openid-connect/userinfo` |
 
-You can verify these by fetching the discovery document:
-
+Verify:
 ```bash
 curl -sk "https://keycloak.<DOMAIN>/realms/<KC_REALM>/.well-known/openid-configuration" | jq .
 ```
 
-### 1.4 Harvester KubeConfig
+### 8.4 Harvester KubeConfig
 
-You will need three values from the Harvester KubeConfig YAML:
-
-1. Log into the **Harvester UI** (not Rancher).
-2. Click **Support** (bottom-left gear icon) > **Download KubeConfig**.
-3. Open the downloaded YAML and extract:
-   - **server** field → this is the Harvester API Host
+1. **Harvester UI** > **Support** (bottom-left) > **Download KubeConfig**.
+2. Extract from the YAML:
+   - **server** → Harvester API Host
    - **certificate-authority-data** → base64-encoded SSL certificate
-   - **token** (under `user:`) → API bearer token
-
-Keep this file safe -- it contains full Harvester admin credentials.
+   - **token** → API bearer token
 
 ---
 
-## 2. Configure Keycloak OIDC (SSO)
+## 9. Configure Keycloak OIDC (SSO)
 
-### 2.1 Verify / Create the Keycloak Group Membership Mapper
+### 9.1 Create the Keycloak Group Membership Mapper
 
 The `setup-keycloak.sh` script creates the `kasm` client but does NOT
-create a group membership mapper automatically. You must add one.
+create a group membership mapper. You must add one.
 
-1. **Keycloak Admin Console** > select your realm (`<KC_REALM>`).
-2. **Clients** > click `kasm` > **Client scopes** tab.
-3. Click `kasm-dedicated` (the dedicated scope for this client).
-4. **Mappers** tab > **Configure a new mapper** > select **Group Membership**.
+1. **Keycloak Admin Console** > select your realm.
+2. **Clients** > `kasm` > **Client scopes** tab.
+3. Click `kasm-dedicated`.
+4. **Mappers** > **Configure a new mapper** > **Group Membership**.
 5. Configure:
 
    | Field | Value |
@@ -114,20 +475,17 @@ create a group membership mapper automatically. You must add one.
    | Add to ID token | ON |
    | Add to access token | ON |
    | Add to userinfo | ON |
-   | Add to token introspection | ON |
 
 6. **Save**.
 
-> **Why Full group path = OFF?** With it ON, Keycloak sends `/group-name`
-> (prefixed with `/`). With it OFF, it sends `group-name`. This SOP assumes
-> OFF for cleaner KASM mapping. If you set it ON, you must prefix every group
-> name with `/` in KASM's SSO Group Mappings (Step 3).
+> **Why OFF?** With it ON, Keycloak sends `/group-name` (slash-prefixed).
+> OFF sends `group-name`. This SOP assumes OFF. If you set it ON, prefix
+> every group name with `/` in KASM's SSO Group Mappings.
 
-### 2.2 Verify Keycloak Logout URLs
+### 9.2 Configure Keycloak Logout URLs
 
-1. Still in **Clients** > `kasm` > **Settings** tab.
-2. Scroll to the **Logout settings** section.
-3. Set:
+1. **Clients** > `kasm` > **Settings** > **Logout settings**.
+2. Set:
 
    | Field | Value |
    |-------|-------|
@@ -135,136 +493,254 @@ create a group membership mapper automatically. You must add one.
    | Backchannel logout URL | `https://kasm.<DOMAIN>/api/oidc_backchannel_logout` |
    | Backchannel logout session required | ON |
 
+3. **Save**.
+
+### 9.3 Verify Redirect URIs
+
+1. **Clients** > `kasm` > **Settings**.
+2. **Valid redirect URIs**: `https://kasm.<DOMAIN>/*`
+3. **Web origins**: `https://kasm.<DOMAIN>`
 4. **Save**.
 
-> Backchannel logout is recommended over front-channel. It is server-to-server
-> (Keycloak calls KASM directly), more reliable than browser-redirect-based
-> front-channel logout.
+### 9.4 Configure KASM OpenID Provider (Manual UI Method)
 
-### 2.3 Verify Redirect URIs
-
-1. Still in **Clients** > `kasm` > **Settings** tab.
-2. Ensure **Valid redirect URIs** includes: `https://kasm.<DOMAIN>/*`
-3. Ensure **Web origins** includes: `https://kasm.<DOMAIN>`
-4. **Save**.
-
-### 2.4 Configure KASM OpenID Provider
-
-1. **KASM Admin UI** > **Access Management** > **Authentication** > **OpenID**.
-2. Click **Add Config**.
-3. Fill in every field exactly:
+1. **KASM Admin** > **Access Management** > **Authentication** > **OpenID** > **Add Config**.
+2. Fill in:
 
    | Field | Value |
    |-------|-------|
    | Enabled | Checked |
    | Display Name | `Continue with Keycloak` |
    | Logo URL | `https://keycloak.<DOMAIN>/resources/favicon.ico` |
-   | Auto Login | Unchecked (set to checked later once validated) |
+   | Auto Login | Unchecked (enable after validation) |
    | Hostname | *(leave empty)* |
    | Default | Checked |
    | Client ID | `kasm` |
-   | Client Secret | *(from Step 1.2)* |
+   | Client Secret | *(from Step 8.2)* |
    | Authorization URL | `https://keycloak.<DOMAIN>/realms/<KC_REALM>/protocol/openid-connect/auth` |
    | Token URL | `https://keycloak.<DOMAIN>/realms/<KC_REALM>/protocol/openid-connect/token` |
    | User Info URL | `https://keycloak.<DOMAIN>/realms/<KC_REALM>/protocol/openid-connect/userinfo` |
-   | Scope | `openid` (one per line:) |
-   | | `email` |
-   | | `profile` |
+   | Scope | `openid` (one per line:) `email` `profile` |
    | Username Attribute | `preferred_username` |
    | Groups Attribute | `groups` |
    | Redirect URL | `https://kasm.<DOMAIN>/api/oidc_callback` |
    | OpenID Connect Issuer | `https://keycloak.<DOMAIN>/realms/<KC_REALM>` |
    | Logout with OIDC Provider | Checked |
-   | Debug | Checked *(enable during initial setup, disable later)* |
+   | Debug | Checked *(disable after validation)* |
 
-4. Click **Submit**.
-
-> **CRITICAL**: If the `groups` claim is missing from the token (e.g., mapper
-> not configured), authentication will **fail entirely** when Groups Attribute
-> is set. If you hit login errors, temporarily clear the Groups Attribute
-> field, test login, then fix the mapper and re-enable.
-
-### 2.5 Test OIDC Login
-
-1. Open an incognito/private browser window.
-2. Navigate to `https://kasm.<DOMAIN>`.
-3. You should see a **"Continue with Keycloak"** button below the local login.
-4. Click it. You should be redirected to Keycloak's login page.
-5. Log in with a Keycloak user.
-6. On success, you are redirected back to KASM and auto-provisioned as a user.
-
-**If login fails**, check KASM logs:
-
-```bash
-kubectl -n kasm logs deployment/kasm-api --tail=100 | grep -i oidc
-```
-
-With Debug enabled, the full token payload is logged -- check that the
-`groups` claim is present.
-
-### 2.6 Disable Debug Mode
-
-Once OIDC is working:
-
-1. **KASM Admin** > **Access Management** > **Authentication** > **OpenID**.
-2. Edit your config > uncheck **Debug**.
 3. **Submit**.
 
-### 2.7 (Optional) Enable Auto Login
+> **CRITICAL**: If the `groups` claim is missing from the token, auth fails
+> entirely when Groups Attribute is set. Quick fix: temporarily clear Groups
+> Attribute, test login, fix mapper, re-enable.
 
-If Keycloak is your only auth source and you want users to skip the KASM
-login page entirely:
+### 9.5 Test OIDC Login
 
-1. Edit the OpenID config > check **Auto Login**.
-2. **Submit**.
+1. Incognito browser > `https://kasm.<DOMAIN>`.
+2. Click **"Continue with Keycloak"**.
+3. Log in with a Keycloak user.
+4. On success, auto-provisioned in KASM.
 
-To reach the local admin login after enabling Auto Login, navigate to:
-`https://kasm.<DOMAIN>/#/staticlogin`
+If login fails:
+```bash
+kubectl -n kasm logs deployment/kasm-api --tail=200 | grep -i "oidc\|openid\|auth"
+```
+
+### 9.6 Post-Validation
+
+1. Disable Debug: edit OpenID config > uncheck Debug > Submit.
+2. (Optional) Enable Auto Login for Keycloak-only environments.
+   - To reach local admin after Auto Login: `https://kasm.<DOMAIN>/#/staticlogin`
 
 ---
 
-## 3. Configure KASM Group Mappings
+## 10. Automating OIDC Configuration via API
 
-KASM groups control which workspace images users can access, session limits,
-clipboard/file transfer policies, and admin permissions. SSO Group Mappings
-link Keycloak groups to KASM groups so membership is synchronized on every
-login.
+### 10.1 The Problem
 
-### 3.1 Create KASM Groups
+KASM's public Developer API documentation does not expose endpoints for
+OIDC provider configuration. The official docs say "configure via Admin UI".
+This breaks infrastructure-as-code workflows.
 
-KASM ships with two default groups: **Administrators** and **All Users**.
-Create additional groups as needed.
+### 10.2 The Solution: Undocumented Admin API
 
-1. **KASM Admin** > **Access Management** > **Groups**.
-2. Click **Add Group** for each:
+**This is officially sanctioned by KASM.** From their support documentation:
 
-   | KASM Group Name | Priority | Description |
-   |----------------|----------|-------------|
-   | Administrators | 10 | *(already exists)* Full admin access |
-   | Developers | 20 | VS Code, Terminal, Desktop, Browsers |
-   | All Users | 100 | *(already exists)* Browsers only |
+> *"The Workspaces platform is developed such that any JSON API utilized by
+> the graphical user interface can also be instrumented via the developer
+> API Keys."*
+>
+> -- [Using Undocumented APIs (Kasm Support)](https://kasmweb.atlassian.net/wiki/spaces/KCS/pages/10682377/Using+Undocumented+APIs)
 
-   > **Priority**: lower number = higher priority. When a user belongs to
-   > multiple groups with conflicting settings, the lowest-priority-number
-   > group wins.
+The Admin UI is a SPA that calls REST endpoints. Every UI action has a
+backing API endpoint. The KASM permission model includes `Auth Create`,
+`Auth Modify`, `Auth Delete`, `Auth View` permissions -- these exist
+specifically for API key-based access to authentication configuration
+endpoints.
 
-### 3.2 Add SSO Group Mappings
+### 10.3 How to Discover the Exact Endpoints
 
-For **each** KASM group that should map to a Keycloak group:
+**One-time browser interception** (do this once, script forever):
 
-1. **Access Management** > **Groups** > click the group name (e.g., `Administrators`).
-2. Click the **SSO Group Mappings** tab.
-3. Click **Add SSO Mapping**.
-4. Configure:
+1. Log into KASM Admin UI.
+2. Open browser DevTools > **Network** tab > filter by `XHR/Fetch`.
+3. Navigate to **Access Management** > **Authentication** > **OpenID** > **Add Config**.
+4. Fill in the OIDC fields and click **Submit**.
+5. In the Network tab, find the `POST` request.
+6. Note the **URL** (e.g., `/api/admin/create_oidc_config`).
+7. Note the **Request Body** (JSON payload with all OIDC fields).
+8. The equivalent public API endpoint replaces `/api/admin/` with `/api/public/`.
 
-   | Field | Value |
-   |-------|-------|
-   | SSO Provider | `OpenID - Continue with Keycloak` |
-   | Group Attributes | *(Keycloak group name -- see table below)* |
+Based on decompiled KASM API code (v1.15.0) and confirmed SAML/LDAP
+patterns, the OIDC endpoints are:
 
-5. Click **Submit**.
+| Operation | Endpoint (probable) |
+|-----------|---------------------|
+| List configs | `POST /api/public/get_oidc_configs` |
+| Get single config | `POST /api/public/get_oidc_config` |
+| Create config | `POST /api/public/create_oidc_config` |
+| Update config | `POST /api/public/update_oidc_config` |
+| Delete config | `POST /api/public/delete_oidc_config` |
 
-#### Mapping Table
+### 10.4 Scripted OIDC Configuration
+
+**Step 1: Create an API key with Auth permissions.**
+
+KASM Admin > **Settings** > **Developers** > **Add API Key**.
+Grant permissions: `Auth View`, `Auth Create`, `Auth Modify`, `Auth Delete`.
+
+**Step 2: Call the API.**
+
+```bash
+#!/usr/bin/env bash
+# configure-kasm-oidc.sh
+# Automates KASM OIDC provider configuration via undocumented admin API.
+#
+# IMPORTANT: Verify the exact endpoint name by intercepting one browser
+# request first (see SOP Section 10.3). The endpoint below is the most
+# likely pattern based on SAML/LDAP equivalents in the decompiled API.
+
+set -euo pipefail
+
+KASM_URL="${KASM_URL:-https://kasm.${DOMAIN}}"
+API_KEY="${KASM_API_KEY:?Set KASM_API_KEY}"
+API_SECRET="${KASM_API_SECRET:?Set KASM_API_SECRET}"
+
+KC_URL="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+KC_CLIENT_SECRET="${KC_KASM_CLIENT_SECRET:?Set KC_KASM_CLIENT_SECRET}"
+
+# Create OIDC config
+curl -sk -X POST "${KASM_URL}/api/public/create_oidc_config" \
+  -H "Content-Type: application/json" \
+  -d "$(cat <<EOF
+{
+  "api_key": "${API_KEY}",
+  "api_key_secret": "${API_SECRET}",
+  "oidc_config": {
+    "enabled": true,
+    "display_name": "Continue with Keycloak",
+    "logo_url": "https://keycloak.${DOMAIN}/resources/favicon.ico",
+    "auto_login": false,
+    "hostname": "",
+    "default": true,
+    "client_id": "kasm",
+    "client_secret": "${KC_CLIENT_SECRET}",
+    "authorization_url": "${KC_URL}/protocol/openid-connect/auth",
+    "token_url": "${KC_URL}/protocol/openid-connect/token",
+    "user_info_url": "${KC_URL}/protocol/openid-connect/userinfo",
+    "scope": "openid email profile",
+    "username_attribute": "preferred_username",
+    "groups_attribute": "groups",
+    "redirect_url": "${KASM_URL}/api/oidc_callback",
+    "oidc_issuer": "${KC_URL}",
+    "logout_with_oidc_provider": true,
+    "debug": false
+  }
+}
+EOF
+)"
+
+echo "OIDC configuration created."
+```
+
+### 10.5 Alternative Automation Approaches (Ranked)
+
+| Rank | Approach | Reliability | Works Post-Install? |
+|------|----------|-------------|---------------------|
+| 1 | **Undocumented Admin API** (above) | High | Yes |
+| 2 | **Slip-Stream Install** (export config YAML, inject at install) | High | No (install-time only) |
+| 3 | **System Import/Export API** (export full config, modify, re-import) | Medium | Yes |
+| 4 | **Terraform Provider** ([SiM22/terraform-provider-kasm](https://github.com/SiM22/terraform-provider-kasm)) | Medium | Yes (OIDC not yet supported but provider is active) |
+| 5 | **Direct PostgreSQL Insert** | Low | Yes (risky, schema may change) |
+
+**Slip-Stream Install** (for fresh deployments):
+1. Install KASM once, configure OIDC manually.
+2. Export: Diagnostics > System Info > Import/Export > Export Config.
+3. Extract `export_data.yaml` from the AES256-encrypted zip.
+4. Replace `kasm_release/conf/database/seed_data/default_properties.yaml`
+   with your export.
+5. Run `install.sh` -- OIDC config is pre-loaded.
+
+See: [Slip-Stream Install](https://kasm.com/docs/latest/guide/import_export/slipstream_install.html)
+
+### 10.6 What Keycloak CAN Automate (Already Done)
+
+The `setup-keycloak.sh` script already handles the Keycloak side:
+
+- Creates the `kasm` OIDC client (confidential, correct redirect URI)
+- Generates and stores the client secret
+- Outputs the secret for KASM-side configuration
+
+What needs to be **added** to `setup-keycloak.sh`:
+
+- Create the Group Membership mapper on the `kasm` client
+- Configure backchannel logout URL
+
+These are straightforward Keycloak Admin API calls:
+
+```bash
+# Create Group Membership mapper (add to setup-keycloak.sh Phase 2)
+kc_api POST "/realms/${KC_REALM}/clients/${KASM_CLIENT_INTERNAL_ID}/protocol-mappers/models" \
+  '{
+    "name": "groups",
+    "protocol": "openid-connect",
+    "protocolMapper": "oidc-group-membership-mapper",
+    "consentRequired": false,
+    "config": {
+      "full.path": "false",
+      "id.token.claim": "true",
+      "access.token.claim": "true",
+      "claim.name": "groups",
+      "userinfo.token.claim": "true"
+    }
+  }'
+
+# Set backchannel logout URL
+kc_api PUT "/realms/${KC_REALM}/clients/${KASM_CLIENT_INTERNAL_ID}" \
+  "$(kc_api GET "/realms/${KC_REALM}/clients/${KASM_CLIENT_INTERNAL_ID}" | \
+    jq '.attributes."backchannel.logout.url" = "https://kasm.'${DOMAIN}'/api/oidc_backchannel_logout" |
+        .attributes."backchannel.logout.session.required" = "true"')"
+```
+
+---
+
+## 11. Configure KASM Group Mappings
+
+### 11.1 Create KASM Groups
+
+KASM ships with **Administrators** and **All Users**. Create additional groups:
+
+| KASM Group | Priority | Description |
+|------------|----------|-------------|
+| Administrators | 10 | Full admin access (exists) |
+| Developers | 20 | VS Code, Terminal, Desktop, Browsers |
+| All Users | 100 | Browsers only (exists) |
+
+> Priority: lower number = higher priority for conflicting settings.
+
+### 11.2 Add SSO Group Mappings
+
+For each KASM group > **SSO Group Mappings** tab > **Add SSO Mapping**:
 
 | Keycloak Group | KASM SSO Group Attribute | KASM Group |
 |---------------|-------------------------|------------|
@@ -272,161 +748,98 @@ For **each** KASM group that should map to a Keycloak group:
 | `aegis-developers` | `aegis-developers` | Developers |
 | `aegis-users` | `aegis-users` | All Users |
 
-> If you set **Full group path = ON** in the Keycloak mapper (Step 2.1),
-> prefix each value with `/`: `/aegis-admins`, `/aegis-developers`, etc.
+SSO Provider: `OpenID - Continue with Keycloak`
 
-### 3.3 Configure Group Permissions
+> If Full group path = ON in Keycloak mapper, prefix with `/`:
+> `/aegis-admins`, `/aegis-developers`, `/aegis-users`.
 
-For each group, configure which workspaces are accessible:
+### 11.3 Group Permissions
 
-1. **Groups** > click group > **Settings** tab.
-2. Key settings per group:
+**Developers**: Allow all workspace images, 8-hour session limit, 20-min
+idle timeout, clipboard both directions, file upload/download enabled.
 
-**Administrators** (already configured by default):
-- All permissions enabled.
+**All Users**: Browsers only, 4-hour session limit, 10-min idle timeout,
+clipboard download only, file transfer disabled.
 
-**Developers**:
-- Allow Images: Chrome, Firefox, Ubuntu Desktop, VS Code, Terminal
-- Session Time Limit: 28800 (8 hours)
-- Idle Session Timeout: 1200 (20 minutes)
-- Enable clipboard (both directions)
-- Enable file upload/download
+### 11.4 Verify
 
-**All Users**:
-- Allow Images: Chrome, Firefox only
-- Session Time Limit: 14400 (4 hours)
-- Idle Session Timeout: 600 (10 minutes)
-- Clipboard: download only
-- File upload: disabled
-- File download: disabled
-
-### 3.4 Verify Group Mapping
-
-1. Log in via Keycloak as a user who belongs to `aegis-developers`.
-2. In KASM Admin, navigate to **Access Management** > **Users**.
-3. Find the auto-provisioned user and click their name.
-4. Check the **Groups** tab -- they should be in both `All Users` and
-   `Developers`.
-5. On subsequent logins, group membership is re-evaluated from the Keycloak
-   token. Removing a user from the Keycloak group removes them from the
-   KASM group on next login.
+Login via Keycloak as a user in `aegis-developers`. Check KASM Admin >
+Users > user > Groups tab. They should be in both `All Users` and
+`Developers`. Group membership re-evaluates on every login.
 
 ---
 
-## 4. Set the Zone Upstream Auth Address
+# Part III -- Harvester VDI Autoscaling
 
-Before configuring autoscaling, you **must** set the Upstream Auth Address
-in the default Zone. Autoscaled agent VMs use this address to register back
-to the KASM manager.
+## 12. Set the Zone Upstream Auth Address
 
-1. **KASM Admin** > **Infrastructure** > **Zones**.
-2. Click the **default** zone (or your zone name).
-3. Set **Upstream Auth Address** to the KASM proxy service address that
-   agent VMs can reach. Options:
+**Must be done before configuring any autoscaling.**
 
-   - If agent VMs are on the same Harvester cluster network:
-     `kasm.<DOMAIN>` (external FQDN -- routed through Traefik)
-   - If using pod networking: the kasm-proxy ClusterIP won't work (VMs are
-     outside K8s). You must use the external FQDN.
-
-4. **IMPORTANT**: Do NOT leave this as `$request_host$` (the default). That
-   variable resolves in the browser context, not on the agent VM. The agent
-   VM needs an actual hostname/IP it can reach.
-
-5. Click **Submit**.
+1. **KASM Admin** > **Infrastructure** > **Zones** > click **default**.
+2. Set **Upstream Auth Address**: `kasm.<DOMAIN>`
+3. **IMPORTANT**: Do NOT leave as `$request_host$` (default). Agent VMs
+   need an actual hostname they can reach to register.
+4. **Submit**.
 
 ---
 
-## 5. Prepare Harvester for Autoscaling
+## 13. Prepare Harvester for Autoscaling
 
-These steps are performed in the **Harvester UI** (not Rancher, not KASM).
+### 13.1 Create Namespace
 
-### 5.1 Create a Namespace for Autoscaled VMs
+**Harvester UI** > **Namespaces** > **Create**: `kasm-autoscale`
 
-1. **Harvester UI** > **Namespaces**.
-2. Click **Create**.
-3. Name: `kasm-autoscale`.
-4. **Create**.
+### 13.2 Upload Ubuntu Cloud Image
 
-> Keeping autoscaled VMs in a dedicated namespace makes cleanup and resource
-> quota management easier.
+**Harvester UI** > **Images** > **Create**:
 
-### 5.2 Upload an Ubuntu Cloud Image
+| Field | Value |
+|-------|-------|
+| Namespace | `kasm-autoscale` |
+| Name | `ubuntu-22.04-cloud` |
+| URL | `https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img` |
 
-1. **Harvester UI** > **Images** (under Advanced).
-2. Click **Create**.
-3. Configure:
+Wait for status: Active.
 
-   | Field | Value |
-   |-------|-------|
-   | Namespace | `kasm-autoscale` |
-   | Name | `ubuntu-22.04-cloud` |
-   | URL | `https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img` |
+### 13.3 VM Network (if needed)
 
-4. Click **Create** and wait for the download to complete (status: Active).
+If agents need the management network: **Networks** > **Create** > cluster
+network `mgmt` > Name: `vm-network`.
 
-> You can also use Ubuntu 24.04 (`noble`) -- the startup script is compatible.
-> Rocky Linux cloud images also work but the startup script uses `apt`, so
-> you would need to adapt it to `dnf`.
+For pod networking (default), skip this.
 
-### 5.3 Create a VM Network (if not already present)
-
-If your agent VMs need to be on the management network (same as worker nodes):
-
-1. **Harvester UI** > **Networks** (under Advanced > Cluster Networks/Configs).
-2. If a `vm-network` or `untagged-network` already exists on `mgmt`, skip
-   this step.
-3. Otherwise: **Create** > select cluster network `mgmt` > VLAN ID: leave
-   empty for untagged > Name: `vm-network`.
-
-> For pod networking (default in KASM's Harvester provider), you don't need
-> a VM network -- VMs get a pod IP directly. Choose based on your network
-> architecture.
-
-### 5.4 Generate an SSH Key Pair for Agent Access
+### 13.4 SSH Key Pair
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/kasm-agent-key -N "" -C "kasm-agent"
 cat ~/.ssh/kasm-agent-key.pub
 ```
 
-Copy the public key -- you will paste it into the KASM VM Provider config.
-
 ---
 
-## 6. Configure KASM Harvester VM Provider
+## 14. Configure KASM Harvester VM Provider
 
-This is done in the **KASM Admin UI**.
+### 14.1 Docker Agent VM Provider
 
-### 6.1 Create VM Provider Config
+**KASM Admin** > **Infrastructure** > **VM Provider Configs** > **Add Config** > **Harvester**:
 
-1. **KASM Admin** > **Infrastructure** > **VM Provider Configs**.
-2. Click **Add Config**.
-3. Select Provider: **Harvester**.
-4. Fill in:
+| Field | Value |
+|-------|-------|
+| Name | `harvester-docker-agents` |
+| Max Instances | `10` |
+| Host | *(Harvester API URL from KubeConfig `server` field)* |
+| SSL Certificate | *(PEM-decoded cert from KubeConfig)* |
+| API Token | *(token from KubeConfig)* |
+| VM Namespace | `kasm-autoscale` |
+| VM SSH Public Key | *(~/.ssh/kasm-agent-key.pub)* |
+| Cores | `8` |
+| Memory (GiB) | `16` |
+| Disk Image | `ubuntu-22.04-cloud` |
+| Disk Size (GiB) | `100` |
+| Network Type | `pod` |
+| Interface Type | `masquerade` |
 
-   | Field | Value | Notes |
-   |-------|-------|-------|
-   | Name | `harvester-docker-agents` | Descriptive name |
-   | Max Instances | `10` | Upper limit on concurrent VMs |
-   | Host | *(Harvester API URL from KubeConfig `server` field)* | e.g., `https://harvester.example.com/k8s/clusters/local` |
-   | SSL Certificate | *(base64-decoded `certificate-authority-data` from KubeConfig)* | Paste the actual PEM cert, NOT the base64 string |
-   | API Token | *(token from KubeConfig `user:` section)* | |
-   | VM Namespace | `kasm-autoscale` | The namespace from Step 5.1 |
-   | VM SSH Public Key | *(contents of `~/.ssh/kasm-agent-key.pub`)* | |
-   | Cores | `8` | Per-VM CPU cores (adjust to your capacity) |
-   | Memory (GiB) | `16` | Per-VM RAM |
-   | Disk Image | `ubuntu-22.04-cloud` | Image name from Step 5.2 |
-   | Disk Size (GiB) | `100` | Boot disk size |
-   | Network Type | `pod` | Use `multus` if you need a specific VLAN |
-   | Interface Type | `masquerade` | Use `bridge` for multus flat networks |
-   | Network Name | *(leave blank for pod networking)* | Required only for multus |
-   | Enable TPM | Unchecked | |
-   | Enable EFI Boot | Unchecked | |
-   | Enable Secure Boot | Unchecked | |
-
-5. **Startup Script**: Paste the cloud-init YAML below (this is the
-   official kasmtech startup script for Harvester Docker Agents):
+**Startup Script** (official kasmtech cloud-init for Harvester Docker Agents):
 
 ```yaml
 #cloud-config
@@ -486,23 +899,13 @@ swap:
    size: 8589934592
 ```
 
-> **Template variables** (`{ssh_key}`, `{upstream_auth_address}`, `{server_id}`,
-> `{provider_name}`, `{manager_token}`) are replaced automatically by KASM
-> at provisioning time. Do NOT replace them manually.
+> Template variables (`{ssh_key}`, `{upstream_auth_address}`, `{server_id}`,
+> `{provider_name}`, `{manager_token}`) are replaced by KASM at provisioning
+> time. Do NOT replace them manually.
 
-6. Click **Save**.
+### 14.2 Verify Connectivity
 
-### 6.2 Verify Connectivity
-
-After saving, KASM will attempt to validate the Harvester API connection.
-If it fails:
-
-- Check the Host URL is correct (include the full path, e.g.,
-  `/k8s/clusters/local` if applicable).
-- Check the SSL Certificate is the PEM-decoded cert (not base64-encoded).
-- Check the API Token has not expired.
-- Check network connectivity: the KASM API pod must be able to reach the
-  Harvester API. Test from within the cluster:
+After saving, KASM validates the Harvester API connection. If it fails:
 
 ```bash
 kubectl -n kasm exec deployment/kasm-api -- \
@@ -512,326 +915,271 @@ kubectl -n kasm exec deployment/kasm-api -- \
 
 ---
 
-## 7. Create a Docker Agent Pool with Autoscaling
+## 15. Create a Docker Agent Pool with Autoscaling
 
-### 7.1 Create the Pool
+### 15.1 Create Pool
 
-1. **KASM Admin** > **Infrastructure** > **Pools**.
-2. Click **Add**.
-3. Configure:
+**Infrastructure** > **Pools** > **Add**:
+- Name: `harvester-agents`
+- Type: **Docker Agent**
 
-   | Field | Value |
-   |-------|-------|
-   | Name | `harvester-agents` |
-   | Type | Docker Agent |
+### 15.2 AutoScale Config
 
-4. **Save**.
+Pool > **AutoScale** tab > **Add AutoScale Config**:
 
-### 7.2 Attach AutoScale Config
+| Field | Value |
+|-------|-------|
+| VM Provider | `harvester-docker-agents` |
+| Enabled | Checked |
+| Standby Cores | `8` |
+| Standby Memory (MB) | `8000` |
+| Standby GPUs | `0` |
+| Downscale Backoff (seconds) | `900` |
+| Aggressive Scaling | Unchecked |
+| Register DNS | Unchecked |
 
-1. In the pool you just created, click **AutoScale** tab.
-2. Click **Add AutoScale Config**.
-3. Configure the **AutoScale Details** section:
+Optional: set a schedule for business-hours-only scaling.
 
-   | Field | Value | Notes |
-   |-------|-------|-------|
-   | VM Provider | `harvester-docker-agents` | The provider from Step 6.1 |
-   | Enabled | Checked | |
-   | Aggressive Scaling | Unchecked | Check only if you want faster scale-up |
-   | Standby Cores | `8` | Scale up when fewer than 8 idle cores |
-   | Standby Memory (MB) | `8000` | Scale up when less than 8GB idle RAM |
-   | Standby GPUs | `0` | Set if using GPU passthrough |
-   | Downscale Backoff (seconds) | `900` | Wait 15 min before destroying idle VMs |
-   | Agent Cores Override | *(leave blank)* | Uses VM Provider cores value |
-   | Agent Memory Override | *(leave blank)* | Uses VM Provider memory value |
-   | Register DNS | Unchecked | Only for environments with dynamic DNS |
+### 15.3 Verify
 
-4. Configure the **Scheduling** section (optional):
+KASM provisions a VM within minutes. Watch:
+- **KASM Admin** > **Infrastructure** > **Docker Agents** (status: Provisioning → Online)
+- **Harvester UI** > **Virtual Machines** > namespace `kasm-autoscale`
 
-   - Leave defaults for always-on autoscaling.
-   - Or set a schedule for business-hours-only scaling (e.g., Mon-Fri 07:00-19:00).
-
-5. Click **Save**.
-
-### 7.3 Verify Autoscaling
-
-After saving the autoscale config, KASM should begin provisioning a VM
-within a few minutes (since there are 0 standby cores, it will immediately
-try to scale up to meet the standby threshold).
-
-**Watch the provisioning**:
-
-1. **KASM Admin** > **Infrastructure** > **Docker Agents**.
-   - You should see a new agent appear with status **Provisioning**.
-   - After ~5-10 minutes (cloud-init + Docker + KASM agent install), status
-     changes to **Online**.
-
-2. **Harvester UI** > **Virtual Machines** > namespace `kasm-autoscale`.
-   - You should see a new VM spinning up.
-   - Once the QEMU Guest Agent is running, the VM's IP will be visible.
-
-3. If the agent never comes online, SSH into the VM and check cloud-init:
-
+If stuck, SSH in and check cloud-init:
 ```bash
 ssh -i ~/.ssh/kasm-agent-key kasm-admin@<VM_IP>
 sudo cat /var/log/cloud-init-output.log
-sudo journalctl -u kasm_agent
 ```
 
 ---
 
-## 8. Register Workspace Images
+## 16. Create a Linux KasmVNC Server Pool
 
-Once at least one Docker Agent is **Online**, you can launch workspaces.
+For full Linux VM desktops with complete OS isolation (the "thick" model).
 
-### 8.1 Add Workspace Registry (Recommended)
+### 16.1 VM Provider Config
 
-KASM maintains a public workspace registry with pre-built images:
+**Infrastructure** > **VM Provider Configs** > **Add** > **Harvester**:
 
-1. **KASM Admin** > **Workspaces** > **Registry**.
-2. If no registry is configured, click **Add Registry**:
-   - URL: `https://registry.kasmweb.com/1.0/`
-3. Browse available images and click **Install** on the ones you want.
+| Field | Value |
+|-------|-------|
+| Name | `harvester-linux-vdi` |
+| Max Instances | `5` |
+| Cores | `4` |
+| Memory (GiB) | `8` |
+| Disk Image | `ubuntu-22.04-cloud` |
+| Disk Size (GiB) | `50` |
 
-### 8.2 Manual Image Registration
+**Startup Script**: Use `linux_vms/ubuntu.sh` from
+[kasmtech/workspaces-autoscale-startup-scripts](https://github.com/kasmtech/workspaces-autoscale-startup-scripts/tree/release/1.18.1/linux_vms).
+This installs KasmVNC + XFCE desktop and registers the VM.
 
-Alternatively, add images manually:
+Add qemu-guest-agent installation to the script (uncomment or add):
+```bash
+apt-get update && apt install -y qemu-guest-agent
+systemctl enable --now qemu-guest-agent.service
+```
 
-1. **KASM Admin** > **Workspaces** > **Workspaces** > **Add Workspace**.
-2. For each image:
+### 16.2 Create Server Pool
 
-   | Friendly Name | Docker Image | Description |
-   |--------------|-------------|-------------|
-   | Chrome Browser | `kasmweb/chrome:1.18.0` | Isolated web browsing |
-   | Firefox Browser | `kasmweb/firefox:1.18.0` | Alternative browser |
-   | Ubuntu Desktop | `kasmweb/desktop:1.18.0` | Full Linux desktop |
-   | VS Code | `kasmweb/vs-code:1.18.0` | Development IDE |
-   | Terminal | `kasmweb/terminal:1.18.0` | CLI access |
+**Infrastructure** > **Pools** > **Add**:
+- Name: `harvester-linux-vdi`
+- Type: **Server**
+- Connection Type: **KasmVNC**
+- Connection Port: `6901`
 
-3. For each workspace, configure:
-   - **Cores**: `2`
-   - **Memory (MB)**: `2768`
-   - **Docker Registry**: leave blank (pulls from Docker Hub) or set to
-     `harbor.<DOMAIN>/dockerhub` for Harbor proxy cache
-   - **Persistent Profile Path**: `/home/kasm-user` (if persistent profiles
-     are configured)
-   - **Assign to groups**: select which KASM groups can access this workspace
+Attach AutoScale config with the `harvester-linux-vdi` VM provider.
+Set **Minimum Available Sessions**: `1`.
 
-### 8.3 Assign Workspaces to Groups
+### 16.3 Create Workspace
 
-For each workspace image:
-
-1. Click the workspace name > **Groups** tab.
-2. **Add Group** > select the appropriate group(s).
-3. The "All Users" group grants access to everyone. More restrictive access
-   uses specific groups.
-
----
-
-## 9. End-to-End Validation
-
-### 9.1 Test as Admin (Local Login)
-
-1. Login as `admin@kasm.local` at `https://kasm.<DOMAIN>`.
-2. Click a workspace (e.g., Chrome).
-3. A session should be provisioned on one of the Docker Agent VMs.
-4. The desktop streams to your browser via WebSocket.
-5. Verify: clipboard works, keyboard/mouse respond, session terminates cleanly.
-
-### 9.2 Test as SSO User (Keycloak Login)
-
-1. Open incognito browser > `https://kasm.<DOMAIN>`.
-2. Click **Continue with Keycloak**.
-3. Log in as a Keycloak user (e.g., one in `aegis-developers`).
-4. You should see only the workspaces assigned to your group.
-5. Launch a workspace and verify it streams correctly.
-
-### 9.3 Test Autoscaling
-
-1. Launch enough concurrent sessions to exhaust the standby capacity.
-2. Watch **Infrastructure** > **Docker Agents** -- a new VM should begin
-   provisioning.
-3. After all sessions end, wait for the downscale backoff (15 min default).
-4. The idle agent VM should be destroyed.
-
-### 9.4 Test Logout
-
-1. In the KASM session, click your username (top-right) > **Logout**.
-2. You should be logged out of both KASM and Keycloak (backchannel logout).
-3. Verify by navigating to `https://keycloak.<DOMAIN>` -- you should be on
-   the Keycloak login page (not already authenticated).
+**Workspaces** > **Add Workspace**:
+- Type: **Server Pool**
+- Server Pool: `harvester-linux-vdi`
+- Friendly Name: `Linux Desktop (Full VM)`
 
 ---
 
-## 10. Windows RDP Server Pool (Optional)
+## 17. Create a Windows RDP Server Pool
 
-For Windows VDI desktops via RDP. This requires a pre-built Windows template
-in Harvester.
+### 17.1 Build Windows Template in Harvester
 
-### 10.1 Create Windows VM Template in Harvester
+1. Upload Windows Server 2022 ISO and [VirtIO drivers ISO](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso) to Harvester Images.
+2. Create VM: 4 CPU, 8 GiB RAM, 60 GiB VirtIO boot disk, two SATA CD-ROMs.
+3. Install Windows (load VirtIO SCSI driver during disk selection).
+4. Post-install:
+   - Install all VirtIO drivers from VirtIO CD.
+   - Install **QEMU Guest Agent**: `D:\guest-agent\qemu-ga-x86_64.msi`.
+   - Install **Cloudbase-Init** (LocalSystem, no sysprep, no shutdown).
+   - Enable **Remote Desktop**.
+   - Enable audio: `Set-Service Audiosrv -StartupType Automatic`.
+5. Shut down, remove CD-ROMs, **Generate Template** > **With Data** > name: `win2022-kasm-rdp`.
 
-1. **Harvester UI** > **Images**: Upload Windows Server 2022 ISO and the
-   [VirtIO drivers ISO](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso).
-2. **Virtual Machines** > **Create**:
-   - Namespace: `kasm-autoscale`
-   - Name: `win2022-template-builder`
-   - CPU: 4, Memory: 8 GiB
-   - Volumes:
-     - Boot disk: 60 GiB, bus type VirtIO, provisioner Longhorn
-     - CD-ROM 1: Windows Server 2022 ISO (bus type SATA)
-     - CD-ROM 2: VirtIO drivers ISO (bus type SATA)
-   - Network: vm-network (or pod)
-3. Boot the VM and install Windows:
-   - During disk selection, click **Load driver** > browse to VirtIO CD >
-     `viostor\2k22\amd64` > install the VirtIO SCSI driver.
-   - Complete Windows installation.
-4. Post-install inside the Windows VM:
-   - Install all VirtIO drivers (Device Manager > Update driver > VirtIO CD).
-   - Install **QEMU Guest Agent**: `D:\guest-agent\qemu-ga-x86_64.msi`
-     (from VirtIO CD).
-   - Install **Cloudbase-Init**: download from
-     [cloudbase.it](https://cloudbase.it/cloudbase-init/#download).
-     During install: run as LocalSystem, do NOT sysprep, do NOT shutdown.
-   - **Enable Remote Desktop**: Settings > System > Remote Desktop > On.
-   - **Enable audio service**: `Set-Service Audiosrv -StartupType Automatic`
-5. Shut down the VM.
-6. Remove the two CD-ROM volumes from the VM config.
-7. **Virtual Machines** > click the VM > **Generate Template** > check
-   **With Data** > name: `win2022-kasm-rdp`.
+### 17.2 VM Provider Config
 
-### 10.2 Create KASM Server Pool VM Provider
+| Field | Value |
+|-------|-------|
+| Name | `harvester-windows-rdp` |
+| Max Instances | `5` |
+| Cores | `4` |
+| Memory (GiB) | `8` |
+| Disk Image | `win2022-kasm-rdp` |
+| Disk Size (GiB) | `60` |
+| Enable EFI Boot | Checked |
 
-1. **KASM Admin** > **Infrastructure** > **VM Provider Configs** > **Add Config**.
-2. Select: **Harvester**.
-3. Configure same as Step 6.1, but:
+Startup Script: PowerShell scripts from
+[kasmtech/workspaces-autoscale-startup-scripts/windows_vms](https://github.com/kasmtech/workspaces-autoscale-startup-scripts/tree/release/1.18.1/windows_vms).
 
-   | Field | Value |
-   |-------|-------|
-   | Name | `harvester-windows-rdp` |
-   | Cores | `4` |
-   | Memory (GiB) | `8` |
-   | Disk Image | `win2022-kasm-rdp` *(template name)* |
-   | Disk Size (GiB) | `60` |
-   | Enable TPM | Optional |
-   | Enable EFI Boot | Checked (for Windows 11 / Secure Boot) |
+### 17.3 Create Server Pool
 
-4. **Startup Script**: Use the PowerShell scripts from
-   [kasmtech/workspaces-autoscale-startup-scripts/windows_vms](https://github.com/kasmtech/workspaces-autoscale-startup-scripts/tree/release/1.18.1/windows_vms).
+- Name: `harvester-windows-rdp`
+- Type: **Server**
+- Connection Type: **RDP**
+- Connection Port: `3389`
+- Minimum Available Sessions: `2`
+- Require Checkin: **Checked** (wait for Kasm Desktop Service)
 
-   The entry point script (`Init-VM-Task.ps1`) and all supporting scripts
-   must be bundled and referenced via Cloudbase-Init's userdata mechanism.
-   See the repository README for details.
+### 17.4 Create Workspace
 
-### 10.3 Create Server Pool
-
-1. **Infrastructure** > **Pools** > **Add**.
-2. Type: **Server**.
-3. Connection Type: **RDP**.
-4. Attach AutoScale config with the `harvester-windows-rdp` VM provider.
-5. Set **Minimum Available Sessions**: `2` (always have 2 ready desktops).
+- Type: **Server Pool**
+- Server Pool: `harvester-windows-rdp`
+- Friendly Name: `Windows Desktop`
 
 ---
 
-## 11. Troubleshooting
+# Part IV -- Workspaces & Validation
 
-### OIDC Login Fails ("Authentication Error")
+## 18. Register Workspace Images
 
-**Symptom**: Clicking "Continue with Keycloak" redirects back to KASM with
-an error.
+### 18.1 Add Workspace Registry
 
-**Checklist**:
-1. Is the `groups` mapper configured in Keycloak? If KASM's Groups Attribute
-   is set but the claim is missing from the token, auth fails entirely.
-   - **Quick fix**: temporarily clear the Groups Attribute field in KASM
-     OIDC config, test login, then fix the Keycloak mapper.
-2. Check KASM API logs:
-   ```bash
-   kubectl -n kasm logs deployment/kasm-api --tail=200 | grep -i "oidc\|openid\|auth"
-   ```
-3. With Debug enabled, the full token is logged. Verify the `groups` claim
-   is present and contains the expected group names.
-4. Verify redirect URI matches exactly: `https://kasm.<DOMAIN>/api/oidc_callback`
-5. Check TLS: if KASM can't verify Keycloak's TLS cert, auth fails silently.
-   Enable Debug mode which also disables TLS verification for OIDC endpoints.
+**Workspaces** > **Registry** > **Add Registry**:
+- URL: `https://registry.kasmweb.com/1.0/`
 
-### Groups Not Mapping Correctly
+Browse and install images directly.
 
-**Symptom**: User logs in via Keycloak but only appears in "All Users", not
-their expected group.
+### 18.2 Manual Registration
 
-**Checklist**:
-1. Check the Keycloak token claims (Debug mode logs them):
-   - Is the `groups` claim present?
-   - Does it contain the exact group name you put in the SSO mapping?
-2. **Slash prefix**: If Keycloak mapper has Full group path = ON, groups
-   appear as `/aegis-admins`. KASM mapping must match exactly.
-3. The SSO provider name in the mapping must match the OpenID config name
-   exactly: `OpenID - Continue with Keycloak`.
+| Friendly Name | Docker Image | Cores | RAM (MB) |
+|--------------|-------------|-------|----------|
+| Chrome | `kasmweb/chrome:1.18.0` | 2 | 2768 |
+| Firefox | `kasmweb/firefox:1.18.0` | 2 | 2768 |
+| Ubuntu Desktop | `kasmweb/desktop:1.18.0` | 2 | 2768 |
+| VS Code | `kasmweb/vs-code:1.18.0` | 2 | 2768 |
+| Terminal | `kasmweb/terminal:1.18.0` | 1 | 1024 |
 
-### Agent VM Never Comes Online
+For Harbor proxy cache: set Docker Registry to `harbor.<DOMAIN>/dockerhub`.
 
-**Symptom**: VM provisions in Harvester but KASM shows it as "Provisioning"
-indefinitely.
+### 18.3 Assign to Groups
 
-**Checklist**:
-1. SSH into the VM: `ssh -i ~/.ssh/kasm-agent-key kasm-admin@<VM_IP>`
+Each workspace > **Groups** tab > add appropriate groups.
+
+---
+
+## 19. End-to-End Validation
+
+### 19.1 Admin Login Test
+
+Login as `admin@kasm.local`, launch Chrome workspace, verify streaming.
+
+### 19.2 SSO Login Test
+
+Incognito > `https://kasm.<DOMAIN>` > **Continue with Keycloak** > login >
+verify group-appropriate workspaces visible.
+
+### 19.3 Autoscale Test
+
+Launch sessions until standby exhausted > verify new VM provisions >
+end sessions > verify idle VM destroyed after backoff.
+
+### 19.4 Logout Test
+
+Logout from KASM > verify Keycloak session also terminated (backchannel).
+
+---
+
+## 20. Troubleshooting
+
+### OIDC Login Fails
+
+1. Is the `groups` mapper configured? Missing claim = auth failure.
+   Quick fix: temporarily clear Groups Attribute in KASM OIDC config.
+2. Check API logs: `kubectl -n kasm logs deployment/kasm-api --tail=200 | grep -i oidc`
+3. Debug mode logs full token payload. Check `groups` claim.
+4. Verify redirect URI: `https://kasm.<DOMAIN>/api/oidc_callback`
+5. TLS issues: Debug mode disables OIDC TLS verification.
+   See [GitHub #834](https://github.com/kasmtech/workspaces-issues/issues/834).
+
+### Groups Not Mapping
+
+1. Check token claims (Debug mode).
+2. Slash prefix: if Keycloak has Full group path = ON, KASM mapping must
+   include `/` prefix.
+3. SSO provider name must match exactly: `OpenID - Continue with Keycloak`.
+
+### Agent VM Stuck Provisioning
+
+1. SSH in: `ssh -i ~/.ssh/kasm-agent-key kasm-admin@<VM_IP>`
 2. Check cloud-init: `sudo cat /var/log/cloud-init-output.log`
-3. Common issues:
-   - **QEMU Guest Agent not running**: Harvester can't detect the VM's IP.
-     Check: `systemctl status qemu-guest-agent`
-   - **Upstream Auth Address wrong**: The agent can't reach the KASM manager.
-     Check: `curl -sk https://kasm.<DOMAIN>/api/__healthcheck`
-   - **Manager token wrong/expired**: Check the install.sh output in
-     cloud-init log.
-   - **DNS resolution**: The VM must be able to resolve `kasm.<DOMAIN>`.
-     Check: `nslookup kasm.<DOMAIN>`
-   - **Download failure**: `kasm_release_1.18.1.tar.gz` download failed
-     (check internet access from VM).
+3. Common causes: QEMU Guest Agent not running, Upstream Auth Address wrong,
+   manager token expired, DNS resolution failing, tarball download failure.
 
-### Desktop Sessions Timeout After 10 Minutes
+### Desktop Sessions Timeout
 
-Traefik's default `readTimeout` was reduced in Traefik 3.x. Desktop WebSocket
-streaming requires a long timeout.
-
-**Fix**: Ensure the Traefik timeout HelmChartConfig is applied:
-
+Apply Traefik timeout HelmChartConfig (1800s):
 ```bash
 kubectl apply -f services/harbor/traefik-timeout-helmchartconfig.yaml
 ```
 
-This sets `readTimeout: 1800s` and `respondingTimeouts.readTimeout: 1800s`.
+### Local Admin After Auto-Login
 
-### Accessing Local Admin After Auto-Login
-
-If Auto Login is enabled and you need the local login page:
-
-```
-https://kasm.<DOMAIN>/#/staticlogin
-```
+`https://kasm.<DOMAIN>/#/staticlogin`
 
 ---
 
-## 12. References
+## 21. References
 
 ### Official Documentation
 - [KASM Keycloak OIDC Setup](https://www.kasmweb.com/docs/develop/guide/oidc/keycloak.html)
 - [KASM OpenID Authentication](https://www.kasmweb.com/docs/latest/guide/oidc.html)
+- [KASM Developer API](https://www.kasmweb.com/docs/latest/developers/developer_api.html)
+- [Using Undocumented APIs (Kasm Support)](https://kasmweb.atlassian.net/wiki/spaces/KCS/pages/10682377/Using+Undocumented+APIs)
+- [Slip-Stream Install](https://kasm.com/docs/latest/guide/import_export/slipstream_install.html)
 - [KASM Harvester AutoScale Provider](https://www.kasmweb.com/docs/develop/how_to/infrastructure_components/autoscale_providers/harvester.html)
-- [KASM AutoScale Config (Docker Agent Pool)](https://kasmweb.com/docs/develop/how_to/infrastructure_components/autoscale_config_docker_agent.html)
-- [KASM AutoScale Config (Server Pool)](https://kasm.com/docs/latest/how_to/infrastructure_components/autoscale_config_server.html)
+- [KASM KubeVirt VM Provider](https://kasm.com/docs/latest/guide/compute/vm_providers/kubevirt.html)
+- [AutoScale Config (Docker Agent)](https://kasmweb.com/docs/develop/how_to/infrastructure_components/autoscale_config_docker_agent.html)
+- [AutoScale Config (Server Pool)](https://kasm.com/docs/latest/how_to/infrastructure_components/autoscale_config_server.html)
+- [KASM Pools](https://www.kasmweb.com/docs/latest/guide/compute/pools.html)
+- [KASM VM Provider Configs](https://www.kasmweb.com/docs/latest/guide/compute/vm_providers.html)
 - [KASM Groups and Permissions](https://www.kasmweb.com/docs/latest/guide/groups.html)
 - [KASM Deployment Zones](https://www.kasmweb.com/docs/develop/guide/zones/deployment_zones.html)
-- [KASM VM Provider Configs](https://www.kasmweb.com/docs/latest/guide/compute/vm_providers.html)
 - [KASM Workspace Registry](https://www.kasmweb.com/docs/latest/guide/workspace_registry.html)
 - [KASM Persistent Profiles](https://www.kasmweb.com/docs/latest/guide/persistent_data/persistent_profiles.html)
+- [KASM Session Staging](https://kasm.com/docs/latest/guide/staging.html)
+- [KASM Session Sharing](https://kasm.com/docs/latest/guide/session_sharing.html)
+- [KASM GPU Acceleration](https://kasm.com/docs/latest/how_to/gpu.html)
+- [KASM Sysbox Runtime](https://www.kasmweb.com/docs/develop/how_to/sysbox_runtime.html)
+- [KASM Network Isolation](https://kasm.com/docs/latest/how_to/restrict_to_docker_network.html)
+- [KASM Managed Egress](https://www.kasmweb.com/docs/latest/guide/egress.html)
+- [KASM Windows Overview](https://www.kasmweb.com/docs/latest/guide/windows/overview.html)
+- [KASM RemoteApps](https://www.kasmweb.com/docs/latest/how_to/windows_remote_apps.html)
+- [KASM Connection Proxies](https://www.kasmweb.com/docs/develop/guide/connection_proxies.html)
+- [KASM Sizing Guide](https://kasm.com/docs/latest/how_to/sizing_operations.html)
+- [KASM Building Custom Images](https://www.kasmweb.com/docs/develop/how_to/building_images.html)
 - [KASM Kubernetes Installation](https://www.kasmweb.com/docs/develop/install/kubernetes.html)
+- [KASM 1.18.0 Release Notes](https://docs.kasm.com/docs/release_notes/1.18.0)
 
 ### GitHub
-- [kasmtech/kasm-helm](https://github.com/kasmtech/kasm-helm) -- Helm chart
-- [kasmtech/workspaces-autoscale-startup-scripts](https://github.com/kasmtech/workspaces-autoscale-startup-scripts) -- Startup scripts for Docker Agents, Linux VMs, Windows VMs
-- [kasmtech/workspaces-issues](https://github.com/kasmtech/workspaces-issues) -- Issue tracker (see #834 for TLS issues)
+- [kasmtech/kasm-helm](https://github.com/kasmtech/kasm-helm)
+- [kasmtech/workspaces-autoscale-startup-scripts](https://github.com/kasmtech/workspaces-autoscale-startup-scripts)
+- [kasmtech/workspaces-issues](https://github.com/kasmtech/workspaces-issues)
+- [SiM22/terraform-provider-kasm](https://github.com/SiM22/terraform-provider-kasm)
+- [kasmweb-decompilation/api](https://github.com/kasmweb-decompilation/api)
+- [SplinterHead/Kasm-python](https://github.com/SplinterHead/Kasm-python)
 
 ### Architecture / Blog
 - [VDI on Kubernetes: Rancher + Harvester + KASM](https://medium.kasm.com/vdi-on-kubernetes-for-enterprises-rancher-harvester-kasm-92652d46d8ca)
 - [Installing KASM on Rancher Using Official Helm Chart](https://medium.kasm.com/installing-kasm-workspaces-on-rancher-using-the-official-helm-chart-a4c4ef918e35)
-- [Rancher GA Announcement of KASM Helm Chart (Dec 2025)](https://www.einpresswire.com/article/876608994/rancher-announces-general-availability-of-kasm-kubernetes-helm-partner-chart)
+- [CDI: Containerized Desktop Infrastructure](https://medium.kasm.com/containerized-desktop-infrastructure-cdi-improved-efficiency-scalability-and-security-9e5780f73f03)
+- [Rancher GA Announcement (Dec 2025)](https://www.einpresswire.com/article/876608994/rancher-announces-general-availability-of-kasm-kubernetes-helm-partner-chart)

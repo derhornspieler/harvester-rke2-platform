@@ -44,7 +44,7 @@ data:
           },
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [
-            {"expr": "count(ALERTS{alertstate=\"firing\",alertname=~\"Keycloak.*|Unusual.*|HighDNS.*|SecretAccess.*|APIServer.*|Privileged.*\"}) OR on() vector(0)", "legendFormat": "Firing", "refId": "A"}
+            {"expr": "count(ALERTS{alertstate=\"firing\",alertname=~\"Keycloak.*|OAuth2Proxy.*|Unusual.*|HighDNS.*|SecretAccess.*|APIServer.*\"}) OR on() vector(0)", "legendFormat": "Firing", "refId": "A"}
           ]
         },
         {

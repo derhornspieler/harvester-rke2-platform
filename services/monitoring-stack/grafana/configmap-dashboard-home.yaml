@@ -531,6 +531,52 @@ data:
           "title": "",
           "type": "text",
           "gridPos": {"h": 2, "w": 24, "x": 0, "y": 13},
+          "id": 32,
+          "options": {
+            "mode": "markdown",
+            "content": "### Authentication — oauth2-proxy ForwardAuth targets up"
+          }
+        },
+        {
+          "title": "oauth2-proxy",
+          "description": "oauth2-proxy ForwardAuth instances responding. Protects Prometheus, AlertManager, Hubble, Traefik Dashboard, and Argo Rollouts. Expected: 5",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 3, "w": 6, "x": 0, "y": 15},
+          "id": 33,
+          "links": [{"title": "oauth2-proxy Dashboard", "url": "/d/oauth2-proxy-overview/oauth2-proxy-forwardauth?orgId=1", "targetBlank": false}],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": null},
+                  {"color": "orange", "value": 3},
+                  {"color": "green", "value": 5}
+                ]
+              },
+              "noValue": "0",
+              "mappings": []
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(up{job=\"oauth2-proxy\"} == 1) OR on() vector(0)",
+              "legendFormat": "targets up",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 18},
           "id": 31,
           "options": {
             "mode": "markdown",
@@ -542,7 +588,7 @@ data:
           "description": "HashiCorp Vault instances responding. Standby nodes need unauthenticated_metrics_access=true in telemetry config.",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 0, "y": 20},
           "id": 16,
           "links": [{"title": "Vault Dashboard", "url": "/d/vault-cluster-overview/vault-cluster-overview?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -577,7 +623,7 @@ data:
           "description": "GitLab service endpoints responding (webservice, sidekiq, gitaly, etc.)",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 3, "y": 20},
           "id": 17,
           "links": [{"title": "GitLab Dashboard", "url": "/d/gitlab-overview/gitlab-overview?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -612,7 +658,7 @@ data:
           "description": "ArgoCD component metrics endpoints responding (controller, server, repo-server, applicationSet)",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 6, "y": 20},
           "id": 18,
           "links": [{"title": "ArgoCD Dashboard", "url": "/d/argocd-overview/argocd-overview?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -647,7 +693,7 @@ data:
           "description": "Harbor registry component endpoints responding (core, registry, exporter)",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 9, "y": 20},
           "id": 19,
           "links": [{"title": "Harbor Dashboard", "url": "/d/harbor-overview/harbor-overview?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -682,7 +728,7 @@ data:
           "description": "Keycloak IAM instances responding",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 12, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 12, "y": 20},
           "id": 20,
           "links": [{"title": "Keycloak Dashboard", "url": "/d/keycloak-overview/keycloak-overview?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -717,7 +763,7 @@ data:
           "description": "Mattermost messaging service responding",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 15, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 15, "y": 20},
           "id": 21,
           "links": [{"title": "Mattermost Dashboard", "url": "/d/mattermost-overview/mattermost-overview?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -752,7 +798,7 @@ data:
           "description": "CloudNativePG PostgreSQL instances responding",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 18, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 18, "y": 20},
           "id": 22,
           "links": [{"title": "CNPG Dashboard", "url": "/d/cnpg-cluster/cloudnativepg-cluster?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -787,7 +833,7 @@ data:
           "description": "cert-manager controller responding",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 3, "w": 3, "x": 21, "y": 15},
+          "gridPos": {"h": 3, "w": 3, "x": 21, "y": 20},
           "id": 23,
           "links": [{"title": "cert-manager Dashboard", "url": "/d/cert-manager-certificates/cert-manager?orgId=1", "targetBlank": false}],
           "fieldConfig": {
@@ -821,7 +867,7 @@ data:
           "title": "Cluster CPU by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 18},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
           "id": 24,
           "fieldConfig": {
             "defaults": {
@@ -850,7 +896,7 @@ data:
           "title": "Cluster Memory by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 18},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
           "id": 25,
           "fieldConfig": {
             "defaults": {
@@ -881,7 +927,7 @@ data:
           "description": "All Prometheus alert rules currently in firing state. Sorted by severity.",
           "type": "table",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
           "id": 26,
           "fieldConfig": {
             "defaults": {
@@ -966,7 +1012,7 @@ data:
           "title": "Container Restarts (1h)",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
           "id": 27,
           "fieldConfig": {
             "defaults": {
@@ -995,7 +1041,7 @@ data:
           "title": "Disk Usage by Node",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 39},
           "id": 28,
           "fieldConfig": {
             "defaults": {
@@ -1035,7 +1081,7 @@ data:
           "title": "PVC Usage Top 10",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 39},
           "id": 29,
           "fieldConfig": {
             "defaults": {
