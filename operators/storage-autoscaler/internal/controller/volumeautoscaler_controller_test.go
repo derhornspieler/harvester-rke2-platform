@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	autoscalingv1alpha1 "github.com/volume-autoscaler/volume-autoscaler/api/v1alpha1"
@@ -117,7 +117,7 @@ var _ = Describe("VolumeAutoscaler Controller", func() {
 			reconciler := &VolumeAutoscalerReconciler{
 				Client:   k8sClient,
 				Scheme:   k8sClient.Scheme(),
-				Recorder: record.NewFakeRecorder(10),
+				Recorder: events.NewFakeRecorder(10),
 			}
 
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{
@@ -137,7 +137,7 @@ var _ = Describe("VolumeAutoscaler Controller", func() {
 			reconciler := &VolumeAutoscalerReconciler{
 				Client:   k8sClient,
 				Scheme:   k8sClient.Scheme(),
-				Recorder: record.NewFakeRecorder(10),
+				Recorder: events.NewFakeRecorder(10),
 			}
 
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{

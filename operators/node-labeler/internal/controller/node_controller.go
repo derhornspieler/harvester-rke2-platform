@@ -22,7 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -47,11 +47,11 @@ var poolPatterns = map[string]string{
 type NodeReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -86,7 +86,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	logger.Info("labeled node", "node", node.Name, "workload-type", poolType)
-	r.Recorder.Eventf(node, corev1.EventTypeNormal, "Labeled", "Applied workload-type=%s", poolType)
+	r.Recorder.Eventf(node, nil, corev1.EventTypeNormal, "Labeled", "LabelNode", "Applied workload-type=%s", poolType)
 	metrics.LabelsAppliedTotal.Inc()
 	return ctrl.Result{}, nil
 }

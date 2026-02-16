@@ -30,7 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -68,7 +68,7 @@ func getPromClient(url string) *promclient.Client {
 type VolumeAutoscalerReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=autoscaling.volume-autoscaler.io,resources=volumeautoscalers,verbs=get;list;watch;create;update;patch;delete
@@ -77,7 +77,7 @@ type VolumeAutoscalerReconciler struct {
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list
 // +kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=get;list
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 
 func (r *VolumeAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -213,7 +213,7 @@ func (r *VolumeAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			healthAbnormal, err := prom.Query(ctx, healthQuery)
 			if err == nil && healthAbnormal > 0 {
 				pvcLog.Info("volume is unhealthy, skipping expansion")
-				r.Recorder.Eventf(&va, corev1.EventTypeWarning, "VolumeUnhealthy",
+				r.Recorder.Eventf(&va, nil, corev1.EventTypeWarning, "VolumeUnhealthy", "CheckHealth",
 					"PVC %s/%s is unhealthy, skipping expansion", pvc.Namespace, pvc.Name)
 				pvcStatuses = append(pvcStatuses, pvcStatus)
 				continue
@@ -248,7 +248,7 @@ func (r *VolumeAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			pvc.Spec.Resources.Requests[corev1.ResourceStorage] = newSize
 			if err := r.Patch(ctx, &pvc, patch); err != nil {
 				pvcLog.Error(err, "failed to patch PVC")
-				r.Recorder.Eventf(&va, corev1.EventTypeWarning, "ExpandFailed",
+				r.Recorder.Eventf(&va, nil, corev1.EventTypeWarning, "ExpandFailed", "ExpandVolume",
 					"Failed to expand PVC %s/%s: %v", pvc.Namespace, pvc.Name, err)
 				appmetrics.PollErrorsTotal.WithLabelValues(va.Namespace, va.Name, "patch_pvc").Inc()
 				pvcStatuses = append(pvcStatuses, pvcStatus)
@@ -256,7 +256,7 @@ func (r *VolumeAutoscalerReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 
 			// 7. Emit event and update status
-			r.Recorder.Eventf(&va, corev1.EventTypeNormal, "Expanded",
+			r.Recorder.Eventf(&va, nil, corev1.EventTypeNormal, "Expanded", "ExpandVolume",
 				"Expanded PVC %s/%s from %s to %s (usage: %d%%)",
 				pvc.Namespace, pvc.Name, currentSize.String(), newSize.String(), usagePercent)
 			appmetrics.ScaleEventsTotal.WithLabelValues(pvc.Namespace, pvc.Name, va.Name).Inc()
@@ -346,7 +346,7 @@ func (r *VolumeAutoscalerReconciler) safetyChecks(
 	// Check if current size already at maxSize
 	currentSize := pvc.Status.Capacity[corev1.ResourceStorage]
 	if currentSize.Cmp(va.Spec.MaxSize) >= 0 {
-		r.Recorder.Eventf(va, corev1.EventTypeWarning, "MaxSizeReached",
+		r.Recorder.Eventf(va, nil, corev1.EventTypeWarning, "MaxSizeReached", "CheckExpansion",
 			"PVC %s/%s has reached maxSize %s", pvc.Namespace, pvc.Name, va.Spec.MaxSize.String())
 		return fmt.Errorf("PVC already at maxSize %s", va.Spec.MaxSize.String())
 	}
@@ -358,7 +358,7 @@ func (r *VolumeAutoscalerReconciler) safetyChecks(
 			return fmt.Errorf("failed to get StorageClass: %w", err)
 		}
 		if sc.AllowVolumeExpansion == nil || !*sc.AllowVolumeExpansion {
-			r.Recorder.Eventf(va, corev1.EventTypeWarning, "StorageClassNotExpandable",
+			r.Recorder.Eventf(va, nil, corev1.EventTypeWarning, "StorageClassNotExpandable", "CheckExpansion",
 				"StorageClass %s does not allow volume expansion", sc.Name)
 			return fmt.Errorf("StorageClass %s does not allow volume expansion", sc.Name)
 		}

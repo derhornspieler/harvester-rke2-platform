@@ -87,7 +87,7 @@ func main() {
 	if err := (&controller.VolumeAutoscalerReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("volume-autoscaler"),
+		Recorder: mgr.GetEventRecorder("volume-autoscaler"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VolumeAutoscaler")
 		os.Exit(1)

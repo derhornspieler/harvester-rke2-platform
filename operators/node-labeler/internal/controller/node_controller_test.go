@@ -24,7 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -63,7 +63,7 @@ func TestReconcile_LabelsUnlabeledNode(t *testing.T) {
 	}
 
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	r := &NodeReconciler{
 		Client:   client,
 		Scheme:   scheme,
@@ -103,7 +103,7 @@ func TestReconcile_SkipsAlreadyLabeledNode(t *testing.T) {
 	}
 
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	r := &NodeReconciler{
 		Client:   client,
 		Scheme:   scheme,
@@ -140,7 +140,7 @@ func TestReconcile_SkipsCPNode(t *testing.T) {
 	}
 
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	r := &NodeReconciler{
 		Client:   client,
 		Scheme:   scheme,
@@ -171,7 +171,7 @@ func TestReconcile_NodeNotFound(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	r := &NodeReconciler{
 		Client:   client,
 		Scheme:   scheme,
@@ -200,7 +200,7 @@ func TestReconcile_DatabaseNode(t *testing.T) {
 	}
 
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
-	recorder := record.NewFakeRecorder(10)
+	recorder := events.NewFakeRecorder(10)
 	r := &NodeReconciler{
 		Client:   client,
 		Scheme:   scheme,
