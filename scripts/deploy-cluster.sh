@@ -6,7 +6,7 @@
 #   Terraform → cert-manager → CNPG → Redis Operator → Node Labeler → Vault
 #   → Monitoring → Harbor → ArgoCD → Keycloak → Mattermost → Kasm
 #   → Uptime Kuma → LibreNMS (optional) → RBAC → Validation
-#   → Keycloak OIDC Setup → oauth2-proxy (ForwardAuth)
+#   → Keycloak OIDC Setup → keycloakopenid Traefik plugin → GitLab
 #
 # Prerequisites:
 #   1. cluster/terraform.tfvars populated (see terraform.tfvars.example)
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: $0 [--skip-tf] [--from PHASE_NUMBER]"
       echo "  --skip-tf    Skip Terraform (assume cluster already exists)"
-      echo "  --from N     Resume from phase N (0-10)"
+      echo "  --from N     Resume from phase N (0-11)"
       exit 0
       ;;
     *) die "Unknown argument: $1" ;;
@@ -212,8 +212,19 @@ phase_1_foundation() {
     die "Traefik system chart never appeared — check that ingress-controller=traefik is set in cluster config"
   fi
 
-  log_step "Applying Traefik HelmChartConfig (LoadBalancer + Gateway API + timeouts)..."
-  kube_apply_subst "${SERVICES_DIR}/harbor/traefik-timeout-helmchartconfig.yaml"
+  # Create placeholder vault-root-ca in kube-system so Traefik can mount it
+  # (Real CA comes from Phase 2 via distribute_root_ca)
+  kubectl create configmap vault-root-ca --from-literal=ca.crt="" \
+    -n kube-system --dry-run=client -o yaml | kubectl apply -f -
+
+  # Traefik config (plugin, volumes, timeouts, etc.) is managed via chart_values
+  # in cluster.tf — Rancher's managed-chart-config addon reconciles it into the
+  # HelmChartConfig. No need to apply traefik-timeout-helmchartconfig.yaml here.
+  log_ok "Traefik config managed via Rancher chart_values (cluster.tf)"
+
+  # CoreDNS hairpin DNS: rewrite *.DOMAIN to Traefik ClusterIP for in-cluster OIDC
+  log_step "Applying CoreDNS HelmChartConfig (hairpin DNS for in-cluster OIDC)..."
+  kube_apply_subst "${SERVICES_DIR}/harbor/coredns-helmchartconfig.yaml"
 
   # Wait for Traefik CRDs to become available (Middleware, IngressRoute, etc.)
   log_step "Waiting for Traefik CRDs to be available..."
@@ -372,9 +383,6 @@ clusterNamespace: fleet-default" \
 
     log_ok "MariaDB Operator installed"
   fi
-
-  # Label any unlabeled nodes (autoscaler-created nodes miss workload-type labels)
-  label_unlabeled_nodes
 
   end_phase "PHASE 1: FOUNDATION"
 }
@@ -691,6 +699,11 @@ POLICY
   log_step "Distributing Root CA to service namespaces..."
   distribute_root_ca
 
+  # Restart Traefik to pick up real vault-root-ca (keycloakopenid plugin needs it)
+  log_step "Restarting Traefik to pick up Root CA..."
+  kubectl rollout restart daemonset/rke2-traefik -n kube-system
+  kubectl rollout status daemonset/rke2-traefik -n kube-system --timeout=120s
+
   end_phase "PHASE 2: VAULT + PKI"
 }
 
@@ -743,7 +756,6 @@ phase_3_monitoring() {
 # =============================================================================
 phase_4_harbor() {
   start_phase "PHASE 4: HARBOR"
-  label_unlabeled_nodes
 
   # 4.1 Namespaces
   log_step "Creating namespaces..."
@@ -920,7 +932,6 @@ configure_harbor_projects() {
 # =============================================================================
 phase_5_argocd() {
   start_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS"
-  label_unlabeled_nodes
 
   # 5.1 ArgoCD
   log_step "Installing ArgoCD HA..."
@@ -975,7 +986,6 @@ phase_5_argocd() {
 # =============================================================================
 phase_6_keycloak() {
   start_phase "PHASE 6: KEYCLOAK"
-  label_unlabeled_nodes
 
   # 6.1 Ensure namespaces
   ensure_namespace keycloak
@@ -1026,7 +1036,6 @@ phase_6_keycloak() {
 # =============================================================================
 phase_7_remaining() {
   start_phase "PHASE 7: MATTERMOST + KASM + UPTIME KUMA + LIBRENMS"
-  label_unlabeled_nodes
 
   # Ensure database namespace exists (needed when resuming with --from 7)
   ensure_namespace database
@@ -1229,7 +1238,6 @@ phase_8_dns() {
     "mattermost.${DOMAIN}"
     "kasm.${DOMAIN}"
     "gitlab.${DOMAIN}"
-    "auth.${DOMAIN}"
   )
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && fqdns+=("status.${DOMAIN}")
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && fqdns+=("librenms.${DOMAIN}")
@@ -1247,7 +1255,6 @@ phase_8_dns() {
 # =============================================================================
 phase_9_validation() {
   start_phase "PHASE 9: VALIDATION"
-  label_unlabeled_nodes
 
   # Apply RBAC manifests (Keycloak OIDC groups → Kubernetes RBAC)
   log_step "Applying RBAC manifests..."
@@ -1311,7 +1318,6 @@ phase_9_validation() {
     "argo-rollouts:rollouts-${DOMAIN_DASHED}-tls"
     "keycloak:keycloak-${DOMAIN_DASHED}-tls"
     "mattermost:mattermost-${DOMAIN_DASHED}-tls"
-    "oauth2-proxy:auth-${DOMAIN_DASHED}-tls"
   )
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && expected_secrets+=("uptime-kuma:status-${DOMAIN_DASHED}-tls")
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && expected_secrets+=("librenms:librenms-${DOMAIN_DASHED}-tls")
@@ -1345,7 +1351,6 @@ phase_9_validation() {
     "keycloak.${DOMAIN}"
     "mattermost.${DOMAIN}"
     "kasm.${DOMAIN}"
-    "auth.${DOMAIN}"
   )
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && check_fqdns+=("status.${DOMAIN}")
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && check_fqdns+=("librenms.${DOMAIN}")
@@ -1420,7 +1425,6 @@ phase_9_validation() {
   echo "    Keycloak:    https://keycloak.${DOMAIN}"
   echo "    Mattermost:  https://mattermost.${DOMAIN}"
   echo "    Kasm:        https://kasm.${DOMAIN}"
-  echo "    Auth:        https://auth.${DOMAIN}  (oauth2-proxy ForwardAuth)"
   echo "    GitLab:      https://gitlab.${DOMAIN} (external)"
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && echo "    Uptime Kuma: https://status.${DOMAIN}"
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && echo "    LibreNMS:    https://librenms.${DOMAIN}"
@@ -1432,7 +1436,7 @@ phase_9_validation() {
   echo "    Grafana admin:     admin / ${GRAFANA_ADMIN_PASSWORD:-N/A}"
   echo "    Kasm admin:        admin@kasm.local / ${kasm_pass}"
   echo "    Keycloak bootstrap: admin / CHANGEME_KC_ADMIN_PASSWORD (temporary — run setup-keycloak.sh)"
-  echo "    ForwardAuth (prom/alertmanager/hubble/rollouts/traefik): via Keycloak OIDC (oauth2-proxy)"
+  echo "    Auth (prom/alertmanager/hubble/rollouts/traefik): via keycloakopenid Traefik plugin"
   echo ""
   echo "  Vault PKI (External Root CA):"
   echo "    Root CA:         15yr validity (${ORG_NAME} Root CA, key offline)"
@@ -1451,9 +1455,10 @@ phase_9_validation() {
   fi
 
   echo -e "  ${YELLOW}Next steps:${NC}"
-  echo "    1. Run: ./scripts/setup-cicd.sh       (GitLab + ArgoCD + Rollouts integration)"
-  echo "    2. Create DNS A records (see Phase 8 output above)"
-  echo "    3. Import Root CA certificate above into your browser/OS trust store"
+  echo "    1. Run: ./scripts/setup-gitlab.sh      (GitLab deployment)"
+  echo "    2. Run: ./scripts/setup-cicd.sh        (ArgoCD + Rollouts integration)"
+  echo "    3. Create DNS A records (see Phase 8 output above)"
+  echo "    4. Import Root CA certificate above into your browser/OS trust store"
   echo ""
 
   # Write credentials file (includes Root CA)
@@ -1478,34 +1483,37 @@ phase_9_validation() {
 phase_10_keycloak_setup() {
   start_phase "PHASE 10: KEYCLOAK OIDC SETUP"
 
-  # Re-label any autoscaler nodes added during deployment
-  label_unlabeled_nodes
-
   log_step "Running Keycloak OIDC setup..."
   "${SCRIPT_DIR}/setup-keycloak.sh"
 
-  # Deploy oauth2-proxy (needs OIDC client secret from setup-keycloak.sh)
-  log_step "Deploying oauth2-proxy (ForwardAuth)..."
-  local oauth2_secret
-  oauth2_secret=$(jq -r '.["oauth2-proxy"] // empty' "${SCRIPTS_DIR}/oidc-client-secrets.json")
-  if [[ -n "$oauth2_secret" ]]; then
-    export OAUTH2_PROXY_CLIENT_SECRET="$oauth2_secret"
-    ensure_namespace oauth2-proxy
-    # Distribute Root CA to oauth2-proxy namespace
-    local root_ca
-    root_ca=$(extract_root_ca)
-    if [[ -n "$root_ca" ]]; then
-      kubectl create configmap vault-root-ca --from-literal=ca.crt="$root_ca" \
-        -n oauth2-proxy --dry-run=client -o yaml | kubectl apply -f -
-    fi
-    kube_apply_k_subst "${SERVICES_DIR}/oauth2-proxy"
-    wait_for_deployment oauth2-proxy oauth2-proxy 180s
-    log_ok "oauth2-proxy deployed"
+  # Apply middleware CRDs with real traefik-oidc client secret
+  log_step "Configuring keycloakopenid authentication..."
+  local traefik_oidc_secret
+  traefik_oidc_secret=$(jq -r '.["traefik-oidc"] // empty' "${SCRIPTS_DIR}/oidc-client-secrets.json")
+  if [[ -n "$traefik_oidc_secret" ]]; then
+    export TRAEFIK_OIDC_CLIENT_SECRET="$traefik_oidc_secret"
+    # Reapply middleware CRDs with real secret (replaces placeholder from Phase 3/5)
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/middleware-keycloak-auth.yaml"
+    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-keycloak-auth.yaml"
+    kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/middleware-keycloak-auth.yaml"
+    log_ok "keycloakopenid middleware configured with OIDC client secret"
   else
-    log_warn "oauth2-proxy client secret not found in oidc-client-secrets.json — skipping oauth2-proxy deploy"
+    log_warn "traefik-oidc client secret not found — keycloakopenid auth will not work"
   fi
 
   end_phase "PHASE 10: KEYCLOAK OIDC SETUP"
+}
+
+# =============================================================================
+# PHASE 11: GITLAB
+# =============================================================================
+phase_11_gitlab() {
+  start_phase "PHASE 11: GITLAB"
+
+  log_step "Running GitLab deployment..."
+  "${SCRIPT_DIR}/setup-gitlab.sh"
+
+  end_phase "PHASE 11: GITLAB"
 }
 
 # =============================================================================
@@ -1546,6 +1554,7 @@ main() {
   [[ $FROM_PHASE -le 8 ]] && phase_8_dns
   [[ $FROM_PHASE -le 9 ]] && phase_9_validation
   [[ $FROM_PHASE -le 10 ]] && phase_10_keycloak_setup
+  [[ $FROM_PHASE -le 11 ]] && phase_11_gitlab
 }
 
 main "$@"

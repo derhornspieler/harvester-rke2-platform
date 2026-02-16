@@ -1,14 +1,20 @@
-# Traefik HelmChartConfig — Complete Traefik Configuration
+# Traefik HelmChartConfig — Fallback / Reference
 #
-# This HelmChartConfig supplements the RKE2 built-in Traefik deployment.
-# chart_values in Terraform's rke_config do NOT propagate to the HelmChart
-# valuesContent for rke2-traefik, so ALL customizations go here.
+# PRIMARY CONFIG is now in chart_values in cluster/cluster.tf — Rancher's
+# managed-chart-config addon reconciles it into the HelmChartConfig, ensuring
+# the plugin registration, volumes, and init container survive Rancher
+# reconciliation (which previously stripped this file's values).
+#
+# This file is kept as a reference for the full Traefik configuration.
+# It is NO LONGER applied by deploy-cluster.sh.
 #
 # Includes:
 #   - Service type LoadBalancer with Cilium L2 IP
 #   - Gateway API provider enabled
 #   - Access logging + OTLP tracing
 #   - Timeout increase for Harbor (large image push) and Kasm (WebSocket streaming)
+#   - keycloakopenid plugin for native OIDC authentication middleware
+#   - Vault Root CA trust (combined CA bundle via init container)
 #
 # Security note: Global timeout increase (per-route not yet supported in Traefik
 # — GitHub #10962). Acceptable for internal/VPN-protected clusters.
@@ -40,6 +46,36 @@ spec:
             scheme: https
     # NOTE: Default TLS cert is set via TLSStore CRD (traefik-default-tlsstore.yaml),
     # not via Helm values — the Helm tls.stores path doesn't create the CRD.
+    # keycloakopenid plugin registration
+    experimental:
+      plugins:
+        keycloakopenid:
+          moduleName: github.com/Gwojda/keycloakopenid
+          version: v0.1.36
+    # Mount vault-root-ca for private CA trust (Keycloak TLS)
+    volumes:
+      - name: vault-root-ca
+        mountPath: "/vault-ca"
+        type: configMap
+      - name: combined-ca
+        mountPath: "/combined-ca"
+        type: emptyDir
+    # Init container: combine system CAs + vault root CA into single bundle
+    deployment:
+      initContainers:
+        - name: combine-ca
+          image: alpine:3.21
+          command: ['sh', '-c', 'cp /etc/ssl/certs/ca-certificates.crt /combined-ca/ca-certificates.crt 2>/dev/null || true; if [ -s /vault-ca/ca.crt ]; then cat /vault-ca/ca.crt >> /combined-ca/ca-certificates.crt; fi']
+          volumeMounts:
+            - name: vault-root-ca
+              mountPath: /vault-ca
+              readOnly: true
+            - name: combined-ca
+              mountPath: /combined-ca
+    # Tell Go's TLS stack to use the combined bundle
+    env:
+      - name: SSL_CERT_FILE
+        value: "/combined-ca/ca-certificates.crt"
     additionalArguments:
       - "--api.insecure=true"
       - "--entryPoints.web.transport.respondingTimeouts.readTimeout=1800s"

@@ -3,8 +3,9 @@
 # destroy-cluster.sh — Full RKE2 Cluster Teardown
 # =============================================================================
 # Cleanly destroys the RKE2 cluster and removes orphaned Harvester resources:
-#   Terraform destroy → Wait for CAPI/VM cleanup → Remove stuck finalizers
-#   → Delete orphaned DataVolumes/PVCs → Verify namespace is clean
+#   K8s workload cleanup (GitLab, Redis, CNPG) → Terraform destroy →
+#   Wait for CAPI/VM cleanup → Remove stuck finalizers →
+#   Delete orphaned DataVolumes/PVCs → Verify namespace is clean
 #
 # Why this exists:
 #   terraform destroy only deletes Rancher-managed resources. The actual VM
@@ -86,10 +87,63 @@ phase_0_preflight() {
 }
 
 # =============================================================================
-# PHASE 1: TERRAFORM DESTROY
+# PHASE 1: CLEAN UP K8S WORKLOADS (graceful shutdown before infra destroy)
 # =============================================================================
-phase_1_terraform() {
-  start_phase "PHASE 1: TERRAFORM DESTROY"
+phase_1_k8s_cleanup() {
+  start_phase "PHASE 1: K8S WORKLOAD CLEANUP"
+
+  local rke2_kc="${CLUSTER_DIR}/kubeconfig-rke2.yaml"
+  if [[ ! -f "$rke2_kc" ]]; then
+    log_warn "RKE2 kubeconfig not found — skipping K8s cleanup"
+    end_phase "PHASE 1: K8S WORKLOAD CLEANUP"
+    return 0
+  fi
+
+  export KUBECONFIG="$rke2_kc"
+
+  # Check if cluster is reachable
+  if ! kubectl cluster-info &>/dev/null 2>&1; then
+    log_warn "RKE2 cluster not reachable — skipping K8s cleanup"
+    end_phase "PHASE 1: K8S WORKLOAD CLEANUP"
+    return 0
+  fi
+
+  # GitLab: uninstall Helm release and clean up resources
+  if helm status gitlab -n gitlab &>/dev/null 2>&1; then
+    log_step "Uninstalling GitLab Helm release..."
+    helm uninstall gitlab -n gitlab --timeout 5m 2>/dev/null || \
+      log_warn "GitLab Helm uninstall had issues (non-fatal)"
+  fi
+
+  # Delete GitLab Redis CRs (before operator goes away)
+  if kubectl get redisreplication gitlab-redis -n gitlab &>/dev/null 2>&1; then
+    log_step "Deleting GitLab Redis resources..."
+    kubectl delete redissentinel gitlab-redis -n gitlab --timeout=60s 2>/dev/null || true
+    kubectl delete redisreplication gitlab-redis -n gitlab --timeout=60s 2>/dev/null || true
+  fi
+
+  # Delete GitLab CNPG cluster (graceful shutdown of PostgreSQL)
+  if kubectl get cluster gitlab-postgresql -n database &>/dev/null 2>&1; then
+    log_step "Deleting GitLab PostgreSQL cluster..."
+    kubectl delete cluster gitlab-postgresql -n database --timeout=120s 2>/dev/null || true
+  fi
+
+  # Delete GitLab namespace (waits for finalizers)
+  if kubectl get namespace gitlab &>/dev/null 2>&1; then
+    log_step "Deleting gitlab namespace..."
+    kubectl delete namespace gitlab --timeout=120s 2>/dev/null || \
+      log_warn "gitlab namespace deletion timed out (non-fatal)"
+  fi
+
+  log_ok "K8s workload cleanup complete"
+  end_phase "PHASE 1: K8S WORKLOAD CLEANUP"
+}
+
+# =============================================================================
+# PHASE 2: TERRAFORM DESTROY
+# =============================================================================
+phase_2_terraform() {
+  start_phase "PHASE 2: TERRAFORM DESTROY"
 
   local cluster_name
   cluster_name=$(get_cluster_name)
@@ -109,14 +163,14 @@ phase_1_terraform() {
   fi
 
   log_ok "Terraform destroy completed"
-  end_phase "PHASE 1: TERRAFORM DESTROY"
+  end_phase "PHASE 2: TERRAFORM DESTROY"
 }
 
 # =============================================================================
-# PHASE 2: HARVESTER CLEANUP
+# PHASE 3: HARVESTER CLEANUP
 # =============================================================================
-phase_2_harvester_cleanup() {
-  start_phase "PHASE 2: HARVESTER ORPHAN CLEANUP"
+phase_3_harvester_cleanup() {
+  start_phase "PHASE 3: HARVESTER ORPHAN CLEANUP"
 
   local cluster_name vm_ns
   cluster_name=$(get_cluster_name)
@@ -232,14 +286,14 @@ phase_2_harvester_cleanup() {
     fi
   fi
 
-  end_phase "PHASE 2: HARVESTER CLEANUP"
+  end_phase "PHASE 3: HARVESTER CLEANUP"
 }
 
 # =============================================================================
-# PHASE 3: LOCAL CLEANUP
+# PHASE 4: LOCAL CLEANUP
 # =============================================================================
-phase_3_local_cleanup() {
-  start_phase "PHASE 3: LOCAL CLEANUP"
+phase_4_local_cleanup() {
+  start_phase "PHASE 4: LOCAL CLEANUP"
 
   # Remove generated kubeconfig for the destroyed cluster
   local rke2_kc="${CLUSTER_DIR}/kubeconfig-rke2.yaml"
@@ -262,7 +316,7 @@ phase_3_local_cleanup() {
   log_info "  - cluster/harvester-cloud-provider-kubeconfig"
   log_info "  - scripts/.env"
 
-  end_phase "PHASE 3: LOCAL CLEANUP"
+  end_phase "PHASE 4: LOCAL CLEANUP"
 }
 
 # =============================================================================
@@ -283,15 +337,16 @@ main() {
   export DEPLOY_START_TIME
 
   phase_0_preflight
+  phase_1_k8s_cleanup
 
   if [[ "$SKIP_TERRAFORM" == "false" ]]; then
-    phase_1_terraform
+    phase_2_terraform
   else
     log_info "Skipping Terraform destroy (--skip-tf)"
   fi
 
-  phase_2_harvester_cleanup
-  phase_3_local_cleanup
+  phase_3_harvester_cleanup
+  phase_4_local_cleanup
 
   echo ""
   echo -e "${BOLD}${GREEN}============================================================${NC}"

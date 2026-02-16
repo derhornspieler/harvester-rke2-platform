@@ -1,0 +1,60 @@
+# OpsTree Redis Operator — RedisReplication CRD for GitLab
+# Provides: 3-replica Redis replication (1 master + 2 replicas)
+# Requires: redis-operator in redis-operator-system namespace
+#
+# Naming: CRD name "gitlab-redis" → operator creates:
+#   StatefulSet: gitlab-redis        Pods: gitlab-redis-{0,1,2}
+#   Service:     gitlab-redis        Headless: gitlab-redis-headless
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisReplication
+metadata:
+  name: gitlab-redis
+  namespace: gitlab
+spec:
+  clusterSize: 3
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v7.0.15
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    redisSecret:
+      name: gitlab-redis-credentials
+      key: password
+  redisExporter:
+    enabled: true
+    image: oliver006/redis_exporter:latest
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: harvester
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+  nodeSelector:
+    workload-type: database
+  podSecurityContext:
+    runAsUser: 999
+    fsGroup: 999
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: gitlab-redis
+            topologyKey: kubernetes.io/hostname

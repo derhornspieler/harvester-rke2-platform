@@ -176,7 +176,7 @@ variable "general_disk_size" {
 variable "general_min_count" {
   description = "Minimum number of general worker nodes (autoscaler)"
   type        = number
-  default     = 2
+  default     = 4
 }
 
 variable "general_max_count" {
@@ -244,13 +244,41 @@ variable "database_disk_size" {
 variable "database_min_count" {
   description = "Minimum number of database worker nodes (autoscaler)"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "database_max_count" {
   description = "Maximum number of database worker nodes (autoscaler)"
   type        = number
   default     = 10
+}
+
+# -----------------------------------------------------------------------------
+# Cluster Autoscaler Behavior
+# -----------------------------------------------------------------------------
+
+variable "autoscaler_scale_down_unneeded_time" {
+  description = "How long a node must be unneeded before the autoscaler removes it (e.g., 30m0s)"
+  type        = string
+  default     = "30m0s"
+}
+
+variable "autoscaler_scale_down_delay_after_add" {
+  description = "Cooldown after adding a node before any scale-down is considered (e.g., 15m0s)"
+  type        = string
+  default     = "15m0s"
+}
+
+variable "autoscaler_scale_down_delay_after_delete" {
+  description = "Cooldown after deleting a node before the next scale-down (e.g., 30m0s)"
+  type        = string
+  default     = "30m0s"
+}
+
+variable "autoscaler_scale_down_utilization_threshold" {
+  description = "CPU/memory request utilization below which a node is considered unneeded (0.0–1.0)"
+  type        = string
+  default     = "0.5"
 }
 
 # -----------------------------------------------------------------------------

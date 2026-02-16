@@ -1,0 +1,162 @@
+## CloudNativePG — Production PostgreSQL Cluster for GitLab
+##
+## Apache 2.0 licensed, CNCF Sandbox project.
+## https://cloudnative-pg.io/
+##
+## Architecture — two separate components:
+##
+##   1. CNPG OPERATOR (controller)
+##      The Kubernetes operator that watches for Cluster CRs and manages the
+##      full PostgreSQL lifecycle: provisioning, HA failover, rolling updates,
+##      backup/recovery, monitoring. This is NOT a database — it is the
+##      management plane.
+##
+##   2. POSTGRESQL DATABASE (operand)
+##      The actual PostgreSQL instances running in pods. The operator creates
+##      and manages these. The image specified in `spec.imageName` below is
+##      the database image, not the operator.
+##
+##   CNPG does NOT require a custom PostgreSQL image. The operator injects its
+##   own instance manager at runtime. Any PostgreSQL image with standard
+##   executables (initdb, postgres, pg_ctl, pg_basebackup) in PATH is compatible.
+##
+## Prerequisites:
+##   1. Install the CloudNativePG operator:
+##      helm repo add cnpg https://cloudnative-pg.github.io/charts
+##      helm install cnpg cnpg/cloudnative-pg --namespace cnpg-system --create-namespace
+##
+##   2. Apply this manifest:
+##      kubectl apply -f cloudnativepg-cluster.yaml
+##
+##   3. Wait for the cluster to be healthy:
+##      kubectl wait --timeout 300s --for=condition=Ready -n database clusters/gitlab-postgresql
+##
+## Services created by CNPG (auto-generated):
+##   - gitlab-postgresql-rw   — read-write (always points to primary)
+##   - gitlab-postgresql-ro   — read-only  (load-balanced across replicas)
+##   - gitlab-postgresql-r    — any        (all instances)
+##
+## Secrets created by CNPG (auto-generated):
+##   - gitlab-postgresql-app  — contains: username, password, dbname, host, port, uri
+##   - gitlab-postgresql-superuser — superuser credentials (if enableSuperuserAccess: true)
+##
+## Use in values-rke2-prod.yaml:
+##   global.psql.host: gitlab-postgresql-rw.database.svc.cluster.local
+##   global.psql.password.secret: gitlab-postgresql-app
+##   global.psql.password.key: password
+## ──────────────────────────────────────────────────────────────────────────────
+
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: gitlab-postgresql
+  namespace: database
+  labels:
+    app: gitlab
+    component: postgresql
+spec:
+  ## ── Instances ──────────────────────────────────────────────────────────────
+  ## 3 instances = 1 primary + 2 streaming replicas (quorum-based HA)
+  instances: 3
+
+  ## ── PostgreSQL Image (the database, NOT the operator) ────────────────────
+  ## Using CNPG upstream image (includes Barman tools for backup):
+  imageName: ghcr.io/cloudnative-pg/postgresql:17
+
+  ## ── Storage ────────────────────────────────────────────────────────────────
+  storage:
+    size: 50Gi
+
+  ## ── PostgreSQL Parameters ──────────────────────────────────────────────────
+  ## Tuned for GitLab workload. Adjust based on your instance size.
+  postgresql:
+    parameters:
+      ## Connection limits
+      max_connections: "200"
+      ## Memory (shared_buffers ~25% of pod memory limit, effective_cache ~75%)
+      shared_buffers: "2GB"
+      effective_cache_size: "6GB"
+      work_mem: "32MB"
+      maintenance_work_mem: "512MB"
+      ## WAL
+      wal_buffers: "64MB"
+      max_wal_size: "2GB"
+      min_wal_size: "512MB"
+      ## Checkpoints
+      checkpoint_completion_target: "0.9"
+      ## Planner
+      random_page_cost: "1.1"
+      effective_io_concurrency: "200"
+      ## Logging
+      log_min_duration_statement: "1000"
+      log_checkpoints: "on"
+      log_connections: "on"
+      log_disconnections: "on"
+      log_lock_waits: "on"
+      ## Autovacuum (GitLab generates heavy write traffic)
+      autovacuum_max_workers: "4"
+      autovacuum_naptime: "30s"
+
+  ## ── Bootstrap — Initial Database Setup ─────────────────────────────────────
+  ## Required extensions for GitLab. Do NOT remove pg_trgm or btree_gist.
+  bootstrap:
+    initdb:
+      database: gitlabhq_production
+      owner: gitlab
+      postInitSQL:
+        - CREATE EXTENSION IF NOT EXISTS pg_trgm;
+        - CREATE EXTENSION IF NOT EXISTS btree_gist;
+        - CREATE EXTENSION IF NOT EXISTS plpgsql;
+        - CREATE EXTENSION IF NOT EXISTS amcheck;
+        - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        ## Praefect database for Gitaly HA replication tracking
+        - CREATE USER praefect WITH PASSWORD 'placeholder-set-via-alter';
+        - CREATE DATABASE praefect OWNER praefect;
+
+  ## ── Resources ──────────────────────────────────────────────────────────────
+  ## Medium production sizing. shared_buffers = 25% of memory limit.
+  resources:
+    requests:
+      cpu: "2"
+      memory: 8Gi
+    limits:
+      memory: 8Gi
+
+  ## ── Monitoring ─────────────────────────────────────────────────────────────
+  ## CNPG natively creates a PodMonitor when this is enabled.
+  ## Requires Prometheus Operator CRDs in the cluster.
+  monitoring:
+    enablePodMonitor: true
+
+  ## ── Affinity — spread across database nodes ─────────────────────────────────
+  ## Pins CNPG instances to the dedicated database node pool (3 fixed nodes,
+  ## 4 vCPU / 16 GiB each, no autoscaling). Pod anti-affinity ensures
+  ## one instance per node for HA.
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    nodeSelector:
+      workload-type: database
+
+  ## ── Backup (optional but recommended) ──────────────────────────────────────
+  ## CNPG uses Barman for backup/recovery. Configure for your object storage.
+  # backup:
+  #   barmanObjectStore:
+  #     destinationPath: s3://cnpg-backups/gitlab-postgresql
+  #     endpointURL: https://s3.example.com
+  #     s3Credentials:
+  #       accessKeyId:
+  #         name: cnpg-backup-creds
+  #         key: ACCESS_KEY_ID
+  #       secretAccessKey:
+  #         name: cnpg-backup-creds
+  #         key: ACCESS_SECRET_KEY
+  #     wal:
+  #       compression: gzip
+  #     data:
+  #       compression: gzip
+  #   retentionPolicy: "30d"
+
+  ## ── Superuser Access ───────────────────────────────────────────────────────
+  ## Disable in production unless needed for debugging.
+  enableSuperuserAccess: false

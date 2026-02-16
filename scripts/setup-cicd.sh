@@ -100,7 +100,6 @@ SERVICES=(
   "keycloak|services/keycloak|keycloak|auto"
   "mattermost|services/mattermost|mattermost|auto"
   "kasm|services/kasm|kasm|auto"
-  "oauth2-proxy|services/oauth2-proxy|oauth2-proxy|auto"
   "rbac|services/rbac||auto"
   "node-labeler|services/node-labeler|node-labeler|auto"
   "storage-autoscaler|services/storage-autoscaler|storage-autoscaler|auto"

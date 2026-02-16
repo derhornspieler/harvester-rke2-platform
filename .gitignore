@@ -27,6 +27,11 @@ vault-init.json
 cluster/credentials.txt
 scripts/.env
 scripts/oidc-client-secrets.json
+scripts/.deploy-keys/
+scripts/harbor-robot-credentials.json
+
+# Kube cache
+.kube/
 
 # Go build artifacts
 **/bin/

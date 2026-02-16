@@ -1,0 +1,314 @@
+## GitLab Helm Chart — RKE2-Prod Cluster Values (Medium Production)
+##
+## Cluster: rke2-prod (Harvester/RKE2 v1.34.2, Cilium CNI, Traefik v3.5.4)
+## Workers:
+##   - general  (workload-type=general):  4 vCPU,  8 GiB, 100Gi, autoscale 2-10
+##   - compute  (workload-type=compute):  8 vCPU, 32 GiB, 200Gi, autoscale 2-10
+##   - database (workload-type=database): 4 vCPU, 16 GiB, 200Gi, fixed 3 nodes
+##
+## Node scheduling strategy:
+##   - Lightweight (shell, kas, exporter, toolbox, registry, minio)  → general
+##   - Heavy       (webservice, sidekiq, gitaly, praefect)           → compute
+##   - Stateful    (CNPG PostgreSQL, OpsTree Redis)                  → database
+##
+## TLS: cert-manager with vault-issuer ClusterIssuer (already deployed)
+## Storage class: harvester (Harvester CSI, default)
+## Ingress: Gateway API (Traefik as GatewayClass) — NOT standard Ingress
+## Redis: OpsTree Redis Operator (RedisReplication + RedisSentinel CRs)
+## PostgreSQL: CloudNativePG operator (Cluster CR in services/gitlab/cloudnativepg-cluster.yaml)
+##
+## Deploy with:
+##   ./scripts/setup-gitlab.sh
+## ──────────────────────────────────────────────────────────────────────────────
+
+global:
+  edition: ee
+
+  ## ── MinIO — enabled for initial deployment ────────────────────────────────
+  ## Replace with external S3-compatible storage for production scale.
+  ## When switching, set enabled: false and configure global.appConfig.object_store
+  minio:
+    enabled: true
+
+  ## ── Hostnames ──────────────────────────────────────────────────────────────
+  hosts:
+    domain: example.com
+    https: true
+
+  ## ── Gateway API (Traefik) ─────────────────────────────────────────────────
+  ## Uses Gateway API instead of standard Ingress. Our own Gateway is defined
+  ## in services/gitlab/gateway.yaml — the chart creates HTTPRoutes that
+  ## reference it via gatewayRef.
+  ingress:
+    enabled: false
+  gatewayApi:
+    enabled: true
+    installEnvoy: false          # We use Traefik, not Envoy
+    configureCertmanager: false   # We use vault-issuer, not ACME
+    gatewayRef:
+      name: gitlab
+      namespace: gitlab
+
+  ## ── External PostgreSQL (CloudNativePG) ────────────────────────────────────
+  psql:
+    host: gitlab-postgresql-rw.database.svc.cluster.local
+    port: 5432
+    username: gitlab
+    database: gitlabhq_production
+    preparedStatements: false
+    applicationName: gitlab-rke2-prod
+    password:
+      useSecret: true
+      secret: gitlab-postgresql-app
+      key: password
+    connectTimeout: 10
+    keepalives: 1
+    keepalivesIdle: 30
+    keepalivesInterval: 10
+    keepalivesCount: 3
+    tcpUserTimeout: 60000
+
+  ## ── External Redis (OpsTree Sentinel HA) ──────────────────────────────────
+  ## Sentinel-aware: GitLab discovers the current primary via Sentinel.
+  ## "host" is the Sentinel master name, NOT a hostname.
+  redis:
+    host: mymaster
+    port: 6379
+    auth:
+      enabled: true
+      secret: gitlab-redis-credentials
+      key: password
+    sentinels:
+      - host: gitlab-redis-sentinel-0.gitlab-redis-sentinel.gitlab.svc.cluster.local
+        port: 26379
+      - host: gitlab-redis-sentinel-1.gitlab-redis-sentinel.gitlab.svc.cluster.local
+        port: 26379
+      - host: gitlab-redis-sentinel-2.gitlab-redis-sentinel.gitlab.svc.cluster.local
+        port: 26379
+
+  ## ── Gitaly ─────────────────────────────────────────────────────────────────
+  ## Praefect manages virtual storages and Gitaly routing
+  gitaly:
+    enabled: true
+    authToken:
+      secret: gitlab-gitaly-secret
+      key: token
+
+  ## ── Praefect (Gitaly HA) ──────────────────────────────────────────────────
+  ## Praefect sits in front of Gitaly, providing replication, load balancing,
+  ## and automatic failover across 3 Gitaly replicas.
+  praefect:
+    enabled: true
+    replaceInternalGitaly: true
+    autoMigrate: true
+    dbSecret:
+      secret: gitlab-praefect-dbsecret
+      key: secret
+    virtualStorages:
+      - name: default
+        gitalyReplicas: 3
+        maxUnavailable: 1
+    psql:
+      host: gitlab-postgresql-rw.database.svc.cluster.local
+      port: 5432
+      user: praefect
+      dbName: praefect
+      sslMode: disable
+
+  ## ── Monitoring ─────────────────────────────────────────────────────────────
+  ## Disabled: current Prometheus/Grafana stack does NOT use Prometheus Operator
+  ## CRDs (ServiceMonitor, PrometheusRule). Defer to follow-up task.
+  monitoring:
+    enabled: false
+
+  shell:
+    port: 22
+
+  time_zone: UTC
+
+  ## ── Default node selector ──────────────────────────────────────────────────
+  ## Most components land on general workers by default.
+  ## Heavy components override this below.
+  nodeSelector:
+    workload-type: general
+
+  ## ── OIDC (Keycloak) ───────────────────────────────────────────────────────
+  appConfig:
+    omniauth:
+      enabled: true
+      allowSingleSignOn: ['openid_connect']
+      blockAutoCreatedUsers: false
+      autoLinkUser: ['openid_connect']
+      providers:
+        - secret: gitlab-oidc-secret
+          key: provider
+
+  ## ── Root CA Trust (Vault CA) ──────────────────────────────────────────────
+  certificates:
+    customCAs:
+      - secret: gitlab-root-ca
+
+## ── Disable bundled services (using external) ────────────────────────────────
+postgresql:
+  install: false
+redis:
+  install: false
+prometheus:
+  install: false
+gitlab-runner:
+  install: false
+
+## ── cert-manager — already installed, do not reinstall via chart ─────────────
+installCertmanager: false
+
+## ── cert-manager issuer ──────────────────────────────────────────────────────
+## Not used — vault-issuer ClusterIssuer handles TLS via Gateway annotations
+certmanager-issuer:
+  email: admin@example.com
+
+## ── Disable bundled NGINX ingress (using Traefik) ────────────────────────────
+nginx-ingress:
+  enabled: false
+
+## ── Traefik subchart — do NOT install (already running as RKE2 DaemonSet) ───
+traefik:
+  install: false
+
+## ── Container Registry → general nodes ──────────────────────────────────────
+registry:
+  enabled: true
+  nodeSelector:
+    workload-type: general
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+## ── GitLab Sub-Charts ────────────────────────────────────────────────────────
+gitlab:
+
+  ## ── Webservice (Rails + Workhorse) → COMPUTE nodes ────────────────────────
+  ## Medium production: handles concurrent users, API traffic, web UI.
+  webservice:
+    replicaCount: 2
+    minReplicas: 2
+    maxReplicas: 10
+    nodeSelector:
+      workload-type: compute
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2.5Gi
+      limits:
+        memory: 5Gi
+    workhorse:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 200Mi
+        limits:
+          memory: 500Mi
+    deployment:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: "10%"
+          maxUnavailable: 0
+    terminationGracePeriodSeconds: 60
+    shutdown:
+      blackoutSeconds: 10
+
+  ## ── Sidekiq (Background Jobs) → COMPUTE nodes ────────────────────────────
+  ## Medium production: CI pipelines, emails, repository maintenance.
+  sidekiq:
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 10
+    nodeSelector:
+      workload-type: compute
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        memory: 4Gi
+    deployment:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: "10%"
+          maxUnavailable: 0
+    terminationGracePeriodSeconds: 600
+
+  ## ── Gitaly (Git storage) → COMPUTE nodes ──────────────────────────────────
+  ## Praefect creates 3 Gitaly replicas (per virtualStorages above).
+  ## These settings apply as defaults to all Praefect-managed Gitaly pods.
+  gitaly:
+    nodeSelector:
+      workload-type: compute
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        memory: 8Gi
+    persistence:
+      enabled: true
+      size: 100Gi
+      accessMode: ReadWriteOnce
+      storageClass: harvester
+    maxUnavailable: 1
+
+  ## ── Praefect (Gitaly HA proxy) → COMPUTE nodes ───────────────────────────
+  ## 2-replica StatefulSet proxying requests to Gitaly replicas.
+  praefect:
+    nodeSelector:
+      workload-type: compute
+
+  ## ── GitLab Shell (SSH) → general nodes ────────────────────────────────────
+  gitlab-shell:
+    replicaCount: 2
+    minReplicas: 2
+    nodeSelector:
+      workload-type: general
+    deployment:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: "10%"
+          maxUnavailable: 0
+    terminationGracePeriodSeconds: 60
+    ## Disable Gateway API TCPRoute for SSH (Traefik TCPRoute support uncertain)
+    gatewayRoute:
+      enabled: false
+
+  ## ── KAS (Kubernetes Agent Server) → general nodes ─────────────────────────
+  kas:
+    enabled: true
+    nodeSelector:
+      workload-type: general
+
+  ## ── GitLab Exporter → general nodes ───────────────────────────────────────
+  gitlab-exporter:
+    enabled: true
+    nodeSelector:
+      workload-type: general
+
+  ## ── Migrations → general nodes ────────────────────────────────────────────
+  migrations:
+    enabled: true
+    nodeSelector:
+      workload-type: general
+
+  ## ── Toolbox → general nodes ───────────────────────────────────────────────
+  toolbox:
+    enabled: true
+    replicas: 1
+    nodeSelector:
+      workload-type: general
+
+  ## ── GitLab Pages — disabled ───────────────────────────────────────────────
+  gitlab-pages:
+    enabled: false

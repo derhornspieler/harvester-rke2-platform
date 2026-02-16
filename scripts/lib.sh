@@ -735,7 +735,15 @@ generate_or_load_env() {
   : "${LIBRENMS_DB_PASSWORD:=$(gen_password 32)}"
   : "${LIBRENMS_VALKEY_PASSWORD:=$(gen_password 32)}"
 
-  # DEPRECATED: basic-auth replaced by ForwardAuth (oauth2-proxy + Keycloak)
+  # GitLab credentials
+  : "${GITLAB_ROOT_PASSWORD:=$(gen_password 32)}"
+  : "${GITLAB_PRAEFECT_DB_PASSWORD:=$(gen_password 32)}"
+  : "${GITLAB_REDIS_PASSWORD:=$(gen_password 32)}"
+  : "${GITLAB_GITALY_TOKEN:=$(gen_password 32)}"
+  : "${GITLAB_PRAEFECT_TOKEN:=$(gen_password 32)}"
+  : "${GITLAB_CHART_PATH:=/home/rocky/data/gitlab}"
+
+  # DEPRECATED: basic-auth replaced by keycloakopenid Traefik plugin
   # Kept for rollback compatibility
   : "${BASIC_AUTH_PASSWORD:=$(gen_password 24)}"
 
@@ -771,9 +779,6 @@ generate_or_load_env() {
   : "${KC_REALM:=${DOMAIN%%.*}}"
   : "${GIT_REPO_URL:=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || echo "git@github.com:OWNER/rke2-cluster.git")}"
 
-  # OAuth2 Proxy cookie encryption key
-  : "${OAUTH2_PROXY_COOKIE_SECRET:=$(openssl rand -base64 32 | head -c 32)}"
-
   # Harvester context name in ~/.kube/config (for auto-extracting kubeconfig)
   : "${HARVESTER_CONTEXT:=harvester}"
 
@@ -789,9 +794,11 @@ generate_or_load_env() {
   export HARBOR_REDIS_PASSWORD HARBOR_ADMIN_PASSWORD HARBOR_MINIO_SECRET_KEY HARBOR_DB_PASSWORD
   export KASM_PG_SUPERUSER_PASSWORD KASM_PG_APP_PASSWORD KC_ADMIN_PASSWORD
   export LIBRENMS_DB_PASSWORD LIBRENMS_VALKEY_PASSWORD
+  export GITLAB_ROOT_PASSWORD GITLAB_PRAEFECT_DB_PASSWORD GITLAB_REDIS_PASSWORD
+  export GITLAB_GITALY_TOKEN GITLAB_PRAEFECT_TOKEN GITLAB_CHART_PATH
   export GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD BASIC_AUTH_HTPASSWD
   export DOMAIN DOMAIN_DASHED DOMAIN_DOT TRAEFIK_LB_IP
-  export ORG_NAME KC_REALM GIT_REPO_URL OAUTH2_PROXY_COOKIE_SECRET
+  export ORG_NAME KC_REALM GIT_REPO_URL
   export HARVESTER_CONTEXT
   export USER_DATA_CP_FILE USER_DATA_WORKER_FILE
 
@@ -833,6 +840,14 @@ BASIC_AUTH_HTPASSWD='${BASIC_AUTH_HTPASSWD}'
 LIBRENMS_DB_PASSWORD="${LIBRENMS_DB_PASSWORD}"
 LIBRENMS_VALKEY_PASSWORD="${LIBRENMS_VALKEY_PASSWORD}"
 
+# GitLab credentials
+GITLAB_ROOT_PASSWORD="${GITLAB_ROOT_PASSWORD}"
+GITLAB_PRAEFECT_DB_PASSWORD="${GITLAB_PRAEFECT_DB_PASSWORD}"
+GITLAB_REDIS_PASSWORD="${GITLAB_REDIS_PASSWORD}"
+GITLAB_GITALY_TOKEN="${GITLAB_GITALY_TOKEN}"
+GITLAB_PRAEFECT_TOKEN="${GITLAB_PRAEFECT_TOKEN}"
+GITLAB_CHART_PATH="${GITLAB_CHART_PATH}"
+
 # Root domain for all service FQDNs (e.g., vault.DOMAIN, harbor.DOMAIN)
 DOMAIN="${DOMAIN}"
 
@@ -844,9 +859,6 @@ KC_REALM="${KC_REALM}"
 
 # Git repo URL for ArgoCD bootstrap (derived from git remote)
 GIT_REPO_URL="${GIT_REPO_URL}"
-
-# OAuth2 Proxy cookie encryption key
-OAUTH2_PROXY_COOKIE_SECRET="${OAUTH2_PROXY_COOKIE_SECRET}"
 
 # Harvester context name in ~/.kube/config (for auto-extracting kubeconfig)
 HARVESTER_CONTEXT="${HARVESTER_CONTEXT}"
@@ -874,6 +886,7 @@ _subst_changeme() {
     -e "s|CHANGEME_LIBRENMS_VALKEY_PASSWORD|${LIBRENMS_VALKEY_PASSWORD}|g" \
     -e "s|CHANGEME_HARBOR_ADMIN_PASSWORD|${HARBOR_ADMIN_PASSWORD}|g" \
     -e "s|CHANGEME_HARBOR_MINIO_SECRET_KEY|${HARBOR_MINIO_SECRET_KEY}|g" \
+    -e "s|CHANGEME_GITLAB_REDIS_PASSWORD|${GITLAB_REDIS_PASSWORD}|g" \
     -e "s|CHANGEME_HARBOR_DB_PASSWORD|${HARBOR_DB_PASSWORD}|g" \
     -e "s|CHANGEME_KASM_PG_SUPERUSER_PASSWORD|${KASM_PG_SUPERUSER_PASSWORD}|g" \
     -e "s|CHANGEME_KASM_PG_APP_PASSWORD|${KASM_PG_APP_PASSWORD}|g" \
@@ -883,8 +896,7 @@ _subst_changeme() {
     -e "s|CHANGEME_GIT_REPO_URL|${GIT_REPO_URL}|g" \
     -e "s|CHANGEME_TRAEFIK_FQDN|traefik.${DOMAIN}|g" \
     -e "s|CHANGEME_TRAEFIK_TLS_SECRET|traefik-${DOMAIN_DASHED}-tls|g" \
-    -e "s|CHANGEME_OAUTH2_PROXY_CLIENT_SECRET|${OAUTH2_PROXY_CLIENT_SECRET:-placeholder}|g" \
-    -e "s|CHANGEME_OAUTH2_PROXY_COOKIE_SECRET|${OAUTH2_PROXY_COOKIE_SECRET}|g" \
+    -e "s|CHANGEME_TRAEFIK_OIDC_CLIENT_SECRET|${TRAEFIK_OIDC_CLIENT_SECRET:-placeholder}|g" \
     -e "s|CHANGEME_KC_REALM|${KC_REALM}|g" \
     -e "s|example-dot-com|${DOMAIN_DOT}|g" \
     -e "s|example-com|${DOMAIN_DASHED}|g" \
@@ -1017,7 +1029,7 @@ distribute_root_ca() {
 
   log_info "Distributing Root CA ConfigMap to service namespaces..."
 
-  local namespaces=(monitoring argocd harbor mattermost oauth2-proxy)
+  local namespaces=(kube-system monitoring argocd harbor mattermost gitlab keycloak)
   for ns in "${namespaces[@]}"; do
     ensure_namespace "$ns"
     kubectl create configmap vault-root-ca \
@@ -1336,7 +1348,7 @@ Harbor         https://harbor.${DOMAIN}         admin / ${harbor_pass}
 ArgoCD         https://argo.${DOMAIN}           admin / ${argocd_pass}
 Rollouts       https://rollouts.${DOMAIN}       (ForwardAuth via Keycloak)
 Traefik        https://traefik.${DOMAIN}        (ForwardAuth via Keycloak)
-OAuth2 Proxy   https://auth.${DOMAIN}           (ForwardAuth — protects prometheus, hubble, rollouts, traefik)
+Auth           (keycloakopenid Traefik plugin — protects prometheus, alertmanager, hubble, rollouts, traefik)
 Keycloak       https://keycloak.${DOMAIN}       admin / CHANGEME_KC_ADMIN_PASSWORD  (bootstrap — run setup-keycloak.sh)
 Mattermost     https://mattermost.${DOMAIN}     (create admin via mmctl post-deploy)
 Kasm           https://kasm.${DOMAIN}           admin@kasm.local / ${kasm_pass}

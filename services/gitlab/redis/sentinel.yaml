@@ -1,0 +1,53 @@
+# OpsTree Redis Operator — RedisSentinel CRD for GitLab
+# Monitors the RedisReplication and provides HA failover
+# Requires: redis-operator in redis-operator-system namespace
+#
+# Naming: CRD name "gitlab-redis" → operator creates:
+#   StatefulSet: gitlab-redis-sentinel   Pods: gitlab-redis-sentinel-{0,1,2}
+#   Service:     gitlab-redis-sentinel   Headless: gitlab-redis-sentinel-headless
+# NOTE: Do NOT use kubernetesConfig.redisSecret on sentinel — it sets both
+# requirepass (sentinel's own auth) AND masterauth. GitLab chart has no
+# sentinelPassword field, so sentinel requirepass blocks gitlab-webservice.
+# Instead, use redisSentinelConfig.redisReplicationPassword which sets
+# ONLY masterauth (sentinel can auth to master, but clients can query
+# sentinel without auth). Acceptable: sentinel is ClusterIP-only.
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: RedisSentinel
+metadata:
+  name: gitlab-redis
+  namespace: gitlab
+spec:
+  clusterSize: 3
+  kubernetesConfig:
+    image: quay.io/opstree/redis-sentinel:v7.0.15
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+  redisSentinelConfig:
+    redisReplicationName: gitlab-redis
+    masterGroupName: mymaster
+    redisPort: "6379"
+    quorum: "2"
+    redisReplicationPassword:
+      secretKeyRef:
+        name: gitlab-redis-credentials
+        key: password
+  nodeSelector:
+    workload-type: database
+  podSecurityContext:
+    runAsUser: 999
+    fsGroup: 999
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: gitlab-redis-sentinel
+            topologyKey: kubernetes.io/hostname

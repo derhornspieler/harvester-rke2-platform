@@ -6,7 +6,7 @@
 #
 # This script:
 #   1. Creates the realm (derived from DOMAIN) with admin user + TOTP
-#   2. Creates OIDC clients for every service (incl. kubernetes + oauth2-proxy)
+#   2. Creates OIDC clients for every service (incl. kubernetes + traefik-oidc)
 #   3. Binds each service to Keycloak for SSO
 #   4. Creates user groups with role mappings (7 groups)
 #
@@ -256,6 +256,7 @@ phase_1_realm() {
         \"emailVerified\": true,
         \"firstName\": \"Realm\",
         \"lastName\": \"Admin\",
+        \"requiredActions\": [\"CONFIGURE_TOTP\"],
         \"credentials\": [{
           \"type\": \"password\",
           \"value\": \"${REALM_ADMIN_PASS}\",
@@ -298,6 +299,7 @@ phase_1_realm() {
         \"emailVerified\": true,
         \"firstName\": \"General\",
         \"lastName\": \"User\",
+        \"requiredActions\": [\"CONFIGURE_TOTP\"],
         \"credentials\": [{
           \"type\": \"password\",
           \"value\": \"${REALM_USER_PASS}\",
@@ -318,6 +320,12 @@ phase_1_realm() {
       \"otpPolicyPeriod\": 30
     }" 2>/dev/null || true
   log_ok "TOTP policy configured"
+
+  # Set CONFIGURE_TOTP as default required action for all new users
+  kc_api PUT "/realms/${KC_REALM}/authentication/required-actions/CONFIGURE_TOTP" \
+    -d '{"alias":"CONFIGURE_TOTP","name":"Configure OTP","defaultAction":true,"enabled":true,"priority":10}' \
+    2>/dev/null || true
+  log_ok "TOTP set as default required action for new users"
 
   echo ""
   log_ok "Realm credentials:"
@@ -343,6 +351,38 @@ phase_2_clients() {
 
   # Initialize secrets JSON
   echo "{}" > "$OIDC_SECRETS_FILE"
+
+  # Create "groups" client scope (needed by ArgoCD, kubernetes, etc. that request scope=groups)
+  log_step "Creating 'groups' client scope..."
+  local groups_scope_exists
+  groups_scope_exists=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
+  if [[ -n "$groups_scope_exists" ]]; then
+    log_info "  Client scope 'groups' already exists (id: ${groups_scope_exists})"
+  else
+    kc_api POST "/realms/${KC_REALM}/client-scopes" \
+      -d '{
+        "name": "groups",
+        "description": "Group membership",
+        "protocol": "openid-connect",
+        "attributes": {
+          "include.in.token.scope": "true",
+          "display.on.consent.screen": "true"
+        },
+        "protocolMappers": [{
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }]
+      }'
+    log_ok "  Client scope 'groups' created with group membership mapper"
+  fi
 
   local secret
 
@@ -401,9 +441,26 @@ phase_2_clients() {
     log_ok "  Client 'kubernetes' created (public — no secret)"
   fi
 
-  # 2.9 OAuth2 Proxy (confidential — for ForwardAuth)
-  secret=$(kc_create_client "oauth2-proxy" "https://auth.${DOMAIN}/oauth2/callback" "OAuth2 Proxy")
-  jq --arg s "$secret" '.["oauth2-proxy"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+  # 2.9 Traefik OIDC (keycloakopenid plugin — redirects back to original URL)
+  secret=$(kc_create_client "traefik-oidc" \
+    "https://prometheus.${DOMAIN}/*,https://alertmanager.${DOMAIN}/*,https://hubble.${DOMAIN}/*,https://traefik.${DOMAIN}/*,https://rollouts.${DOMAIN}/*" \
+    "Traefik OIDC Plugin")
+  jq --arg s "$secret" '.["traefik-oidc"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
+  # Add "groups" as optional client scope to clients that request scope=groups
+  log_step "Adding 'groups' scope to relevant clients..."
+  local groups_scope_id
+  groups_scope_id=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
+  if [[ -n "$groups_scope_id" ]]; then
+    for cid in argocd kubernetes grafana harbor vault; do
+      local cid_internal
+      cid_internal=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${cid}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+      if [[ -n "$cid_internal" ]]; then
+        kc_api PUT "/realms/${KC_REALM}/clients/${cid_internal}/optional-client-scopes/${groups_scope_id}" 2>/dev/null || true
+        log_ok "  Added 'groups' scope to ${cid}"
+      fi
+    done
+  fi
 
   log_ok "All OIDC clients created. Secrets saved to: ${OIDC_SECRETS_FILE}"
 
@@ -460,7 +517,8 @@ clientSecret: \"${argocd_secret}\"
 requestedScopes:
   - openid
   - profile
-  - email"
+  - email
+  - groups"
 
   # Append rootCA if available (ArgoCD natively supports inline CA PEM)
   if [[ -n "${argocd_root_ca:-}" ]]; then
@@ -616,10 +674,10 @@ VEOF'
 
   # 3.7 GitLab
   log_step "GitLab OIDC..."
-  log_warn "GitLab OIDC must be configured in GitLab Helm values or omnibus.rb:"
   log_info "  Client ID:     gitlab"
   log_info "  Client Secret: $(jq -r '.gitlab' "$OIDC_SECRETS_FILE")"
   log_info "  Issuer:        ${oidc_issuer}"
+  log_info "  OIDC secret will be created automatically by setup-gitlab.sh"
 
   end_phase "PHASE 3: SERVICE BINDINGS"
 }
@@ -673,7 +731,7 @@ phase_4_groups() {
   local clients
   clients=$(kc_api GET "/realms/${KC_REALM}/clients?max=100" 2>/dev/null || echo "[]")
 
-  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "oauth2-proxy")
+  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "traefik-oidc")
   for client_id_name in "${our_clients[@]}"; do
     local internal_id
     internal_id=$(echo "$clients" | jq -r ".[] | select(.clientId==\"${client_id_name}\") | .id" 2>/dev/null || echo "")
@@ -732,15 +790,15 @@ phase_5_validation() {
   echo "  Realm Admin:"
   echo "    Username: admin"
   echo "    Password: ${REALM_ADMIN_PASS}"
-  echo "    (TOTP will be required on first login)"
+  echo "    (TOTP enrollment on first login)"
   echo ""
   echo "  General User:"
   echo "    Username: user"
   echo "    Password: ${REALM_USER_PASS}"
-  echo "    (TOTP will be required on first login)"
+  echo "    (TOTP enrollment on first login)"
   echo ""
   echo "  OIDC Clients Created:"
-  echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public), oauth2-proxy"
+  echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public), traefik-oidc"
   echo ""
   echo "  Client secrets saved to:"
   echo "    ${OIDC_SECRETS_FILE}"
@@ -749,8 +807,8 @@ phase_5_validation() {
   echo ""
   echo -e "${YELLOW}  Manual steps remaining:${NC}"
   echo "    1. Configure Kasm OIDC via Admin UI"
-  echo "    2. Configure GitLab OIDC in Helm values / omnibus.rb"
-  echo "    3. ForwardAuth (oauth2-proxy) is deployed automatically after this script"
+  echo "    2. Run ./scripts/setup-gitlab.sh (creates OIDC secret automatically)"
+  echo "    3. keycloakopenid middleware is configured automatically after this script"
   echo ""
 
   # Append Keycloak credentials to credentials.txt
@@ -760,8 +818,9 @@ phase_5_validation() {
 
 # Keycloak OIDC (setup-keycloak.sh — $(date -u +%Y-%m-%dT%H:%M:%SZ))
 Keycloak Realm  https://keycloak.${DOMAIN}/admin/${KC_REALM}/console
-  Realm Admin:   admin / ${REALM_ADMIN_PASS}  (TOTP required on first login)
-  General User:  user / ${REALM_USER_PASS}  (TOTP required on first login)
+  Realm Admin:   admin / ${REALM_ADMIN_PASS}  (TOTP enrollment on first login)
+  General User:  user / ${REALM_USER_PASS}  (TOTP enrollment on first login)
+  Master admin (admin/CHANGEME_KC_ADMIN_PASSWORD) is break-glass only — use realm admin console
 
 OIDC Client Secrets:
 $(jq -r 'to_entries[] | "  \(.key): \(.value)"' "$OIDC_SECRETS_FILE" 2>/dev/null || echo "  (see ${OIDC_SECRETS_FILE})")

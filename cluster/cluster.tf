@@ -2,6 +2,14 @@ resource "rancher2_cluster_v2" "rke2" {
   name               = var.cluster_name
   kubernetes_version = var.kubernetes_version
 
+  # Cluster Autoscaler scale-down behavior
+  annotations = {
+    "cluster.provisioning.cattle.io/autoscaler-scale-down-unneeded-time"         = var.autoscaler_scale_down_unneeded_time
+    "cluster.provisioning.cattle.io/autoscaler-scale-down-delay-after-add"       = var.autoscaler_scale_down_delay_after_add
+    "cluster.provisioning.cattle.io/autoscaler-scale-down-delay-after-delete"    = var.autoscaler_scale_down_delay_after_delete
+    "cluster.provisioning.cattle.io/autoscaler-scale-down-utilization-threshold" = var.autoscaler_scale_down_utilization_threshold
+  }
+
   rke_config {
     # -----------------------------------------------------------------
     # Pool 1: Control Plane (dedicated — no workloads)
@@ -27,7 +35,7 @@ resource "rancher2_cluster_v2" "rke2" {
     }
 
     # -----------------------------------------------------------------
-    # Pool 2: General Workers (autoscale 2–10)
+    # Pool 2: General Workers (autoscale 4–10)
     # -----------------------------------------------------------------
     machine_pools {
       name                         = "general"
@@ -59,7 +67,7 @@ resource "rancher2_cluster_v2" "rke2" {
     }
 
     # -----------------------------------------------------------------
-    # Pool 3: Compute Workers (autoscale 0–10, scale from zero)
+    # Pool 3: Compute Workers (autoscale 4–10, scale from zero)
     # -----------------------------------------------------------------
     machine_pools {
       name                         = "compute"
@@ -96,7 +104,7 @@ resource "rancher2_cluster_v2" "rke2" {
     }
 
     # -----------------------------------------------------------------
-    # Pool 4: Database Workers (autoscale 3–10)
+    # Pool 4: Database Workers (autoscale 4–10)
     # -----------------------------------------------------------------
     machine_pools {
       name                         = "database"
@@ -210,6 +218,44 @@ resource "rancher2_cluster_v2" "rke2" {
             enabled = true
           }
         }
+        ports = {
+          web = {
+            redirections = {
+              entryPoint = { to = "websecure", scheme = "https" }
+            }
+          }
+        }
+        experimental = {
+          plugins = {
+            keycloakopenid = {
+              moduleName = "github.com/Gwojda/keycloakopenid"
+              version    = "v0.1.36"
+            }
+          }
+        }
+        volumes = [
+          { name = "vault-root-ca", mountPath = "/vault-ca", type = "configMap" },
+          { name = "combined-ca", mountPath = "/combined-ca", type = "emptyDir" }
+        ]
+        deployment = {
+          initContainers = [{
+            name    = "combine-ca"
+            image   = "alpine:3.21"
+            command = ["sh", "-c", "cp /etc/ssl/certs/ca-certificates.crt /combined-ca/ca-certificates.crt 2>/dev/null || true; if [ -s /vault-ca/ca.crt ]; then cat /vault-ca/ca.crt >> /combined-ca/ca-certificates.crt; fi"]
+            volumeMounts = [
+              { name = "vault-root-ca", mountPath = "/vault-ca", readOnly = true },
+              { name = "combined-ca", mountPath = "/combined-ca" }
+            ]
+          }]
+        }
+        env = [{ name = "SSL_CERT_FILE", value = "/combined-ca/ca-certificates.crt" }]
+        additionalArguments = [
+          "--api.insecure=true",
+          "--entryPoints.web.transport.respondingTimeouts.readTimeout=1800s",
+          "--entryPoints.web.transport.respondingTimeouts.writeTimeout=1800s",
+          "--entryPoints.websecure.transport.respondingTimeouts.readTimeout=1800s",
+          "--entryPoints.websecure.transport.respondingTimeouts.writeTimeout=1800s"
+        ]
       }
     })
 

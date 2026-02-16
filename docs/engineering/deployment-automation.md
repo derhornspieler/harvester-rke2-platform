@@ -284,7 +284,7 @@ All variables are defined in `scripts/.env` (generated from `.env.example`). If 
 | `ORG_NAME` | *(derived from DOMAIN)* | Yes | Organization name for PKI CA Common Names (e.g., `Example Org`). Auto-derived from DOMAIN if empty. |
 | `KC_REALM` | *(derived from DOMAIN)* | Yes | Keycloak realm name. Derived from DOMAIN first segment (e.g., `example.com` -> `example`). |
 | `GIT_REPO_URL` | `git@gitlab.${DOMAIN}:infrastructure/rke2-cluster.git` | No | Git repo URL for ArgoCD bootstrap |
-| `OAUTH2_PROXY_COOKIE_SECRET` | *(random 32 chars)* | Yes | OAuth2 Proxy cookie encryption key (generated via `openssl rand -base64 32`) |
+| ~~`OAUTH2_PROXY_COOKIE_SECRET`~~ | — | — | *Removed: replaced by keycloakopenid Traefik plugin* |
 | `HARVESTER_CONTEXT` | `harvester` | No | kubectl context name for Harvester in `~/.kube/config` |
 | `USER_DATA_CP_FILE` | *(empty)* | No | Custom cloud-init file for control plane nodes |
 | `USER_DATA_WORKER_FILE` | *(empty)* | No | Custom cloud-init file for worker nodes |
@@ -338,8 +338,7 @@ The `_subst_changeme` function performs inline substitution of placeholder token
 | `CHANGEME_GIT_REPO_URL` | `$GIT_REPO_URL` |
 | `CHANGEME_TRAEFIK_FQDN` | `traefik.${DOMAIN}` |
 | `CHANGEME_TRAEFIK_TLS_SECRET` | `traefik-${DOMAIN_DASHED}-tls` |
-| `CHANGEME_OAUTH2_PROXY_CLIENT_SECRET` | `$OAUTH2_PROXY_CLIENT_SECRET` |
-| `CHANGEME_OAUTH2_PROXY_COOKIE_SECRET` | `$OAUTH2_PROXY_COOKIE_SECRET` |
+| `CHANGEME_TRAEFIK_OIDC_CLIENT_SECRET` | `$TRAEFIK_OIDC_CLIENT_SECRET` |
 | `<DOMAIN_DOT>` (e.g., `example-dot-com`) | `$DOMAIN_DOT` |
 | `<DOMAIN_DASHED>` (e.g., `example-com`) | `$DOMAIN_DASHED` |
 | `<DOMAIN>` (e.g., `example.com`) | `$DOMAIN` |
@@ -1063,7 +1062,7 @@ flowchart TD
         C5 --> C6["Create client: kasm<br/>redirect: kasm.DOMAIN/api/oidc_callback"]
         C6 --> C7["Create client: gitlab<br/>redirect: gitlab.DOMAIN/.../callback"]
         C7 --> C8["Create client: kubernetes<br/>(public — no secret, for kubelogin)"]
-        C8 --> C9["Create client: oauth2-proxy<br/>redirect: auth.DOMAIN/oauth2/callback"]
+        C8 --> C9["Create client: traefik-oidc<br/>redirect: prometheus/alertmanager/hubble/traefik/rollouts.DOMAIN/*"]
         C9 --> SAVE["Save all secrets to<br/>oidc-client-secrets.json"]
     end
 
