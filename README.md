@@ -144,10 +144,10 @@ See [DEVELOPERS_GUIDE.md](DEVELOPERS_GUIDE.md) for prerequisites and detailed se
 
 | Pool | Count | CPU | Memory | Disk | NICs | Autoscale | Purpose |
 |------|-------|-----|--------|------|------|-----------|---------|
-| Control Plane | 3 (fixed) | 8 | 32 GiB | 250 GiB | 1 (eth0) | No | etcd + API server |
-| General | 2-10 | 4 | 8 GiB | 100 GiB | 2 (eth0, eth1) | Yes | Web apps, monitoring, APIs |
-| Compute | 0-10 | 8 | 32 GiB | 200 GiB | 2 (eth0, eth1) | Yes (scale-from-zero) | ML, batch, event-driven |
-| Database | 3-10 | 4 | 16 GiB | 200 GiB | 2 (eth0, eth1) | Yes | Vault, CNPG, Redis, stateful workloads |
+| Control Plane | 3 (fixed) | 8 | 32 GiB | 80 GiB | 1 (eth0) | No | etcd + API server |
+| General | 2-10 | 4 | 8 GiB | 80 GiB | 2 (eth0, eth1) | Yes | Web apps, monitoring, APIs |
+| Compute | 0-10 | 8 | 32 GiB | 80 GiB | 2 (eth0, eth1) | Yes (scale-from-zero) | ML, batch, event-driven |
+| Database | 3-10 | 4 | 16 GiB | 80 GiB | 2 (eth0, eth1) | Yes | Vault, CNPG, Redis, stateful workloads |
 
 Autoscaling is managed by Rancher Cluster Autoscaler deployed in `kube-system`.
 
