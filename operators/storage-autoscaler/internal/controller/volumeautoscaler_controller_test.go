@@ -68,7 +68,7 @@ var _ = Describe("VolumeAutoscaler Controller", func() {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{
+			_, _ = w.Write(fmt.Appendf(nil, `{
 				"status": "success",
 				"data": {
 					"resultType": "vector",
@@ -77,7 +77,7 @@ var _ = Describe("VolumeAutoscaler Controller", func() {
 						"value": [1234567890, "%f"]
 					}]
 				}
-			}`, pvcName, vaNamespace, val)))
+			}`, pvcName, vaNamespace, val))
 		}))
 	})
 
