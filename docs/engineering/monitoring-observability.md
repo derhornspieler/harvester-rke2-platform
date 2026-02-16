@@ -770,11 +770,11 @@ graph TD
 
 | Service | URL | Namespace | Ingress Type | Certificate Secret | Auth |
 |---------|-----|-----------|-------------|-------------------|------|
-| Grafana | `https://grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | auto via gateway-shim | Grafana login / OIDC |
-| Prometheus | `https://prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | auto via gateway-shim | Basic auth (extensionRef) |
-| Alertmanager | `https://alertmanager.<DOMAIN>` | monitoring | Gateway + HTTPRoute | auto via gateway-shim | Basic auth |
-| Hubble UI | `https://hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | auto via gateway-shim | Basic auth (extensionRef) |
-| Traefik Dashboard | `https://traefik.<DOMAIN>` | kube-system | IngressRoute | explicit Certificate | Basic auth |
+| Grafana | `https://grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | auto via gateway-shim | Keycloak OIDC (native) |
+| Prometheus | `https://prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | auto via gateway-shim | oauth2-proxy ForwardAuth |
+| Alertmanager | `https://alertmanager.<DOMAIN>` | monitoring | Gateway + HTTPRoute | auto via gateway-shim | oauth2-proxy ForwardAuth |
+| Hubble UI | `https://hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | auto via gateway-shim | oauth2-proxy ForwardAuth |
+| Traefik Dashboard | `https://traefik.<DOMAIN>` | kube-system | Gateway + HTTPRoute | explicit Certificate | oauth2-proxy ForwardAuth |
 
 ### Certificate Lifecycle
 

@@ -381,17 +381,19 @@ graph TD
 
 | Hostname | Namespace | Ingress Type | Backend | Auth Method | Middleware |
 |----------|-----------|-------------|---------|-------------|------------|
-| `grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | grafana:3000 | Grafana login | None |
-| `prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | prometheus:9090 | Basic auth | extensionRef |
-| `hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | hubble-ui:80 | Basic auth | extensionRef |
-| `traefik.<DOMAIN>` | kube-system | IngressRoute | api@internal | Basic auth | middleware |
-| `vault.<DOMAIN>` | vault | Gateway + HTTPRoute | vault:8200 | Vault login | None |
-| `harbor.<DOMAIN>` | harbor | Gateway + HTTPRoute | harbor-core/portal:80 | Harbor login | None |
+| `grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | grafana:3000 | Keycloak OIDC (native) | None |
+| `prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | prometheus:9090 | oauth2-proxy ForwardAuth | extensionRef |
+| `alertmanager.<DOMAIN>` | monitoring | Gateway + HTTPRoute | alertmanager:9093 | oauth2-proxy ForwardAuth | extensionRef |
+| `hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | hubble-ui:80 | oauth2-proxy ForwardAuth | extensionRef |
+| `traefik.<DOMAIN>` | kube-system | Gateway + HTTPRoute | traefik-api:8080 | oauth2-proxy ForwardAuth | extensionRef |
+| `vault.<DOMAIN>` | vault | Gateway + HTTPRoute | vault:8200 | Keycloak OIDC (native) | None |
+| `harbor.<DOMAIN>` | harbor | Gateway + HTTPRoute | harbor-core/portal:80 | Keycloak OIDC (native) | None |
 | `keycloak.<DOMAIN>` | keycloak | Gateway + HTTPRoute | keycloak:8080 | Keycloak login | None |
-| `argo.<DOMAIN>` | argocd | Gateway + HTTPRoute | argocd-server:80 | ArgoCD login | None |
-| `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | rollouts-dashboard:3100 | Basic auth | extensionRef |
-| `mattermost.<DOMAIN>` | mattermost | Gateway + HTTPRoute | mattermost:8065 | Mattermost login | None |
-| `kasm.<DOMAIN>` | kasm | IngressRoute | kasm-proxy:8443 | Kasm login | serversTransport (insecureSkipVerify) |
+| `argo.<DOMAIN>` | argocd | Gateway + HTTPRoute | argocd-server:80 | Keycloak OIDC (native) | None |
+| `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | rollouts-dashboard:3100 | oauth2-proxy ForwardAuth | extensionRef |
+| `mattermost.<DOMAIN>` | mattermost | Gateway + HTTPRoute | mattermost:8065 | Keycloak OIDC (native) | None |
+| `kasm.<DOMAIN>` | kasm | IngressRoute | kasm-proxy:8443 | Keycloak OIDC (manual) | serversTransport (insecureSkipVerify) |
+| `rancher.<DOMAIN>` | cattle-system | Rancher-managed | rancher:443 | Keycloak OIDC (manual) | None |
 
 > **IngressRoute exceptions**: Traefik Dashboard uses `api@internal` (a TraefikService,
 > not a Kubernetes Service). Kasm requires backend HTTPS with `serversTransport`

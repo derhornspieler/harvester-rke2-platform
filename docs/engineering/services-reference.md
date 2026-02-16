@@ -548,7 +548,8 @@ graph TD
 | ConfigMap | grafana-dashboard-* (27+) | monitoring | Pre-provisioned dashboards |
 | Secret | grafana-admin-secret | monitoring | Admin password |
 | Secret | etcd-certs | monitoring | etcd TLS certs (optional, mounted but unused -- etcd scraped via plain HTTP :2381) |
-| Secret | monitoring-basic-auth | monitoring | Basic auth for Prometheus |
+| Secret | oauth2-proxy-prometheus | monitoring | oauth2-proxy OIDC client + cookie secret |
+| Secret | oauth2-proxy-alertmanager | monitoring | oauth2-proxy OIDC client + cookie secret |
 | PVC | data-prometheus-0 | monitoring | 50Gi TSDB |
 | PVC | data-loki-0 | monitoring | 50Gi log store |
 | PVC | grafana-data | monitoring | 10Gi |
@@ -560,7 +561,7 @@ graph TD
 | TLSStore | default | kube-system | Sets Vault-issued wildcard cert as Traefik default TLS certificate |
 | Service (ClusterIP) | traefik-api | kube-system | :8080 (Traefik internal API for dashboard) |
 | Gateway | traefik-dashboard | kube-system | HTTPS for Traefik dashboard |
-| HTTPRoute | traefik-dashboard | kube-system | Route to traefik-api :8080 with basic-auth middleware |
+| HTTPRoute | traefik-dashboard | kube-system | Route to traefik-api :8080 with oauth2-proxy ForwardAuth |
 
 ### 5.3 Configuration
 
@@ -930,10 +931,10 @@ graph TD
 | Gateway | argocd | argocd | HTTPS for ArgoCD |
 | HTTPRoute | argocd-server | argocd | Route to server port 80 |
 | Gateway | rollouts | argo-rollouts | HTTPS for Rollouts dashboard |
-| HTTPRoute | rollouts-dashboard | argo-rollouts | Route with basic-auth |
-| Middleware | basic-auth | argo-rollouts | htpasswd for dashboard |
+| HTTPRoute | rollouts-dashboard | argo-rollouts | Route with oauth2-proxy ForwardAuth |
+| Middleware | oauth2-proxy-rollouts | argo-rollouts | ForwardAuth for Rollouts dashboard |
 | Secret | argocd-initial-admin-secret | argocd | Generated admin password |
-| Secret | basic-auth | argo-rollouts | Dashboard credentials |
+| Secret | oauth2-proxy-rollouts | argo-rollouts | oauth2-proxy OIDC client + cookie secret |
 | Application | app-of-apps | argocd | Root bootstrap application |
 
 ### 7.3 Configuration
@@ -1039,14 +1040,21 @@ graph TD
         CNPG2["CNPG keycloak-pg<br/>3 instances PG 16"]
     end
 
-    subgraph OIDCClients["OIDC Clients"]
+    subgraph OIDCClients["OIDC Clients (Native)"]
         GrafanaC["Grafana"]
         VaultC["Vault"]
-        TraefikC["Traefik ForwardAuth"]
-        PrometheusC["Prometheus"]
-        HubbleC["Hubble UI"]
         HarborC["Harbor"]
         ArgoCDC["ArgoCD"]
+        MattermostC["Mattermost"]
+        RancherC["Rancher"]
+    end
+
+    subgraph OAuth2Proxy["oauth2-proxy ForwardAuth"]
+        PrometheusC["prometheus-oidc"]
+        AlertManagerC["alertmanager-oidc"]
+        HubbleC["hubble-oidc"]
+        TraefikC["traefik-dashboard-oidc"]
+        RolloutsC["rollouts-oidc"]
     end
 
     Traefik3 --> KCSvc
@@ -1141,15 +1149,20 @@ Keycloak itself is stateless. All state is in the CNPG PostgreSQL cluster.
 
 ### 8.8 OIDC Client Integrations
 
-| Service | Client Type | Integration |
-|---------|------------|-------------|
-| Grafana | Confidential | Generic OAuth, role mapping |
-| Vault | Confidential | OIDC auth method |
-| Traefik Dashboard | Confidential | ForwardAuth middleware |
-| Prometheus | Public | ForwardAuth middleware |
-| Hubble UI | Public | ForwardAuth middleware |
-| Harbor | Confidential | OIDC provider |
-| ArgoCD | Confidential | OIDC SSO |
+| Service | Client ID | Client Type | Integration | Allowed Groups |
+|---------|-----------|------------|-------------|----------------|
+| Grafana | `grafana` | Confidential | Native OIDC, role mapping (`prompt=login`) | All (role-mapped) |
+| ArgoCD | `argocd` | Confidential | Native OIDC SSO (`prompt=login`) | All (RBAC policies) |
+| Vault | `vault` | Confidential | Native OIDC auth method | platform-admins, infra-engineers |
+| Harbor | `harbor` | Confidential | Native OIDC provider | All (admin: platform-admins) |
+| Mattermost | `mattermost` | Confidential | Native OIDC | All |
+| Prometheus | `prometheus-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers |
+| AlertManager | `alertmanager-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers |
+| Hubble UI | `hubble-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers, network-engineers |
+| Traefik Dashboard | `traefik-dashboard-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, network-engineers |
+| Rollouts | `rollouts-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers, senior-developers |
+| Rancher | `rancher` | Confidential | Manual UI configuration | All |
+| Kubernetes | `kubernetes` | Public | kubelogin (CLI) | All |
 
 ### 8.9 Monitoring Integration
 
@@ -1189,7 +1202,7 @@ Keycloak itself is stateless. All state is in the CNPG PostgreSQL cluster.
 | Infinispan not clustering | Logs show single member | Check KUBE_PING RBAC; verify headless service resolves |
 | Slow startup | Pod not ready for 2+ minutes | Normal for first boot; startup probe allows 150s |
 | DB connection refused | CrashLoopBackOff | Ensure CNPG cluster is healthy; check secret credentials |
-| ForwardAuth 403 | Traefik returns 403 on protected services | Verify OIDC client configuration in Keycloak realm |
+| ForwardAuth 403 | oauth2-proxy returns 403 on protected services | Verify user is in an allowed group for the service; check OIDC client config in Keycloak |
 
 ---
 
@@ -1984,20 +1997,21 @@ Single replica with leader election (`--leader-elect`). Safe to run multiple rep
 
 | Service | URL | Auth Method |
 |---------|-----|-------------|
-| Grafana | https://grafana.DOMAIN | Keycloak OIDC / Grafana login |
-| Prometheus | https://prometheus.DOMAIN | Basic auth / Keycloak ForwardAuth |
-| Alertmanager | https://alertmanager.DOMAIN | Basic auth |
-| Vault | https://vault.DOMAIN | Vault login |
-| ArgoCD | https://argo.DOMAIN | ArgoCD login |
-| Argo Rollouts | https://rollouts.DOMAIN | Basic auth |
-| Harbor | https://harbor.DOMAIN | Harbor login |
+| Grafana | https://grafana.DOMAIN | Keycloak OIDC (native, `prompt=login`) |
+| Prometheus | https://prometheus.DOMAIN | oauth2-proxy ForwardAuth |
+| Alertmanager | https://alertmanager.DOMAIN | oauth2-proxy ForwardAuth |
+| Vault | https://vault.DOMAIN | Keycloak OIDC (native) |
+| ArgoCD | https://argo.DOMAIN | Keycloak OIDC (native, `prompt=login`) |
+| Argo Rollouts | https://rollouts.DOMAIN | oauth2-proxy ForwardAuth |
+| Harbor | https://harbor.DOMAIN | Keycloak OIDC (native) |
 | Keycloak | https://keycloak.DOMAIN | Keycloak login |
-| Mattermost | https://mattermost.DOMAIN | Mattermost login |
-| Kasm | https://kasm.DOMAIN | Kasm login |
+| Mattermost | https://mattermost.DOMAIN | Keycloak OIDC (native) |
+| Kasm | https://kasm.DOMAIN | Keycloak OIDC (manual UI config) |
+| Rancher | https://rancher.DOMAIN | Keycloak OIDC (manual UI config) |
 | Uptime Kuma | https://uptime.DOMAIN | Uptime Kuma login |
 | LibreNMS | https://librenms.DOMAIN | LibreNMS login |
-| Hubble UI | https://hubble.DOMAIN | Basic auth |
-| Traefik Dashboard | https://traefik.DOMAIN | Basic auth |
+| Hubble UI | https://hubble.DOMAIN | oauth2-proxy ForwardAuth |
+| Traefik Dashboard | https://traefik.DOMAIN | oauth2-proxy ForwardAuth |
 
 ### All Namespaces
 

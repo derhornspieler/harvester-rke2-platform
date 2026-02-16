@@ -152,9 +152,10 @@ grafana.monitoring.svc:3000
         v
 7. Ingress          Gateway (traefik, HTTPS port 8443, TLS via cert-manager)
                     HTTPRoute -> Gateway -> Grafana
-                    HTTPRoute -> Gateway -> Prometheus (basic-auth via extensionRef filter)
-                    HTTPRoute -> Gateway -> Hubble UI (basic-auth via extensionRef filter, kube-system)
-                    IngressRoute (websecure) -> Traefik Dashboard (basic-auth, kube-system)
+                    HTTPRoute -> Gateway -> Prometheus (oauth2-proxy ForwardAuth, monitoring)
+                    HTTPRoute -> Gateway -> AlertManager (oauth2-proxy ForwardAuth, monitoring)
+                    HTTPRoute -> Gateway -> Hubble UI (oauth2-proxy ForwardAuth, kube-system)
+                    HTTPRoute -> Gateway -> Traefik Dashboard (oauth2-proxy ForwardAuth, kube-system)
 ```
 
 See [Project Structure](#project-structure) for the full file tree.
@@ -168,9 +169,10 @@ All external services are served over HTTPS via Traefik (LB IP: `203.0.113.202`)
 | Service | URL | Namespace | Ingress Type | Certificate Secret | Auth |
 |---|---|---|---|---|---|
 | Grafana | `https://grafana.<DOMAIN>` | monitoring | Gateway + HTTPRoute | `grafana-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | Grafana login |
-| Prometheus | `https://prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | `prometheus-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | Basic auth (extensionRef filter) |
-| Hubble UI | `https://hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | `hubble-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | Basic auth (extensionRef filter) |
-| Traefik Dashboard | `https://traefik.<DOMAIN>` | kube-system | IngressRoute | `traefik-<DOMAIN_DASHED>-tls` (explicit Certificate) | Basic auth |
+| Prometheus | `https://prometheus.<DOMAIN>` | monitoring | Gateway + HTTPRoute | `prometheus-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | oauth2-proxy ForwardAuth (platform-admins, infra-engineers) |
+| AlertManager | `https://alertmanager.<DOMAIN>` | monitoring | Gateway + HTTPRoute | `alertmanager-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | oauth2-proxy ForwardAuth (platform-admins, infra-engineers) |
+| Hubble UI | `https://hubble.<DOMAIN>` | kube-system | Gateway + HTTPRoute | `hubble-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | oauth2-proxy ForwardAuth (platform-admins, infra-engineers, network-engineers) |
+| Traefik Dashboard | `https://traefik.<DOMAIN>` | kube-system | Gateway + HTTPRoute | `traefik-<DOMAIN_DASHED>-tls` (explicit Certificate) | oauth2-proxy ForwardAuth (platform-admins, network-engineers) |
 | Vault | `https://vault.<DOMAIN>` | vault | Gateway + HTTPRoute | `vault-<DOMAIN_DASHED>-tls` (auto via gateway-shim) | Vault login |
 
 ### PKI Chain
@@ -482,14 +484,14 @@ The stack creates **55 Kubernetes resources** across **46 YAML files**:
 - 3 ClusterRoleBindings
 - 1 Role, 1 RoleBinding (cert-manager token creator)
 - 10 ConfigMaps
-- 3 Secrets (Grafana admin, monitoring basic-auth, kube-system basic-auth)
+- 1 Secret (Grafana admin) + oauth2-proxy secrets (created at deploy time)
 - 1 PVC (Grafana) + 2 VolumeClaimTemplates (Prometheus, Loki)
 - 2 StatefulSets, 2 Deployments, 2 DaemonSets
 - 6 Services
 - 2 Gateways (monitoring + kube-system namespaces, HTTPS with cert-manager annotations)
-- 3 HTTPRoutes (Grafana, Prometheus, Hubble UI)
-- 1 IngressRoute (Traefik dashboard — exception for api@internal backend)
-- 2 Middlewares (basic-auth in monitoring + kube-system)
+- 4 HTTPRoutes (Grafana, Prometheus, AlertManager, Hubble UI, Traefik Dashboard)
+- 4 oauth2-proxy Deployments + Services (Prometheus, AlertManager, Hubble, Traefik Dashboard)
+- 4 Middlewares (oauth2-proxy ForwardAuth in monitoring + kube-system)
 - 1 ClusterIssuer (`vault-issuer`)
 - 4 Certificates (3 auto via gateway-shim: Grafana, Prometheus, Hubble; 1 explicit: Traefik dashboard)
 
@@ -628,9 +630,9 @@ rke2-monitoring-stack/
 |   +-- configmap.yaml
 |   +-- statefulset.yaml
 |   +-- service.yaml
-|   +-- basic-auth-secret.yaml         (basic auth credentials)
-|   +-- middleware-basic-auth.yaml      (Traefik basic auth middleware)
-|   +-- ingressroute.yaml              (IngressRoute, websecure + TLS)
+|   +-- oauth2-proxy.yaml              (oauth2-proxy Deployment + Service)
+|   +-- middleware-oauth2-proxy.yaml    (Traefik ForwardAuth middleware)
+|   +-- httproute.yaml                 (HTTPRoute with /oauth2 callback + ForwardAuth)
 |
 +-- grafana/
 |   +-- pvc.yaml
@@ -682,12 +684,14 @@ rke2-monitoring-stack/
 |   +-- certificate-prometheus.yaml    (TLS cert for Prometheus)
 |
 +-- kube-system/
-|   +-- basic-auth-secret.yaml         (basic auth credentials)
-|   +-- middleware-basic-auth.yaml      (Traefik basic auth middleware)
-|   +-- hubble-ui-certificate.yaml     (TLS cert for Hubble UI)
-|   +-- hubble-ui-ingressroute.yaml    (IngressRoute, websecure + TLS)
-|   +-- traefik-dashboard-certificate.yaml  (TLS cert for Traefik dashboard)
-|   +-- traefik-dashboard-ingressroute.yaml (IngressRoute, websecure + TLS)
+|   +-- oauth2-proxy-hubble.yaml             (oauth2-proxy for Hubble UI)
+|   +-- middleware-oauth2-proxy-hubble.yaml   (ForwardAuth middleware for Hubble)
+|   +-- oauth2-proxy-traefik-dashboard.yaml  (oauth2-proxy for Traefik Dashboard)
+|   +-- middleware-oauth2-proxy-traefik-dashboard.yaml (ForwardAuth for Traefik Dashboard)
+|   +-- hubble-ui-certificate.yaml           (TLS cert for Hubble UI)
+|   +-- hubble-httproute.yaml                (HTTPRoute with ForwardAuth)
+|   +-- traefik-dashboard-certificate.yaml   (TLS cert for Traefik dashboard)
+|   +-- traefik-dashboard-ingressroute.yaml  (Gateway + HTTPRoute with ForwardAuth)
 |
 +-- docs/
     +-- tls-integration-guide.md       (Developer guide for TLS integration)

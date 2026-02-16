@@ -276,8 +276,8 @@ All variables are defined in `scripts/.env` (generated from `.env.example`). If 
 | `MATTERMOST_MINIO_ROOT_PASSWORD` | *(random 32 chars)* | Yes | MinIO root password for Mattermost |
 | `HARBOR_REDIS_PASSWORD` | *(random 32 chars)* | Yes | Password for Harbor Redis Sentinel cluster |
 | `GRAFANA_ADMIN_PASSWORD` | *(random 24 chars)* | Yes | Grafana admin password |
-| `BASIC_AUTH_PASSWORD` | *(random 24 chars)* | Yes | Shared basic-auth password for Prometheus, Hubble, Rollouts dashboards |
-| `BASIC_AUTH_HTPASSWD` | *(derived)* | Yes | bcrypt htpasswd hash of `admin:BASIC_AUTH_PASSWORD`. Generated via `htpasswd -nbB`. |
+| `BASIC_AUTH_PASSWORD` | *(random 24 chars)* | Yes | **Deprecated**: kept for rollback compatibility. oauth2-proxy secrets are auto-generated at deploy time. |
+| `BASIC_AUTH_HTPASSWD` | *(derived)* | Yes | **Deprecated**: bcrypt htpasswd hash. No longer used — oauth2-proxy handles authentication. |
 | `LIBRENMS_DB_PASSWORD` | *(random 32 chars)* | Yes | MariaDB password for LibreNMS (generated even if disabled) |
 | `LIBRENMS_VALKEY_PASSWORD` | *(random 32 chars)* | Yes | Valkey/Redis password for LibreNMS |
 | `TRAEFIK_LB_IP` | `198.51.100.2` | No | Traefik LoadBalancer IP (read from tfvars or default) |
@@ -573,7 +573,7 @@ flowchart TD
 
     ARGOPASS --> ROLLNS["ensure_namespace argo-rollouts"]
     ROLLNS --> ROLLOUTS["Helm install Argo Rollouts<br/>OCI chart from ghcr.io"]
-    ROLLOUTS --> ROLLGW["Apply basic-auth, Gateway, HTTPRoute"]
+    ROLLOUTS --> ROLLGW["Apply Gateway, HTTPRoute"]
     ROLLGW --> ROLLTLS["Wait for rollouts TLS secret"]
 
     ROLLTLS --> HTTPS["HTTPS checks: argo, rollouts"]

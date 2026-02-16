@@ -33,7 +33,7 @@ The RKE2 cluster implements a defense-in-depth security model with the following
 | Layer | Implementation | Status |
 |-------|---------------|--------|
 | **PKI / TLS** | Vault PKI engine with offline Root CA, cert-manager for automated leaf certificates | Implemented |
-| **Authentication** | Keycloak OIDC SSO for most services, basic-auth for some endpoints | Implemented (mixed) |
+| **Authentication** | Keycloak OIDC SSO for all services via native OIDC or oauth2-proxy ForwardAuth | Implemented |
 | **Authorization** | Kubernetes RBAC, per-service role mappings via Keycloak groups | Implemented |
 | **Secrets Management** | Kubernetes Secrets with CHANGEME placeholders; Vault KV migration planned | Partial |
 | **Network Security** | Cilium CNI, iptables host firewall, VPN-only access, ARP hardening | Implemented |
@@ -55,7 +55,7 @@ graph TB
 
     subgraph Auth["Authentication Layer"]
         Keycloak["Keycloak<br/>OIDC Provider<br/>2 replicas"]
-        BasicAuth["Basic Auth<br/>Traefik Middleware"]
+        OAuth2Proxy["oauth2-proxy<br/>ForwardAuth<br/>5 instances"]
     end
 
     subgraph PKI["PKI Layer"]
@@ -76,7 +76,8 @@ graph TB
     VPN --> Browser
     Browser -->|HTTPS| Traefik
     Traefik -->|OIDC redirect| Keycloak
-    Traefik -->|basic-auth check| BasicAuth
+    Traefik -->|ForwardAuth| OAuth2Proxy
+    OAuth2Proxy -->|OIDC validate| Keycloak
     Traefik --> Services
     RootCA -->|signed locally| Vault
     Vault -->|CSR signing| CertManager
@@ -576,17 +577,23 @@ sequenceDiagram
 | `rancher.<DOMAIN>` | Keycloak OIDC | `rancher` | Manual config required | Manual UI setup |
 | `keycloak.<DOMAIN>` | Keycloak (native) | N/A | N/A (is the IdP) | N/A |
 
-### SSO Roadmap
+### SSO Implementation Status
+
+All phases complete. Every externally-accessible service authenticates via Keycloak OIDC — either natively (Grafana, ArgoCD, Vault, Harbor, Mattermost) or via oauth2-proxy ForwardAuth (Prometheus, AlertManager, Hubble, Traefik Dashboard, Rollouts).
 
 ```mermaid
 graph LR
-    Current["Current:<br/>Per-service auth +<br/>basic-auth middleware"]
-    Phase1["Phase 1:<br/>Keycloak deployed<br/>(identity provider)"]
-    Phase2["Phase 2:<br/>Grafana + Vault OIDC<br/>(built-in OIDC support)"]
-    Phase3["Phase 3:<br/>ForwardAuth middleware<br/>(Prometheus, Hubble, Traefik)"]
-    Phase4["Phase 4:<br/>Remove basic-auth<br/>(all SSO)"]
+    Phase1["Phase 1 (Done):<br/>Keycloak deployed<br/>(identity provider)"]
+    Phase2["Phase 2 (Done):<br/>Native OIDC<br/>(Grafana, Vault, ArgoCD,<br/>Harbor, Mattermost)"]
+    Phase3["Phase 3 (Done):<br/>oauth2-proxy ForwardAuth<br/>(Prometheus, AlertManager,<br/>Hubble, Traefik, Rollouts)"]
+    Phase4["Phase 4 (Done):<br/>Per-service OIDC clients<br/>Group-based access control<br/>prompt=login enforcement"]
 
-    Current --> Phase1 --> Phase2 --> Phase3 --> Phase4
+    Phase1 --> Phase2 --> Phase3 --> Phase4
+
+    style Phase1 fill:#9f9,stroke:#333
+    style Phase2 fill:#9f9,stroke:#333
+    style Phase3 fill:#9f9,stroke:#333
+    style Phase4 fill:#9f9,stroke:#333
 ```
 
 ---
@@ -609,7 +616,7 @@ The `setup-keycloak.sh` script creates all OIDC clients in the realm. The realm 
 | Max failure wait | 900s (15 min) |
 | SSL required | External |
 | Access token lifespan | 300s (5 min) |
-| SSO session idle timeout | 1800s (30 min) |
+| SSO session idle timeout | 120s (2 min) |
 | SSO session max lifespan | 36000s (10 hours) |
 | OTP policy | TOTP, HmacSHA1, 6 digits, 30s period |
 
@@ -662,6 +669,7 @@ All clients have an `oidc-group-membership-mapper` protocol mapper configured:
 | `harvester-admins` | Harvester infrastructure administrators |
 | `rancher-admins` | Rancher cluster management |
 | `infra-engineers` | Infrastructure team with elevated access |
+| `network-engineers` | Network team — Hubble, Traefik Dashboard access |
 | `senior-developers` | Senior developers with editor-level access |
 | `developers` | Standard developer access |
 | `viewers` | Read-only access |
@@ -674,6 +682,7 @@ All clients have an `oidc-group-membership-mapper` protocol mapper configured:
 |-------|-------------|
 | `platform-admins` | Admin |
 | `infra-engineers` | Admin |
+| `network-engineers` | Viewer |
 | `senior-developers` | Editor |
 | `developers` | Editor |
 | (all others) | Viewer |
@@ -770,7 +779,7 @@ Credentials are stored in Kubernetes Secret manifests committed to git with plac
 | `keycloak-admin-secret` | keycloak | `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD`, `KC_BOOTSTRAP_ADMIN_CLIENT_ID`, `KC_BOOTSTRAP_ADMIN_CLIENT_SECRET` | Password is weak (`CHANGEME_KC_ADMIN_PASSWORD`), client secret is placeholder |
 | `keycloak-postgres-secret` | keycloak | `POSTGRES_USER`, `POSTGRES_PASSWORD` | Password is placeholder |
 | `grafana-admin-secret` | monitoring | `admin-password` | Placeholder |
-| `basic-auth-users` | monitoring, kube-system | htpasswd data | Placeholder |
+| `oauth2-proxy-*` | monitoring, kube-system, argo-rollouts | OIDC client + cookie secrets | Created at deploy time |
 
 ### Known Credential Issues
 
@@ -788,7 +797,7 @@ The planned architecture uses Vault KV v2 with External Secrets Operator to sync
 graph LR
     subgraph Vault["Vault KV v2 (secret/)"]
         G["secret/monitoring/grafana"]
-        BA["secret/monitoring/basic-auth"]
+        OA["secret/oauth2-proxy/*"]
         KC["secret/keycloak/postgres"]
         TF["secret/terraform/tfvars"]
     end
@@ -800,7 +809,7 @@ graph LR
 
     subgraph K8s["Kubernetes Secrets"]
         S1["grafana-admin-secret"]
-        S2["basic-auth-users"]
+        S2["oauth2-proxy-* secrets"]
         S3["keycloak-pg-credentials"]
     end
 
@@ -822,7 +831,7 @@ graph LR
 | Credential | Location | Rotation Method |
 |------------|----------|-----------------|
 | Grafana admin password | K8s Secret | Update secret, restart pod |
-| Basic-auth passwords | K8s Secrets (htpasswd) | Update secret |
+| oauth2-proxy secrets | K8s Secrets (OIDC client + cookie) | Regenerated at deploy time |
 | Vault root token | vault-init.json | `vault token revoke` + `vault operator generate-root` |
 | Vault unseal keys | vault-init.json | `vault operator rekey` |
 | Harbor admin password | Harbor UI | Settings > Change Password |
@@ -917,8 +926,7 @@ flowchart TD
     Start["New service needs<br/>external access?"]
     HasOIDC["Service has<br/>built-in OIDC<br/>support?"]
     UseOIDC["Configure Keycloak<br/>OIDC client via<br/>setup-keycloak.sh"]
-    UseBasicAuth["Use Traefik<br/>basic-auth middleware<br/>(temporary)"]
-    PlannedFA["Add oauth2-proxy<br/>ForwardAuth middleware<br/>for OIDC protection"]
+    UseOAuth2Proxy["Deploy oauth2-proxy<br/>ForwardAuth instance<br/>with per-service OIDC client<br/>+ group-based access"]
     NeedsAuth["Requires<br/>authentication?"]
     NoAuth["Direct Gateway +<br/>HTTPRoute (TLS only)"]
 
@@ -926,8 +934,7 @@ flowchart TD
     NeedsAuth -->|Yes| HasOIDC
     NeedsAuth -->|No| NoAuth
     HasOIDC -->|Yes| UseOIDC
-    HasOIDC -->|No| UseBasicAuth
-    UseBasicAuth --> PlannedFA
+    HasOIDC -->|No| UseOAuth2Proxy
 ```
 
 ### When to Use Which TLS Method
@@ -950,23 +957,20 @@ flowchart TD
     NeedControl -->|No| AutoCert
 ```
 
-### SSO Migration Decision Tree
+### Adding a New Service to SSO
 
 ```mermaid
 flowchart TD
-    Current["Service currently<br/>using basic-auth?"]
+    NewSvc["New service needs<br/>Keycloak SSO?"]
     HasOIDC["Service supports<br/>OIDC natively?"]
-    MigrateOIDC["1. Create Keycloak client<br/>2. Configure service OIDC<br/>3. Remove basic-auth middleware"]
-    NeedProxy["Add oauth2-proxy<br/>ForwardAuth middleware<br/>in front of service"]
-    AlreadySSO["Already on Keycloak?"]
-    Done["No action needed"]
+    NativeOIDC["1. Create Keycloak client<br/>in setup-keycloak.sh<br/>2. Configure service OIDC<br/>3. Add prompt=login if supported"]
+    OAuth2Proxy["1. Create Keycloak client<br/>in setup-keycloak.sh<br/>2. Create oauth2-proxy<br/>Deployment + Service<br/>3. Create ForwardAuth Middleware<br/>4. Update HTTPRoute with<br/>/oauth2 callback + extensionRef"]
+    GroupCheck["Configure allowed<br/>groups in oauth2-proxy<br/>--allowed-group flags"]
 
-    Current -->|Yes| HasOIDC
-    Current -->|No| AlreadySSO
-    AlreadySSO -->|Yes| Done
-    AlreadySSO -->|No| HasOIDC
-    HasOIDC -->|Yes| MigrateOIDC
-    HasOIDC -->|No| NeedProxy
+    NewSvc -->|Yes| HasOIDC
+    HasOIDC -->|Yes| NativeOIDC
+    HasOIDC -->|No| OAuth2Proxy
+    OAuth2Proxy --> GroupCheck
 ```
 
 ---
@@ -979,7 +983,7 @@ Consolidated view of all security gaps with priority and mitigation status.
 |-------|------|------------|----------|
 | Git history contains old passwords | Credential exposure | Passwords rotated, placeholders committed | High (done) |
 | No Kubernetes NetworkPolicies | Lateral movement between namespaces | Plan: Cilium NetworkPolicy per namespace | Medium |
-| Basic-auth on 4 services | Weak auth, no MFA | Plan: Keycloak SSO via ForwardAuth (Phase 3) | Medium |
+| ~~Basic-auth on 4 services~~ | ~~Weak auth, no MFA~~ | **Resolved**: oauth2-proxy ForwardAuth with per-service OIDC clients + group-based access | Done |
 | No secret scanning in CI | Credential leak risk | Plan: GitLab secret detection | Medium |
 | No Pod Security Standards (PSA) enforcement | Privileged containers possible | Plan: PSA enforce `restricted` profile | Low |
 | Vault Shamir unseal (manual) | Operational risk on restart | Plan: Auto-unseal via transit/KMS | Low |

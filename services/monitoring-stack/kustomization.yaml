@@ -21,9 +21,8 @@ resources:
   - prometheus/configmap.yaml
   - prometheus/statefulset.yaml
   - prometheus/service.yaml
-  - prometheus/basic-auth-secret.yaml
-  - prometheus/middleware-basic-auth.yaml
-  - prometheus/middleware-keycloak-auth.yaml
+  - prometheus/oauth2-proxy.yaml
+  - prometheus/middleware-oauth2-proxy.yaml
   - prometheus/gateway.yaml
   - prometheus/httproute.yaml
   # Alloy
@@ -35,6 +34,8 @@ resources:
   - alertmanager/configmap.yaml
   - alertmanager/statefulset.yaml
   - alertmanager/service.yaml
+  - alertmanager/oauth2-proxy.yaml
+  - alertmanager/middleware-oauth2-proxy.yaml
   - alertmanager/gateway.yaml
   - alertmanager/httproute.yaml
   # Grafana
@@ -74,9 +75,11 @@ resources:
   - grafana/gateway.yaml
   - grafana/httproute.yaml
   # kube-system resources
-  - kube-system/basic-auth-secret.yaml
-  - kube-system/middleware-basic-auth.yaml
-  - kube-system/middleware-keycloak-auth.yaml
+  - kube-system/oauth2-proxy-hubble.yaml
+  - kube-system/middleware-oauth2-proxy-hubble.yaml
+  - kube-system/oauth2-proxy-traefik-dashboard.yaml
+  - kube-system/middleware-oauth2-proxy-traefik-dashboard.yaml
+  - kube-system/traefik-default-tlsstore.yaml
   - kube-system/hubble-gateway.yaml
   - kube-system/hubble-httproute.yaml
   - kube-system/traefik-dashboard-certificate.yaml

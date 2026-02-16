@@ -147,7 +147,7 @@ flowchart TD
     subgraph Phase5 [Phase 5: ArgoCD + Argo Rollouts]
         P5_Argo[Helm install ArgoCD HA] --> P5_ArgoGW[Apply ArgoCD Gateway + HTTPRoute]
         P5_ArgoGW --> P5_Rollouts[Helm install Argo Rollouts]
-        P5_Rollouts --> P5_RolloutsGW[Apply Rollouts basic-auth + Gateway]
+        P5_Rollouts --> P5_RolloutsGW[Apply Rollouts Gateway + HTTPRoute]
         P5_RolloutsGW --> P5_HTTPS[HTTPS checks: argo, rollouts]
     end
 
@@ -573,7 +573,7 @@ flowchart TD
     subgraph Phase1 [Phase 1: Realm + Admin Setup]
         P1_Connect[Verify Keycloak connectivity<br/>Direct HTTPS or port-forward fallback] --> P1_Token[Authenticate via bootstrap<br/>client credentials grant]
         P1_Token --> P1_Realm{Realm exists?}
-        P1_Realm -->|no| P1_CreateRealm[Create KC_REALM realm<br/>Brute-force protection<br/>5min token TTL, 30min SSO idle]
+        P1_Realm -->|no| P1_CreateRealm[Create KC_REALM realm<br/>Brute-force protection<br/>5min token TTL, 2min SSO idle]
         P1_Realm -->|yes| P1_Admin
         P1_CreateRealm --> P1_Admin{Admin user<br/>exists?}
         P1_Admin -->|no| P1_CreateAdmin[Create admin user<br/>Assign realm-admin role]
@@ -1039,12 +1039,13 @@ flowchart TD
     NoTLS --> Auth
 
     Auth{Authentication<br/>method?}
-    Auth -->|Internal service<br/>dashboard| BasicAuth[Traefik basic-auth middleware<br/>prometheus, alertmanager,<br/>hubble, rollouts]
-    Auth -->|User-facing<br/>application| OIDC[Keycloak OIDC<br/>grafana, argocd, harbor,<br/>vault, mattermost, kasm]
+    Auth -->|Service without<br/>native OIDC| ForwardAuth[oauth2-proxy ForwardAuth<br/>Per-service OIDC client<br/>Group-based access control<br/>prometheus, alertmanager,<br/>hubble, traefik, rollouts]
+    Auth -->|Service with<br/>native OIDC| OIDC[Keycloak OIDC native<br/>grafana, argocd, harbor,<br/>vault, mattermost, kasm]
     Auth -->|Public or<br/>self-managed| None[No auth at ingress layer<br/>App handles its own auth]
 
+    ForwardAuth --> Groups[Configure allowed groups<br/>platform-admins, infra-engineers,<br/>network-engineers, senior-developers]
     OIDC --> GroupMapping{Role-based<br/>access?}
-    GroupMapping -->|yes| Groups[Map Keycloak groups<br/>platform-admins -> Admin<br/>developers -> Editor/Developer<br/>viewers -> Viewer/readonly]
+    GroupMapping -->|yes| Groups
     GroupMapping -->|no| Simple[Simple OIDC login only]
 ```
 
