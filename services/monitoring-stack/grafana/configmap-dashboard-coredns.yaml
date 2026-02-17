@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "CoreDNS Instances Up",
@@ -31,7 +31,7 @@ data:
           "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
           "id": 2,
           "fieldConfig": {"defaults": {"unit": "reqps", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10000}, {"color": "red", "value": 50000}]}}},
-          "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [{"expr": "sum(rate(coredns_dns_requests_total{job=\"coredns\"}[5m]))", "legendFormat": "", "refId": "A"}]
         },
         {
@@ -41,7 +41,7 @@ data:
           "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
           "id": 3,
           "fieldConfig": {"defaults": {"unit": "percent", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 50}, {"color": "green", "value": 80}]}}},
-          "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [{"expr": "sum(rate(coredns_cache_hits_total{job=\"coredns\"}[5m])) / (sum(rate(coredns_cache_hits_total{job=\"coredns\"}[5m])) + sum(rate(coredns_cache_misses_total{job=\"coredns\"}[5m]))) * 100", "legendFormat": "", "refId": "A"}]
         },
         {
@@ -60,8 +60,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 4,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false, "thresholdsStyle": {"mode": "line+area"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "transparent", "value": null}, {"color": "orange", "value": 5000}]}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum by (type) (rate(coredns_dns_requests_total{job=\"coredns\"}[5m]))", "legendFormat": "{{type}}", "refId": "A"}]
         },
         {
@@ -70,8 +70,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum by (rcode) (rate(coredns_dns_responses_total{job=\"coredns\"}[5m]))", "legendFormat": "{{rcode}}", "refId": "A"}]
         },
         {
@@ -80,8 +80,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "histogram_quantile(0.50, sum by (le) (rate(coredns_dns_request_duration_seconds_bucket{job=\"coredns\"}[5m])))", "legendFormat": "p50", "refId": "A"},
             {"expr": "histogram_quantile(0.90, sum by (le) (rate(coredns_dns_request_duration_seconds_bucket{job=\"coredns\"}[5m])))", "legendFormat": "p90", "refId": "B"},
@@ -94,8 +94,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "coredns_cache_entries{job=\"coredns\"}", "legendFormat": "{{type}}", "refId": "A"}]
         },
         {
@@ -104,8 +104,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "sum by (type) (rate(coredns_cache_hits_total{job=\"coredns\"}[5m]))", "legendFormat": "hits: {{type}}", "refId": "A"},
             {"expr": "sum(rate(coredns_cache_misses_total{job=\"coredns\"}[5m]))", "legendFormat": "misses", "refId": "B"}
@@ -117,13 +117,13 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "ops", "color": {"mode": "fixed", "fixedColor": "red"}, "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "color": {"mode": "fixed", "fixedColor": "red"}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(coredns_dns_responses_total{job=\"coredns\",rcode=\"SERVFAIL\"}[5m]))", "legendFormat": "SERVFAIL", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,
-      "tags": ["coredns", "dns", "rke2"],
+      "tags": ["coredns", "dns", "rke2", "platform"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},

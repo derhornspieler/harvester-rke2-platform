@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Certificates Ready",
@@ -52,6 +52,7 @@ data:
           "id": 4,
           "fieldConfig": {
             "defaults": {
+              "unit": "s",
               "custom": {"align": "auto", "displayMode": "auto"}
             },
             "overrides": [
@@ -117,8 +118,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(certmanager_http_acme_client_request_count[5m])", "legendFormat": "{{status}} {{method}}", "refId": "A"}]
         },
         {
@@ -127,8 +128,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(certmanager_controller_sync_call_count[5m])", "legendFormat": "{{controller}}", "refId": "A"}]
         },
         {
@@ -137,8 +138,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "fillOpacity": 50, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "fillOpacity": 50, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["sum"]}},
           "targets": [{"expr": "increase(certmanager_certificate_renewal_timestamp_seconds[24h])", "legendFormat": "{{name}} ({{namespace}})", "refId": "A"}]
         }
       ],

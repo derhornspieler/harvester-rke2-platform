@@ -42,9 +42,6 @@ resources:
   - grafana/pvc.yaml
   - grafana/configmap-datasources.yaml
   - grafana/configmap-dashboard-provider.yaml
-  - grafana/configmap-dashboard-rke2.yaml
-  - grafana/configmap-dashboard-cluster.yaml
-  - grafana/configmap-dashboard-pods.yaml
   - grafana/configmap-dashboard-etcd.yaml
   - grafana/configmap-dashboard-loki.yaml
   - grafana/configmap-dashboard-loki-stack.yaml
@@ -52,8 +49,6 @@ resources:
   - grafana/configmap-dashboard-cert-manager.yaml
   - grafana/configmap-dashboard-cilium.yaml
   - grafana/configmap-dashboard-traefik.yaml
-  - grafana/configmap-dashboard-security.yaml
-  - grafana/configmap-dashboard-operations.yaml
   - grafana/configmap-dashboard-cnpg.yaml
   - grafana/configmap-dashboard-gitlab.yaml
   - grafana/configmap-dashboard-coredns.yaml
@@ -67,10 +62,8 @@ resources:
   - grafana/configmap-dashboard-argo-rollouts.yaml
   - grafana/configmap-dashboard-home.yaml
   - grafana/configmap-dashboard-firing-alerts.yaml
-  - grafana/configmap-dashboard-storage-autoscaler.yaml
   - grafana/configmap-dashboard-node-labeler.yaml
   - grafana/configmap-dashboard-redis.yaml
-  - grafana/configmap-dashboard-pipelines.yaml
   - grafana/configmap-dashboard-security-advanced.yaml
   - grafana/configmap-dashboard-oauth2-proxy.yaml
   - grafana/secret-admin.yaml

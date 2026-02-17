@@ -1005,6 +1005,7 @@ phase_6_keycloak() {
   log_step "Deploying CNPG keycloak-pg cluster..."
   kube_apply_subst "${SERVICES_DIR}/keycloak/postgres/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/keycloak/postgres/keycloak-pg-cluster.yaml"
+  kube_apply -f "${SERVICES_DIR}/keycloak/postgres/keycloak-pg-scheduled-backup.yaml"
   wait_for_cnpg_primary database keycloak-pg 600
   log_ok "CNPG keycloak-pg deployed"
 
@@ -1054,6 +1055,7 @@ phase_7_remaining() {
   log_step "Deploying CNPG mattermost-pg cluster..."
   kube_apply_subst "${SERVICES_DIR}/mattermost/postgres/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/mattermost/postgres/mattermost-pg-cluster.yaml"
+  kube_apply -f "${SERVICES_DIR}/mattermost/postgres/mattermost-pg-scheduled-backup.yaml"
   wait_for_cnpg_primary database mattermost-pg 600
   log_ok "CNPG mattermost-pg deployed"
 
@@ -1138,6 +1140,7 @@ EOF
   # CNPG for Kasm (PG 14)
   kube_apply_subst "${SERVICES_DIR}/kasm/postgres/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/kasm/postgres/kasm-pg-cluster.yaml"
+  kube_apply -f "${SERVICES_DIR}/kasm/postgres/kasm-pg-scheduled-backup.yaml"
   wait_for_cnpg_primary database kasm-pg 600
 
   # Kasm requires uuid-ossp extension for uuid_generate_v4() — create via superuser
@@ -1215,6 +1218,12 @@ EOF
     wait_for_tls_secret librenms "librenms-${DOMAIN_DASHED}-tls" 120
     check_https "librenms.${DOMAIN}"
     log_ok "LibreNMS deployed"
+
+    # LibreNMS MariaDB backup to MinIO
+    log_step "Deploying LibreNMS MariaDB backup CronJob..."
+    kube_apply_subst "${SERVICES_DIR}/librenms/backup/secret.yaml"
+    kube_apply -f "${SERVICES_DIR}/librenms/backup/cronjob.yaml"
+    log_ok "LibreNMS MariaDB backup CronJob deployed (03:15 UTC daily)"
   else
     log_info "Skipping LibreNMS (DEPLOY_LIBRENMS=false)"
   fi

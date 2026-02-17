@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "",
@@ -47,6 +47,7 @@ data:
         },
         {
           "title": "Reconciliation Rate",
+          "description": "Application reconciliation operations per second",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 4, "x": 8, "y": 3},
@@ -57,6 +58,7 @@ data:
         },
         {
           "title": "Reconciliation Error Rate",
+          "description": "Failed reconciliation attempts per second",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 4, "x": 12, "y": 3},
@@ -66,33 +68,13 @@ data:
           "targets": [{"expr": "sum(rate(controller_runtime_reconcile_errors_total{job=\"argocd\"}[5m]))", "refId": "A"}]
         },
         {
-          "title": "Go Goroutines",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 3},
-          "id": 4,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
-          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "sum(go_goroutines{job=\"argocd\"})", "refId": "A"}]
-        },
-        {
-          "title": "Process Memory",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 3},
-          "id": 5,
-          "fieldConfig": {"defaults": {"unit": "bytes", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
-          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "sum(go_memstats_alloc_bytes{job=\"argocd\"})", "refId": "A"}]
-        },
-        {
           "title": "Reconciliation Rate by Controller",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 7},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(controller_runtime_reconcile_total{job=\"argocd\"}[5m])) by (controller)", "legendFormat": "{{controller}}", "refId": "A"}]
         },
         {
@@ -101,8 +83,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 7},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(controller_runtime_reconcile_errors_total{job=\"argocd\"}[5m])) by (controller)", "legendFormat": "{{controller}}", "refId": "A"}]
         },
         {
@@ -111,18 +93,19 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "histogram_quantile(0.99, sum(rate(controller_runtime_reconcile_time_seconds_bucket{job=\"argocd\"}[5m])) by (le, controller))", "legendFormat": "{{controller}}", "refId": "A"}]
         },
         {
           "title": "Workqueue Depth",
+          "description": "Number of items waiting in the controller workqueue",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "workqueue_depth{job=\"argocd\"}", "legendFormat": "{{name}}", "refId": "A"}]
         },
         {
@@ -131,8 +114,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
           "id": 14,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "rate(workqueue_adds_total{job=\"argocd\"}[5m])", "legendFormat": "{{name}}", "refId": "A"}]
         },
         {
@@ -141,8 +124,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
           "id": 11,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "rate(argocd_redis_request_total[5m])", "legendFormat": "{{initiator}}", "refId": "A"}]
         },
         {
@@ -151,8 +134,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
           "id": 12,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(rest_client_requests_total{job=\"argocd\"}[5m])) by (code, method)", "legendFormat": "{{method}} {{code}}", "refId": "A"}]
         },
         {
@@ -161,9 +144,31 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
           "id": 13,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "histogram_quantile(0.99, sum(rate(workqueue_queue_duration_seconds_bucket{job=\"argocd\"}[5m])) by (le, name))", "legendFormat": "{{name}}", "refId": "A"}]
+        },
+        {
+          "title": "Go Goroutines",
+          "description": "Number of active goroutines across ArgoCD processes",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 39},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(go_goroutines{job=\"argocd\"})", "legendFormat": "Goroutines", "refId": "A"}]
+        },
+        {
+          "title": "Process Memory",
+          "description": "Memory allocated by ArgoCD Go processes",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 39},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(go_memstats_alloc_bytes{job=\"argocd\"})", "legendFormat": "Allocated", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,

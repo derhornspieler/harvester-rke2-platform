@@ -13,7 +13,7 @@ data:
       "editable": true,
       "gnetId": 15324,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Log Volume",
@@ -110,7 +110,7 @@ data:
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},
       "timezone": "",
-      "title": "Loki Logs",
+      "title": "Log Explorer",
       "uid": "loki-logs",
       "version": 1,
       "description": "Loki log viewer dashboard. Based on Grafana.com dashboard 15324."

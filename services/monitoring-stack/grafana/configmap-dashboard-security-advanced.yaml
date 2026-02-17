@@ -10,25 +10,28 @@ data:
   security-advanced.json: |
     {
       "annotations": {"list": []},
+      "description": "Security operations dashboard covering threat detection, Keycloak authentication monitoring, RBAC audit, DNS anomaly analysis, Cilium policy enforcement, secret access patterns, and log-based threat hunting.",
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}
+      ],
       "panels": [
         {
           "title": "",
           "type": "text",
-          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+          "gridPos": {"h": 3, "w": 24, "x": 0, "y": 0},
           "id": 1,
           "options": {
             "mode": "markdown",
-            "content": "## Advanced Security Monitoring\nThreat detection, anomaly alerts, and authentication security. Covers Keycloak IAM, DNS anomalies, API abuse, lateral movement indicators, and secret access patterns."
+            "content": "## Security Operations\nThreat detection, authentication monitoring, and security compliance. Covers Keycloak IAM, DNS anomalies, API abuse, RBAC denials, secret access patterns, Cilium policy drops, and audit logging."
           }
         },
         {
           "title": "Firing Security Alerts",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 3},
           "id": 2,
           "fieldConfig": {
             "defaults": {
@@ -51,7 +54,7 @@ data:
           "title": "Keycloak Login Failures (1h)",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 4},
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 3},
           "id": 3,
           "fieldConfig": {
             "defaults": {
@@ -75,7 +78,7 @@ data:
           "title": "RBAC Denials (1h)",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 4},
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 3},
           "id": 4,
           "fieldConfig": {
             "defaults": {
@@ -99,7 +102,7 @@ data:
           "title": "Secret Access Rate",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 4},
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 3},
           "id": 5,
           "fieldConfig": {
             "defaults": {
@@ -123,7 +126,7 @@ data:
           "title": "DNS Query Rate",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
+          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 3},
           "id": 6,
           "fieldConfig": {
             "defaults": {
@@ -145,7 +148,7 @@ data:
           "title": "API Write Rate",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 3},
           "id": 7,
           "fieldConfig": {
             "defaults": {
@@ -167,7 +170,7 @@ data:
           "title": "Keycloak Login Success vs Failure",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 7},
           "id": 8,
           "fieldConfig": {
             "defaults": {
@@ -176,8 +179,16 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false,
+                "thresholdsStyle": {"mode": "line"}
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "red", "value": 0.5}
+                ]
               }
             },
             "overrides": [
@@ -189,7 +200,7 @@ data:
               }
             ]
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=\"200\"}[5m]))", "legendFormat": "Success", "refId": "A"},
             {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m]))", "legendFormat": "Fail", "refId": "B"}
@@ -199,7 +210,7 @@ data:
           "title": "Login Error Breakdown",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 7},
           "id": 9,
           "fieldConfig": {
             "defaults": {
@@ -208,12 +219,12 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m]))", "legendFormat": "{{status}}", "refId": "A"}
           ]
@@ -222,7 +233,7 @@ data:
           "title": "API Request Rate by Verb",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
           "id": 10,
           "fieldConfig": {
             "defaults": {
@@ -231,12 +242,20 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false,
+                "thresholdsStyle": {"mode": "line"}
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 100}
+                ]
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(apiserver_request_total[5m])) by (verb)", "legendFormat": "{{verb}}", "refId": "A"}
           ]
@@ -245,7 +264,7 @@ data:
           "title": "403 Forbidden Responses",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
           "id": 11,
           "fieldConfig": {
             "defaults": {
@@ -255,12 +274,12 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(apiserver_request_total{code=\"403\"}[5m])) by (resource, verb)", "legendFormat": "{{verb}} {{resource}}", "refId": "A"}
           ]
@@ -269,7 +288,7 @@ data:
           "title": "DNS Query Rate by Type",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
           "id": 12,
           "fieldConfig": {
             "defaults": {
@@ -278,12 +297,20 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false,
+                "thresholdsStyle": {"mode": "line"}
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "red", "value": 5000}
+                ]
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(coredns_dns_requests_total[5m])) by (type)", "legendFormat": "{{type}}", "refId": "A"}
           ]
@@ -292,7 +319,7 @@ data:
           "title": "DNS Response Errors",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
           "id": 13,
           "fieldConfig": {
             "defaults": {
@@ -301,12 +328,12 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(coredns_dns_responses_total{rcode!=\"NOERROR\"}[5m])) by (rcode)", "legendFormat": "{{rcode}}", "refId": "A"}
           ]
@@ -315,7 +342,7 @@ data:
           "title": "Secret Access by Verb",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
           "id": 14,
           "fieldConfig": {
             "defaults": {
@@ -324,12 +351,20 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false,
+                "thresholdsStyle": {"mode": "line"}
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 50}
+                ]
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(apiserver_request_total{resource=\"secrets\"}[5m])) by (verb)", "legendFormat": "{{verb}}", "refId": "A"}
           ]
@@ -338,7 +373,7 @@ data:
           "title": "Service Account Token Requests",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
           "id": 15,
           "fieldConfig": {
             "defaults": {
@@ -347,67 +382,68 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum(rate(apiserver_request_total{resource=\"serviceaccounts\",subresource=\"token\"}[5m])) by (verb)", "legendFormat": "{{verb}}", "refId": "A"}
           ]
         },
         {
-          "title": "Pod Network Traffic Anomalies",
+          "title": "Cilium Policy Drops",
+          "description": "Empty when no violations detected \u2014 this is healthy.",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 39},
           "id": 16,
           "fieldConfig": {
             "defaults": {
-              "unit": "Bps",
+              "unit": "ops",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
-            {"expr": "topk(10, sum by (namespace, pod) (rate(container_network_transmit_bytes_total[5m])))", "legendFormat": "{{namespace}}/{{pod}}", "refId": "A"}
+            {"expr": "rate(cilium_drop_count_total{reason=~\"POLICY_DENIED.*\"}[5m])", "legendFormat": "{{reason}} - {{node}}", "refId": "A"}
           ]
         },
         {
-          "title": "Container Restarts (potential escape attempts)",
+          "title": "Network Policy Drops by Reason",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 39},
           "id": 17,
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
+              "unit": "ops",
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto"
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
-            {"expr": "topk(10, increase(kube_pod_container_status_restarts_total[1h]) > 3)", "legendFormat": "{{namespace}}/{{pod}}", "refId": "A"}
+            {"expr": "sum by (reason) (rate(cilium_drop_count_total[5m]))", "legendFormat": "{{reason}}", "refId": "A"}
           ]
         },
         {
           "title": "Keycloak Auth Failures (Loki)",
           "type": "logs",
           "datasource": {"type": "loki", "uid": "loki"},
-          "gridPos": {"h": 10, "w": 12, "x": 0, "y": 48},
+          "gridPos": {"h": 10, "w": 12, "x": 0, "y": 47},
           "id": 18,
           "options": {
             "showTime": true,
@@ -427,7 +463,7 @@ data:
           "title": "RBAC/Forbidden Logs (Loki)",
           "type": "logs",
           "datasource": {"type": "loki", "uid": "loki"},
-          "gridPos": {"h": 10, "w": 12, "x": 12, "y": 48},
+          "gridPos": {"h": 10, "w": 12, "x": 12, "y": 47},
           "id": 19,
           "options": {
             "showTime": true,
@@ -445,13 +481,12 @@ data:
         }
       ],
       "schemaVersion": 39,
-      "tags": ["security", "keycloak", "threat-detection", "anomaly"],
+      "tags": ["security", "keycloak", "threat-detection", "cilium", "rbac"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},
       "timezone": "",
-      "title": "Advanced Security Monitoring",
+      "title": "Security Operations",
       "uid": "security-advanced",
-      "version": 1,
-      "description": "Advanced security monitoring dashboard covering Keycloak authentication analysis, API abuse detection, DNS anomaly detection, secret and RBAC monitoring, container security indicators, and log-based threat hunting via Loki."
+      "version": 1
     }

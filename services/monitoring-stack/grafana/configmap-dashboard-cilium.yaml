@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "",
@@ -32,7 +32,7 @@ data:
           "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
           "id": 1,
           "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A (agent port blocked)", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "count(up{job=\"cilium-agent\"} == 1)", "refId": "A"}]
         },
         {
@@ -43,7 +43,7 @@ data:
           "gridPos": {"h": 4, "w": 4, "x": 4, "y": 4},
           "id": 2,
           "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A (agent port blocked)", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "count(up{job=\"cilium-agent\"} == 0)", "refId": "A"}]
         },
         {
@@ -53,7 +53,7 @@ data:
           "gridPos": {"h": 4, "w": 4, "x": 8, "y": 4},
           "id": 3,
           "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "sum(cilium_endpoint_state)", "refId": "A"}]
         },
         {
@@ -63,7 +63,7 @@ data:
           "gridPos": {"h": 4, "w": 4, "x": 12, "y": 4},
           "id": 4,
           "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "sum(cilium_endpoint_state{endpoint_state=\"ready\"})", "refId": "A"}]
         },
         {
@@ -74,7 +74,7 @@ data:
           "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
           "id": 5,
           "fieldConfig": {"defaults": {"unit": "short", "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "sum(cilium_endpoint_state{endpoint_state!=\"ready\"}) OR on() vector(0)", "refId": "A"}]
         },
         {
@@ -84,8 +84,19 @@ data:
           "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
           "id": 6,
           "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
-          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "auto"},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "auto"},
           "targets": [{"expr": "rate(cilium_policy_change_total[5m])", "refId": "A"}]
+        },
+        {
+          "title": "Drops per Second",
+          "description": "Total Cilium packet drops across all nodes",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 4},
+          "id": 19,
+          "fieldConfig": {"defaults": {"unit": "pps", "noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(rate(cilium_drop_count_total[5m]))", "legendFormat": "", "refId": "A"}]
         },
         {
           "title": "Endpoint State by Node",
@@ -93,8 +104,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "cilium_endpoint_state", "legendFormat": "{{instance}} - {{endpoint_state}}", "refId": "A"}]
         },
         {
@@ -103,8 +114,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "cilium_policy", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
@@ -114,8 +125,8 @@ data:
           "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(cilium_forward_bytes_total[5m])", "legendFormat": "{{direction}}", "refId": "A"}]
         },
         {
@@ -125,8 +136,8 @@ data:
           "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(cilium_forward_count_total[5m])", "legendFormat": "{{direction}}", "refId": "A"}]
         },
         {
@@ -136,8 +147,8 @@ data:
           "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
           "id": 11,
-          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "pps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(cilium_drop_count_total[5m])", "legendFormat": "{{reason}}", "refId": "A"}]
         },
         {
@@ -147,8 +158,8 @@ data:
           "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
           "id": 12,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "cilium_api_limiter_processing_duration_seconds", "legendFormat": "{{api_call}}", "refId": "A"}]
         },
         {
@@ -158,8 +169,8 @@ data:
           "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
           "id": 13,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(cilium_bpf_map_ops_total[5m])", "legendFormat": "{{operation}}", "refId": "A"}]
         },
         {
@@ -169,8 +180,8 @@ data:
           "description": "Agent metrics may be unavailable if host firewall blocks port 9962.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
           "id": 14,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sum(cilium_ip_addresses) by (family)", "legendFormat": "{{family}}", "refId": "A"}]
         },
         {
@@ -188,8 +199,8 @@ data:
           "description": "Rate of gRPC requests handled by hubble-relay, broken down by method.",
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 41},
           "id": 17,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sum(rate(grpc_server_handled_total{job=\"hubble-relay\"}[5m])) by (grpc_method)", "legendFormat": "{{grpc_method}}", "refId": "A"}]
         },
         {
@@ -199,8 +210,8 @@ data:
           "description": "99th percentile latency of gRPC requests handled by hubble-relay.",
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 41},
           "id": 18,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{job=\"hubble-relay\"}[5m])) by (le))", "legendFormat": "p99", "refId": "A"}]
         }
       ],

@@ -13,7 +13,7 @@ data:
       "description": "Redis session store metrics for oauth2-proxy — connections, memory, commands, and replication.",
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Redis Up",
@@ -102,8 +102,10 @@ data:
                   {"color": "red", "value": 90}
                 ]
               },
-              "noValue": "0",
-              "mappings": []
+              "noValue": "No Limit",
+              "mappings": [
+                {"type": "special", "options": {"match": "null", "result": {"text": "No Limit", "color": "blue", "index": 0}}}
+              ]
             }
           },
           "options": {
@@ -114,14 +116,14 @@ data:
           },
           "targets": [
             {
-              "expr": "redis_memory_used_bytes{job=\"redis-exporter\"} / redis_memory_max_bytes{job=\"redis-exporter\"} * 100",
+              "expr": "redis_memory_used_bytes{job=\"redis-exporter\"} / (redis_memory_max_bytes{job=\"redis-exporter\"} > 0) * 100",
               "legendFormat": "",
               "refId": "A"
             }
           ]
         },
         {
-          "title": "Connected Slaves",
+          "title": "Connected Replicas",
           "description": "Number of connected Redis replicas (replication status)",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},

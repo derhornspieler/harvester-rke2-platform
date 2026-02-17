@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: gitlab-postgresql-daily
+  namespace: database
+spec:
+  schedule: "0 0 3 * * *"  # 03:00 UTC daily
+  backupOwnerReference: self
+  cluster:
+    name: gitlab-postgresql
+  method: barmanObjectStore

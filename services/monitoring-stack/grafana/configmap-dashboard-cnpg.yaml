@@ -12,8 +12,8 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
-      "tags": ["cloudnativepg", "postgresql", "cnpg"],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
+      "tags": ["cloudnativepg", "postgresql", "cnpg", "platform"],
       "templating": {
         "list": [
           {
@@ -75,7 +75,7 @@ data:
           "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
           "id": 4,
           "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 80}, {"color": "red", "value": 150}]}}},
-          "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [{"expr": "sum(cnpg_backends_total{cnpg_cluster=\"$cluster\"})", "legendFormat": "Connections", "refId": "A"}]
         },
         {
@@ -84,7 +84,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}, "overrides": [{"matcher": {"id": "byName", "options": "Rollbacks"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}]},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}, "overrides": [{"matcher": {"id": "byName", "options": "Rollbacks"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}]},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {"expr": "rate(cnpg_pg_stat_database_xact_commit{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "Commits - {{datname}}", "refId": "A"},
@@ -97,7 +97,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "rowsps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}},
+          "fieldConfig": {"defaults": {"unit": "rowsps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {"expr": "rate(cnpg_pg_stat_database_tup_returned{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "Returned - {{datname}}", "refId": "A"},
@@ -110,7 +110,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "rowsps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}, "overrides": [{"matcher": {"id": "byRegexp", "options": "Deleted.*"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}]},
+          "fieldConfig": {"defaults": {"unit": "rowsps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}, "overrides": [{"matcher": {"id": "byRegexp", "options": "Deleted.*"}, "properties": [{"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}}]}]},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {"expr": "rate(cnpg_pg_stat_database_tup_inserted{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "Inserted - {{datname}}", "refId": "A"},
@@ -134,7 +134,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false, "thresholdsStyle": {"mode": "line+area"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "transparent", "value": null}, {"color": "red", "value": 30}]}}},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [{"expr": "cnpg_pg_replication_lag{cnpg_cluster=\"$cluster\"}", "legendFormat": "{{pod}}", "refId": "A"}]
         },
@@ -144,7 +144,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [{"expr": "cnpg_pg_database_size_bytes{cnpg_cluster=\"$cluster\"}", "legendFormat": "{{datname}}", "refId": "A"}]
         },
@@ -154,7 +154,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 44},
           "id": 11,
-          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}},
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {"expr": "cnpg_collector_pg_wal{cnpg_cluster=\"$cluster\", value=\"count\"}", "legendFormat": "WAL Files - {{instance}}", "refId": "A"},
@@ -169,7 +169,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 13,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {"expr": "rate(cnpg_pg_stat_database_blks_read{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "Disk Reads - {{datname}}", "refId": "A"},
@@ -182,7 +182,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
           "id": 14,
-          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}}, "overrides": [{"matcher": {"id": "byRegexp", "options": "Temp Files.*"}, "properties": [{"id": "unit", "value": "short"}, {"id": "custom.axisPlacement", "value": "right"}]}]},
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}, "overrides": [{"matcher": {"id": "byRegexp", "options": "Temp Files.*"}, "properties": [{"id": "unit", "value": "short"}, {"id": "custom.axisPlacement", "value": "right"}]}]},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [
             {"expr": "rate(cnpg_pg_stat_database_temp_bytes{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "Temp Bytes/s - {{datname}}", "refId": "A"},
@@ -195,9 +195,20 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 44},
           "id": 12,
-          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 90}, {"color": "green", "value": 99}]}}},
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 15, "pointSize": 5, "showPoints": "never", "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 90}, {"color": "green", "value": 99}]}}},
           "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
           "targets": [{"expr": "cnpg_pg_stat_database_blks_hit{cnpg_cluster=\"$cluster\"} / (cnpg_pg_stat_database_blks_hit{cnpg_cluster=\"$cluster\"} + cnpg_pg_stat_database_blks_read{cnpg_cluster=\"$cluster\"}) * 100", "legendFormat": "{{datname}}", "refId": "A"}]
+        },
+        {
+          "title": "WAL Archive Rate",
+          "description": "WAL files archived per second",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 58},
+          "id": 20,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 1, "lineInterpolation": "smooth", "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "rate(cnpg_pg_stat_archiver_archived_count{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "archived {{pod}}", "refId": "A"}, {"expr": "rate(cnpg_pg_stat_archiver_failed_count{cnpg_cluster=\"$cluster\"}[5m])", "legendFormat": "failed {{pod}}", "refId": "B"}]
         }
       ]
     }

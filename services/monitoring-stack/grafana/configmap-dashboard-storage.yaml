@@ -10,19 +10,24 @@ data:
   pv-usage.json: |
     {
       "annotations": {"list": []},
+      "description": "Persistent Volume usage monitoring with storage autoscaler metrics, PVC growth forecasting, and volume health tracking.",
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}
+      ],
       "panels": [
         {
           "title": "Total PVCs",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
           "id": 1,
           "fieldConfig": {
             "defaults": {
               "unit": "short",
+              "noValue": "0",
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -33,7 +38,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "auto"
           },
@@ -49,11 +54,13 @@ data:
           "title": "PVCs Bound",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
           "id": 2,
           "fieldConfig": {
             "defaults": {
               "unit": "short",
+              "noValue": "0",
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -64,7 +71,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "auto"
           },
@@ -80,11 +87,13 @@ data:
           "title": "PVCs Pending",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
           "id": 3,
           "fieldConfig": {
             "defaults": {
               "unit": "short",
+              "noValue": "0",
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -96,7 +105,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "auto"
           },
@@ -112,11 +121,13 @@ data:
           "title": "Total PV Capacity",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
           "id": 4,
           "fieldConfig": {
             "defaults": {
               "unit": "bytes",
+              "noValue": "0",
+              "mappings": [],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -127,7 +138,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none",
             "textMode": "auto"
           },
@@ -140,11 +151,94 @@ data:
           ]
         },
         {
+          "title": "Autoscaler Controller Up",
+          "description": "Storage autoscaler controller status",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+          "id": 5,
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {"text": "DOWN", "color": "red"},
+                    "1": {"text": "UP", "color": "green"}
+                  }
+                },
+                {
+                  "type": "range",
+                  "options": {
+                    "from": 1,
+                    "to": null,
+                    "result": {"text": "UP", "color": "green"}
+                  }
+                }
+              ],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": null},
+                  {"color": "green", "value": 1}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(up{job=\"kubernetes-pods\",namespace=\"storage-autoscaler\"} == 1) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Managed PVCs",
+          "description": "Number of PVCs being monitored by storage autoscaler",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+          "id": 6,
+          "fieldConfig": {
+            "defaults": {
+              "noValue": "0",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "blue", "value": null}
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "colorMode": "background",
+            "graphMode": "none",
+            "textMode": "auto"
+          },
+          "targets": [
+            {
+              "expr": "count(volume_autoscaler_pvc_usage_percent) OR on() vector(0)",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        },
+        {
           "title": "PVC Usage Overview",
           "type": "table",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 10, "w": 24, "x": 0, "y": 4},
-          "id": 5,
+          "id": 7,
           "fieldConfig": {
             "defaults": {
               "custom": {
@@ -254,7 +348,7 @@ data:
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
-          "id": 6,
+          "id": 8,
           "fieldConfig": {
             "defaults": {
               "unit": "percent",
@@ -264,9 +358,8 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "never",
-                "spanNulls": true
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               },
               "thresholds": {
                 "mode": "absolute",
@@ -280,7 +373,7 @@ data:
           },
           "options": {
             "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
@@ -295,7 +388,7 @@ data:
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
-          "id": 7,
+          "id": 9,
           "fieldConfig": {
             "defaults": {
               "unit": "bytes",
@@ -303,15 +396,14 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "never",
-                "spanNulls": true
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
           "options": {
             "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
@@ -326,7 +418,7 @@ data:
           "type": "table",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
-          "id": 8,
+          "id": 10,
           "fieldConfig": {
             "defaults": {
               "custom": {
@@ -388,7 +480,7 @@ data:
           "type": "table",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
-          "id": 9,
+          "id": 11,
           "fieldConfig": {
             "defaults": {
               "custom": {
@@ -445,7 +537,7 @@ data:
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 24, "x": 0, "y": 30},
-          "id": 10,
+          "id": 12,
           "fieldConfig": {
             "defaults": {
               "unit": "short",
@@ -453,15 +545,14 @@ data:
                 "drawStyle": "line",
                 "fillOpacity": 10,
                 "lineWidth": 1,
-                "pointSize": 5,
-                "showPoints": "auto",
-                "spanNulls": true
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
           "options": {
             "tooltip": {"mode": "multi", "sort": "desc"},
-            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"]}
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
           },
           "targets": [
             {
@@ -480,16 +571,165 @@ data:
               "refId": "C"
             }
           ]
+        },
+        {
+          "title": "### Storage Autoscaler",
+          "type": "text",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 38},
+          "id": 13,
+          "options": {
+            "mode": "markdown",
+            "content": "### Storage Autoscaler"
+          }
+        },
+        {
+          "title": "PVC Usage (Autoscaler View)",
+          "description": "PVC usage as reported by storage autoscaler controller",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+          "id": 14,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 70},
+                  {"color": "red", "value": 90}
+                ]
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "volume_autoscaler_pvc_usage_percent * 100",
+              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "PVC Growth Forecast (7-day)",
+          "description": "Predicted PVC storage usage in 7 days based on linear regression of the past 7 days.",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+          "id": 15,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "predict_linear(kubelet_volume_stats_used_bytes{job=\"kubelet\"}[7d], 7*24*3600)",
+              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Poll Errors Over Time",
+          "description": "Poll errors rate by reason",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48},
+          "id": 16,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "rate(volume_autoscaler_poll_errors_total[5m])",
+              "legendFormat": "{{reason}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "title": "Reconcile Duration",
+          "description": "Storage autoscaler reconcile loop duration (p50/p99)",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48},
+          "id": 17,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "stacking": {"mode": "none"},
+                "spanNulls": false
+              }
+            }
+          },
+          "options": {
+            "tooltip": {"mode": "multi", "sort": "desc"},
+            "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, rate(volume_autoscaler_reconcile_duration_seconds_bucket[5m]))",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.99, rate(volume_autoscaler_reconcile_duration_seconds_bucket[5m]))",
+              "legendFormat": "p99",
+              "refId": "B"
+            }
+          ]
         }
       ],
       "schemaVersion": 39,
-      "tags": ["kubernetes", "storage", "persistent-volume"],
+      "tags": ["platform", "storage", "persistent-volume", "autoscaler"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},
       "timezone": "",
-      "title": "Persistent Volume Usage",
+      "title": "Storage & PV Usage",
       "uid": "k8s-pv-usage",
-      "version": 1,
-      "description": "Kubernetes Persistent Volume and PVC usage monitoring dashboard."
+      "version": 1
     }

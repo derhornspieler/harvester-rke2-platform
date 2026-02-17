@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Uptime",
@@ -34,7 +34,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none"
           },
           "targets": [
@@ -64,7 +64,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none"
           },
           "targets": [
@@ -94,7 +94,7 @@ data:
           },
           "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": "value",
+            "colorMode": "background",
             "graphMode": "none"
           },
           "targets": [
@@ -104,6 +104,17 @@ data:
               "refId": "A"
             }
           ]
+        },
+        {
+          "title": "Pod Count",
+          "description": "Running pods on this node",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 5, "w": 4, "x": 20, "y": 0},
+          "id": 15,
+          "fieldConfig": {"defaults": {"noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 100}, {"color": "red", "value": 110}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(kube_pod_info{node=\"$node\"})", "legendFormat": "", "refId": "A"}]
         },
         {
           "title": "CPU Usage %",
@@ -119,10 +130,12 @@ data:
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
-                  {"color": "green", "value": null},
-                  {"color": "orange", "value": 70},
+                  {"color": "transparent", "value": null},
                   {"color": "red", "value": 90}
                 ]
+              },
+              "custom": {
+                "thresholdsStyle": {"mode": "line+area"}
               }
             }
           },
@@ -213,11 +226,19 @@ data:
           "fieldConfig": {
             "defaults": {
               "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "transparent", "value": null},
+                  {"color": "red", "value": 90}
+                ]
+              },
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 80,
                 "lineWidth": 1,
-                "stacking": {"mode": "normal", "group": "A"}
+                "stacking": {"mode": "normal", "group": "A"},
+                "thresholdsStyle": {"mode": "line+area"}
               }
             }
           },
@@ -319,10 +340,19 @@ data:
           "fieldConfig": {
             "defaults": {
               "unit": "iops",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "transparent", "value": null},
+                  {"color": "orange", "value": 85},
+                  {"color": "red", "value": 95}
+                ]
+              },
               "custom": {
                 "drawStyle": "line",
                 "fillOpacity": 10,
-                "lineWidth": 1
+                "lineWidth": 1,
+                "thresholdsStyle": {"mode": "line+area"}
               }
             }
           },
@@ -560,6 +590,17 @@ data:
               "format": "table"
             }
           ]
+        },
+        {
+          "title": "Top 10 Pod CPU Consumers",
+          "description": "Pods consuming the most CPU on this node",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 33},
+          "id": 16,
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "topk(10, sum by (pod) (rate(container_cpu_usage_seconds_total{node=\"$node\", container!=\"\", container!=\"POD\"}[5m])))", "legendFormat": "{{pod}}", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,

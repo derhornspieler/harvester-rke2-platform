@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Traefik Instances Up",
@@ -60,8 +60,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sum by (entrypoint) (rate(traefik_entrypoint_requests_total[5m]))", "legendFormat": "{{entrypoint}}", "refId": "A"}]
         },
         {
@@ -70,8 +70,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sum by (code) (rate(traefik_service_requests_total[5m]))", "legendFormat": "{{code}}", "refId": "A"}]
         },
         {
@@ -80,8 +80,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}, "color": {"mode": "fixed", "fixedColor": "red"}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}, "color": {"mode": "fixed", "fixedColor": "red"}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sum(rate(traefik_service_requests_total{code=~\"4..|5..\"}[5m]))", "legendFormat": "Errors", "refId": "A"}]
         },
         {
@@ -90,8 +90,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "histogram_quantile(0.5, sum by (le) (rate(traefik_service_request_duration_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
             {"expr": "histogram_quantile(0.9, sum by (le) (rate(traefik_service_request_duration_seconds_bucket[5m])))", "legendFormat": "p90", "refId": "B"},
@@ -104,8 +104,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "traefik_open_connections", "legendFormat": "{{entrypoint}}", "refId": "A"}]
         },
         {
@@ -114,40 +114,51 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "topk(10, sum by (service) (rate(traefik_service_requests_total[5m])))", "legendFormat": "{{service}}", "refId": "A"}]
+        },
+        {
+          "title": "Service Error Rate %",
+          "description": "Percentage of 5xx responses per service",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+          "id": 13,
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false, "thresholdsStyle": {"mode": "line+area"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "transparent", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum by (service) (rate(traefik_service_requests_total{code=~\"5..\"}[5m])) / sum by (service) (rate(traefik_service_requests_total[5m])) * 100", "legendFormat": "{{service}}", "refId": "A"}]
         },
         {
           "title": "TLS Connections",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
           "id": 11,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sum by (tls_version) (traefik_tls_certs_not_after)", "legendFormat": "{{tls_version}}", "refId": "A"}]
         },
         {
           "title": "Config Reloads",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
           "id": 12,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "rate(traefik_config_reloads_total[5m])", "legendFormat": "Reloads", "refId": "A"}
           ]
         }
       ],
       "schemaVersion": 39,
-      "tags": ["traefik", "ingress"],
+      "tags": ["traefik", "ingress", "platform"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},
       "timezone": "",
-      "title": "Traefik Ingress Controller",
+      "title": "Traefik GatewayAPI",
       "uid": "traefik-ingress-controller",
       "version": 1,
       "description": "Traefik Ingress Controller monitoring dashboard with request rates, error rates, latency percentiles, and connection metrics."

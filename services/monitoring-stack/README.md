@@ -499,19 +499,38 @@ The stack creates **55 Kubernetes resources** across **46 YAML files**:
 
 ## Dashboards
 
-7 dashboards are provisioned as ConfigMaps across 3 Grafana folders. Additional dashboards are added by other services for a total of 28:
+24 dashboards are provisioned as ConfigMaps across 6 Grafana folders:
 
-| Folder | Dashboard | ConfigMap | Grafana.com ID | Datasource |
+| Folder | Dashboard | UID | ConfigMap | Datasource |
 |---|---|---|---|---|
-| **RKE2** | RKE2 Cluster | `grafana-dashboard-rke2` | 14243 | Prometheus + Loki |
-| **RKE2** | Kubernetes RKE Cluster | `grafana-dashboard-rke-cluster` | 8721 | Prometheus |
-| **RKE2** | etcd | `grafana-dashboard-etcd` | 3070 | Prometheus |
-| **Kubernetes** | Kubernetes Cluster Monitoring | `grafana-dashboard-cluster` | 13238 | Prometheus |
-| **Kubernetes** | Pod Monitoring | `grafana-dashboard-pods` | 17391 | Prometheus |
-| **Loki** | Loki Logs | `grafana-dashboard-loki` | 15324 | Loki |
-| **Loki** | Loki Stack Monitoring | `grafana-dashboard-loki-stack` | 14055 | Prometheus + Loki |
+| **Home** | Cluster Home | `home-overview` | `grafana-dashboard-home` | Prometheus |
+| **Home** | Firing Alerts | `firing-alerts` | `grafana-dashboard-firing-alerts` | Prometheus |
+| **Platform** | etcd | `etcd-dashboard` | `grafana-dashboard-etcd` | Prometheus |
+| **Platform** | Control Plane | `apiserver-performance` | `grafana-dashboard-apiserver` | Prometheus |
+| **Platform** | Node Deep Dive | `node-deep-dive` | `grafana-dashboard-node-detail` | Prometheus |
+| **Platform** | Storage & PV Usage | `k8s-pv-usage` | `grafana-dashboard-storage` | Prometheus |
+| **Platform** | Node Labeler | `node-labeler` | `grafana-dashboard-node-labeler` | Prometheus |
+| **Networking** | Traefik GatewayAPI | `traefik-ingress-controller` | `grafana-dashboard-traefik` | Prometheus |
+| **Networking** | CoreDNS | `coredns-dashboard` | `grafana-dashboard-coredns` | Prometheus |
+| **Networking** | Cilium CNI Overview | `cilium-cni-overview` | `grafana-dashboard-cilium` | Prometheus |
+| **Services** | Vault Cluster Overview | `vault-cluster-overview` | `grafana-dashboard-vault` | Prometheus |
+| **Services** | GitLab Overview | `gitlab-overview` | `grafana-dashboard-gitlab` | Prometheus + Loki |
+| **Services** | CloudNativePG Cluster | `cnpg-cluster` | `grafana-dashboard-cnpg` | Prometheus |
+| **Services** | Harbor Registry Overview | `harbor-overview` | `grafana-dashboard-harbor` | Prometheus |
+| **Services** | Mattermost Overview | `mattermost-overview` | `grafana-dashboard-mattermost` | Prometheus + Loki |
+| **Services** | ArgoCD Overview | `argocd-overview` | `grafana-dashboard-argocd` | Prometheus |
+| **Services** | Argo Rollouts Overview | `argo-rollouts-overview` | `grafana-dashboard-argo-rollouts` | Prometheus |
+| **Services** | Redis Overview | `redis-overview` | `grafana-dashboard-redis` | Prometheus |
+| **Security** | Keycloak IAM Overview | `keycloak-overview` | `grafana-dashboard-keycloak` | Prometheus |
+| **Security** | cert-manager Certificates | `cert-manager-certificates` | `grafana-dashboard-cert-manager` | Prometheus |
+| **Security** | Security Operations | `security-advanced` | `grafana-dashboard-security-advanced` | Prometheus + Loki |
+| **Security** | oauth2-proxy ForwardAuth | `oauth2-proxy-overview` | `grafana-dashboard-oauth2-proxy` | Prometheus + Loki |
+| **Observability** | Loki Stack Monitoring | `loki-stack-monitoring` | `grafana-dashboard-loki-stack` | Prometheus + Loki |
+| **Observability** | Log Explorer | `loki-logs` | `grafana-dashboard-loki` | Loki |
 
-> See [docs/data-flow.md](../../docs/data-flow.md#grafana-dashboards) for the full 28 dashboard inventory across all service folders.
+Every detail dashboard links back to Cluster Home. Service tiles on the Home dashboard link to their respective detail dashboards.
+
+For a comprehensive reference of every panel and metric in each dashboard, see [grafana/DASHBOARDS.md](grafana/DASHBOARDS.md).
 
 ---
 
@@ -621,45 +640,51 @@ echo | openssl s_client -connect 203.0.113.202:443 -servername traefik.<DOMAIN> 
 ## Project Structure
 
 ```
-rke2-monitoring-stack/
+monitoring-stack/
 +-- kustomization.yaml
 +-- namespace.yaml
++-- README.md                          (this file)
 |
 +-- prometheus/
 |   +-- rbac.yaml
-|   +-- configmap.yaml
+|   +-- configmap.yaml                 (scrape configs + alert rules)
 |   +-- statefulset.yaml
 |   +-- service.yaml
 |   +-- oauth2-proxy.yaml              (oauth2-proxy Deployment + Service)
 |   +-- middleware-oauth2-proxy.yaml    (Traefik ForwardAuth middleware)
+|   +-- gateway.yaml                   (Gateway, HTTPS + cert-manager annotation)
 |   +-- httproute.yaml                 (HTTPRoute with /oauth2 callback + ForwardAuth)
 |
 +-- grafana/
 |   +-- pvc.yaml
-|   +-- configmap-datasources.yaml
-|   +-- configmap-dashboard-provider.yaml
-|   +-- configmap-dashboard-rke2.yaml
-|   +-- configmap-dashboard-rke-cluster.yaml
-|   +-- configmap-dashboard-cluster.yaml
-|   +-- configmap-dashboard-pods.yaml
-|   +-- configmap-dashboard-etcd.yaml
-|   +-- configmap-dashboard-loki.yaml
-|   +-- configmap-dashboard-loki-stack.yaml
-|   +-- secret-admin.yaml               (Grafana admin password)
-|   +-- deployment.yaml
+|   +-- configmap-datasources.yaml     (Prometheus + Loki datasource configs)
+|   +-- configmap-dashboard-provider.yaml  (6 folder providers: Home, Platform, Networking, Services, Security, Observability)
+|   +-- configmap-dashboard-*.yaml     (24 dashboard ConfigMaps — see Dashboards section above)
+|   +-- DASHBOARDS.md                  (comprehensive per-panel metric reference)
+|   +-- secret-admin.yaml             (Grafana admin password)
+|   +-- deployment.yaml               (Grafana Deployment with all dashboard volume mounts)
 |   +-- service.yaml
-|   +-- gateway.yaml                    (Gateway, HTTPS + cert-manager annotation)
-|   +-- httproute.yaml                  (HTTPRoute -> HTTPS listener)
+|   +-- gateway.yaml                   (Gateway, HTTPS + cert-manager annotation)
+|   +-- httproute.yaml                 (HTTPRoute -> HTTPS listener)
+|
++-- alertmanager/
+|   +-- configmap.yaml                 (routing + receivers)
+|   +-- statefulset.yaml
+|   +-- service.yaml
+|   +-- oauth2-proxy.yaml
+|   +-- middleware-oauth2-proxy.yaml
+|   +-- gateway.yaml
+|   +-- httproute.yaml
 |
 +-- loki/
 |   +-- rbac.yaml
-|   +-- configmap.yaml
+|   +-- configmap.yaml                 (TSDB schema, retention, ingestion limits)
 |   +-- statefulset.yaml
 |   +-- service.yaml
 |
 +-- alloy/
 |   +-- rbac.yaml
-|   +-- configmap.yaml
+|   +-- configmap.yaml                 (River pipeline: pod logs, journal, events)
 |   +-- daemonset.yaml
 |   +-- service.yaml
 |
@@ -673,26 +698,19 @@ rke2-monitoring-stack/
 |   +-- deployment.yaml
 |   +-- service.yaml
 |
-+-- vault/
-|   +-- vault-values.yaml              (Helm values, standalone Raft)
-|   +-- certificate.yaml               (TLS cert for Vault UI)
-|   +-- ingressroute.yaml              (IngressRoute, websecure + TLS, Vault native auth)
-|
-+-- cert-manager/
-|   +-- rbac.yaml                      (SA + Role + RoleBinding for vault-issuer)
-|   +-- cluster-issuer.yaml            (ClusterIssuer -> Vault PKI)
-|   +-- certificate-prometheus.yaml    (TLS cert for Prometheus)
++-- oauth2-proxy-redis/
+|   +-- secret.yaml                    (Redis auth)
+|   +-- replication.yaml               (Redis replication config)
+|   +-- sentinel.yaml                  (Redis Sentinel HA)
 |
 +-- kube-system/
-|   +-- oauth2-proxy-hubble.yaml             (oauth2-proxy for Hubble UI)
-|   +-- middleware-oauth2-proxy-hubble.yaml   (ForwardAuth middleware for Hubble)
-|   +-- oauth2-proxy-traefik-dashboard.yaml  (oauth2-proxy for Traefik Dashboard)
-|   +-- middleware-oauth2-proxy-traefik-dashboard.yaml (ForwardAuth for Traefik Dashboard)
-|   +-- hubble-ui-certificate.yaml           (TLS cert for Hubble UI)
-|   +-- hubble-httproute.yaml                (HTTPRoute with ForwardAuth)
-|   +-- traefik-dashboard-certificate.yaml   (TLS cert for Traefik dashboard)
-|   +-- traefik-dashboard-ingressroute.yaml  (Gateway + HTTPRoute with ForwardAuth)
-|
-+-- docs/
-    +-- tls-integration-guide.md       (Developer guide for TLS integration)
+|   +-- oauth2-proxy-hubble.yaml
+|   +-- middleware-oauth2-proxy-hubble.yaml
+|   +-- oauth2-proxy-traefik-dashboard.yaml
+|   +-- middleware-oauth2-proxy-traefik-dashboard.yaml
+|   +-- traefik-default-tlsstore.yaml
+|   +-- hubble-gateway.yaml
+|   +-- hubble-httproute.yaml
+|   +-- traefik-dashboard-certificate.yaml
+|   +-- traefik-dashboard-ingressroute.yaml
 ```

@@ -71,27 +71,39 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboard-provider
               mountPath: /etc/grafana/provisioning/dashboards
-            # RKE2 folder dashboards
-            - name: dashboard-rke2
-              mountPath: /var/lib/grafana/dashboards/rke2/rke2-cluster.json
-              subPath: rke2-cluster.json
+            # Home folder dashboards
+            - name: dashboard-home
+              mountPath: /var/lib/grafana/dashboards/home/home-overview.json
+              subPath: home-overview.json
+            - name: dashboard-firing-alerts
+              mountPath: /var/lib/grafana/dashboards/home/firing-alerts.json
+              subPath: firing-alerts.json
+            # Platform folder dashboards
             - name: dashboard-etcd
-              mountPath: /var/lib/grafana/dashboards/rke2/etcd.json
+              mountPath: /var/lib/grafana/dashboards/platform/etcd.json
               subPath: etcd.json
-            # Kubernetes folder dashboards
-            - name: dashboard-cluster
-              mountPath: /var/lib/grafana/dashboards/kubernetes/cluster-monitoring.json
-              subPath: cluster-monitoring.json
-            - name: dashboard-pods
-              mountPath: /var/lib/grafana/dashboards/kubernetes/pod-monitoring.json
-              subPath: pod-monitoring.json
-            # Loki folder dashboards
-            - name: dashboard-loki
-              mountPath: /var/lib/grafana/dashboards/loki/loki-logs.json
-              subPath: loki-logs.json
-            - name: dashboard-loki-stack
-              mountPath: /var/lib/grafana/dashboards/loki/loki-stack.json
-              subPath: loki-stack.json
+            - name: dashboard-apiserver
+              mountPath: /var/lib/grafana/dashboards/platform/apiserver-performance.json
+              subPath: apiserver-performance.json
+            - name: dashboard-node-detail
+              mountPath: /var/lib/grafana/dashboards/platform/node-detail.json
+              subPath: node-detail.json
+            - name: dashboard-storage
+              mountPath: /var/lib/grafana/dashboards/platform/pv-usage.json
+              subPath: pv-usage.json
+            - name: dashboard-node-labeler
+              mountPath: /var/lib/grafana/dashboards/platform/node-labeler.json
+              subPath: node-labeler.json
+            # Networking folder dashboards
+            - name: dashboard-traefik
+              mountPath: /var/lib/grafana/dashboards/networking/traefik-overview.json
+              subPath: traefik-overview.json
+            - name: dashboard-coredns
+              mountPath: /var/lib/grafana/dashboards/networking/coredns.json
+              subPath: coredns.json
+            - name: dashboard-cilium
+              mountPath: /var/lib/grafana/dashboards/networking/cilium-overview.json
+              subPath: cilium-overview.json
             # Services folder dashboards
             - name: dashboard-vault
               mountPath: /var/lib/grafana/dashboards/services/vault-overview.json
@@ -102,38 +114,6 @@ spec:
             - name: dashboard-gitlab
               mountPath: /var/lib/grafana/dashboards/services/gitlab-overview.json
               subPath: gitlab-overview.json
-            # Networking folder dashboards
-            - name: dashboard-cilium
-              mountPath: /var/lib/grafana/dashboards/networking/cilium-overview.json
-              subPath: cilium-overview.json
-            - name: dashboard-traefik
-              mountPath: /var/lib/grafana/dashboards/networking/traefik-overview.json
-              subPath: traefik-overview.json
-            - name: dashboard-coredns
-              mountPath: /var/lib/grafana/dashboards/networking/coredns.json
-              subPath: coredns.json
-            # Security folder dashboards
-            - name: dashboard-cert-manager
-              mountPath: /var/lib/grafana/dashboards/security/cert-manager.json
-              subPath: cert-manager.json
-            - name: dashboard-security
-              mountPath: /var/lib/grafana/dashboards/security/cluster-security.json
-              subPath: cluster-security.json
-            # Operations folder dashboards
-            - name: dashboard-operations
-              mountPath: /var/lib/grafana/dashboards/operations/cluster-operations.json
-              subPath: cluster-operations.json
-            - name: dashboard-node-detail
-              mountPath: /var/lib/grafana/dashboards/operations/node-detail.json
-              subPath: node-detail.json
-            - name: dashboard-storage
-              mountPath: /var/lib/grafana/dashboards/operations/pv-usage.json
-              subPath: pv-usage.json
-            # RKE2 folder (additional)
-            - name: dashboard-apiserver
-              mountPath: /var/lib/grafana/dashboards/rke2/apiserver-performance.json
-              subPath: apiserver-performance.json
-            # Services folder (additional)
             - name: dashboard-argocd
               mountPath: /var/lib/grafana/dashboards/services/argocd-overview.json
               subPath: argocd-overview.json
@@ -146,38 +126,29 @@ spec:
             - name: dashboard-argo-rollouts
               mountPath: /var/lib/grafana/dashboards/services/argo-rollouts-overview.json
               subPath: argo-rollouts-overview.json
-            # Security folder (additional)
+            - name: dashboard-redis
+              mountPath: /var/lib/grafana/dashboards/services/redis-overview.json
+              subPath: redis-overview.json
+            # Security folder dashboards
             - name: dashboard-keycloak
               mountPath: /var/lib/grafana/dashboards/security/keycloak-overview.json
               subPath: keycloak-overview.json
+            - name: dashboard-cert-manager
+              mountPath: /var/lib/grafana/dashboards/security/cert-manager.json
+              subPath: cert-manager.json
             - name: dashboard-security-advanced
               mountPath: /var/lib/grafana/dashboards/security/security-advanced.json
               subPath: security-advanced.json
             - name: dashboard-oauth2-proxy
               mountPath: /var/lib/grafana/dashboards/security/oauth2-proxy-overview.json
               subPath: oauth2-proxy-overview.json
-            # CI/CD folder dashboards
-            - name: dashboard-pipelines
-              mountPath: /var/lib/grafana/dashboards/cicd/pipelines-overview.json
-              subPath: pipelines-overview.json
-            # Operations folder (additional)
-            - name: dashboard-storage-autoscaler
-              mountPath: /var/lib/grafana/dashboards/operations/storage-autoscaler.json
-              subPath: storage-autoscaler.json
-            - name: dashboard-node-labeler
-              mountPath: /var/lib/grafana/dashboards/operations/node-labeler.json
-              subPath: node-labeler.json
-            # Services folder (additional)
-            - name: dashboard-redis
-              mountPath: /var/lib/grafana/dashboards/services/redis-overview.json
-              subPath: redis-overview.json
-            # Home folder dashboards
-            - name: dashboard-home
-              mountPath: /var/lib/grafana/dashboards/home/home-overview.json
-              subPath: home-overview.json
-            - name: dashboard-firing-alerts
-              mountPath: /var/lib/grafana/dashboards/home/firing-alerts.json
-              subPath: firing-alerts.json
+            # Observability folder dashboards
+            - name: dashboard-loki
+              mountPath: /var/lib/grafana/dashboards/observability/loki-logs.json
+              subPath: loki-logs.json
+            - name: dashboard-loki-stack
+              mountPath: /var/lib/grafana/dashboards/observability/loki-stack.json
+              subPath: loki-stack.json
             - name: vault-root-ca
               mountPath: /etc/ssl/certs/vault-root-ca.pem
               subPath: ca.crt
@@ -192,15 +163,6 @@ spec:
         - name: dashboard-provider
           configMap:
             name: grafana-dashboard-provider
-        - name: dashboard-rke2
-          configMap:
-            name: grafana-dashboard-rke2
-        - name: dashboard-cluster
-          configMap:
-            name: grafana-dashboard-cluster
-        - name: dashboard-pods
-          configMap:
-            name: grafana-dashboard-pods
         - name: dashboard-etcd
           configMap:
             name: grafana-dashboard-etcd
@@ -222,12 +184,6 @@ spec:
         - name: dashboard-traefik
           configMap:
             name: grafana-dashboard-traefik
-        - name: dashboard-security
-          configMap:
-            name: grafana-dashboard-security
-        - name: dashboard-operations
-          configMap:
-            name: grafana-dashboard-operations
         - name: dashboard-cnpg
           configMap:
             name: grafana-dashboard-cnpg
@@ -267,18 +223,12 @@ spec:
         - name: dashboard-firing-alerts
           configMap:
             name: grafana-dashboard-firing-alerts
-        - name: dashboard-storage-autoscaler
-          configMap:
-            name: grafana-dashboard-storage-autoscaler
         - name: dashboard-node-labeler
           configMap:
             name: grafana-dashboard-node-labeler
         - name: dashboard-redis
           configMap:
             name: grafana-dashboard-redis
-        - name: dashboard-pipelines
-          configMap:
-            name: grafana-dashboard-pipelines
         - name: dashboard-security-advanced
           configMap:
             name: grafana-dashboard-security-advanced

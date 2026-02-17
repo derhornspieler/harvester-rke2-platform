@@ -9,41 +9,23 @@ data:
   dashboards.yaml: |
     apiVersion: 1
     providers:
-      - name: rke2
+      - name: home
         orgId: 1
-        folder: "RKE2"
+        folder: "Home"
         type: file
         disableDeletion: false
         editable: true
         options:
-          path: /var/lib/grafana/dashboards/rke2
+          path: /var/lib/grafana/dashboards/home
           foldersFromFilesStructure: false
-      - name: kubernetes
+      - name: platform
         orgId: 1
-        folder: "Kubernetes"
+        folder: "Platform"
         type: file
         disableDeletion: false
         editable: true
         options:
-          path: /var/lib/grafana/dashboards/kubernetes
-          foldersFromFilesStructure: false
-      - name: loki
-        orgId: 1
-        folder: "Loki"
-        type: file
-        disableDeletion: false
-        editable: true
-        options:
-          path: /var/lib/grafana/dashboards/loki
-          foldersFromFilesStructure: false
-      - name: services
-        orgId: 1
-        folder: "Services"
-        type: file
-        disableDeletion: false
-        editable: true
-        options:
-          path: /var/lib/grafana/dashboards/services
+          path: /var/lib/grafana/dashboards/platform
           foldersFromFilesStructure: false
       - name: networking
         orgId: 1
@@ -54,6 +36,15 @@ data:
         options:
           path: /var/lib/grafana/dashboards/networking
           foldersFromFilesStructure: false
+      - name: services
+        orgId: 1
+        folder: "Services"
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/services
+          foldersFromFilesStructure: false
       - name: security
         orgId: 1
         folder: "Security"
@@ -63,30 +54,12 @@ data:
         options:
           path: /var/lib/grafana/dashboards/security
           foldersFromFilesStructure: false
-      - name: operations
+      - name: observability
         orgId: 1
-        folder: "Operations"
+        folder: "Observability"
         type: file
         disableDeletion: false
         editable: true
         options:
-          path: /var/lib/grafana/dashboards/operations
-          foldersFromFilesStructure: false
-      - name: cicd
-        orgId: 1
-        folder: "CI/CD"
-        type: file
-        disableDeletion: false
-        editable: true
-        options:
-          path: /var/lib/grafana/dashboards/cicd
-          foldersFromFilesStructure: false
-      - name: home
-        orgId: 1
-        folder: "Home"
-        type: file
-        disableDeletion: false
-        editable: true
-        options:
-          path: /var/lib/grafana/dashboards/home
+          path: /var/lib/grafana/dashboards/observability
           foldersFromFilesStructure: false

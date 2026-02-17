@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Keycloak Up",
@@ -63,9 +63,9 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 5,
-          "description": "Rate of token endpoint requests split by success (2xx) and client errors (4xx)",
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": [{"matcher": {"id": "byRegexp", "options": ".*error.*"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}]},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "description": "Successful Keycloak login events per second",
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}, "overrides": [{"matcher": {"id": "byRegexp", "options": ".*error.*"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}]},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=\"200\"}[5m]))", "legendFormat": "token success", "refId": "A"},
             {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m]))", "legendFormat": "token client error", "refId": "B"}
@@ -77,9 +77,9 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 6,
-          "description": "Percentage of token endpoint requests resulting in client errors (4xx)",
-          "fieldConfig": {"defaults": {"unit": "percent", "custom": {"drawStyle": "line", "fillOpacity": 10}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10}, {"color": "red", "value": 30}]}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "description": "Failed authentication attempts as percentage of total",
+          "fieldConfig": {"defaults": {"unit": "percent", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10}, {"color": "red", "value": 30}]}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m])) / (sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\"}[5m]))) * 100", "legendFormat": "Error %", "refId": "A"}]
         },
         {
@@ -89,8 +89,8 @@ data:
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 7,
           "description": "Rate of successful registration requests. Requires user registration to be enabled in the Keycloak realm.",
-          "fieldConfig": {"defaults": {"unit": "ops", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/registrations\",status=\"200\"}[5m]))", "legendFormat": "registrations/s", "refId": "A"}]
         },
         {
@@ -100,8 +100,8 @@ data:
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 8,
           "description": "Average HTTP request latency computed from Micrometer http_server_requests_seconds",
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "rate(http_server_requests_seconds_sum{job=\"keycloak\"}[5m]) / rate(http_server_requests_seconds_count{job=\"keycloak\"}[5m])", "legendFormat": "{{method}} {{uri}}", "refId": "A"}]
         },
         {
@@ -110,8 +110,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "jvm_memory_used_bytes{job=\"keycloak\"}", "legendFormat": "{{area}}", "refId": "A"},
             {"expr": "jvm_memory_max_bytes{job=\"keycloak\"}", "legendFormat": "Max {{area}}", "refId": "B"}
@@ -123,8 +123,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "rate(jvm_gc_pause_seconds_sum{job=\"keycloak\"}[5m])", "legendFormat": "{{gc}}", "refId": "A"}]
         },
         {
@@ -133,8 +133,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 11,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\"}[5m])) by (method, status, uri)", "legendFormat": "{{method}} {{status}} {{uri}}", "refId": "A"}]
         },
         {
@@ -143,8 +143,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
           "id": 12,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"keycloak\"}[5m])) by (le, method))", "legendFormat": "p99 {{method}}", "refId": "A"}]
         }
       ],

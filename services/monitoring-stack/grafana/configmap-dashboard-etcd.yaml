@@ -13,7 +13,9 @@ data:
       "editable": true,
       "gnetId": 3070,
       "id": null,
-      "links": [],
+      "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}
+      ],
       "panels": [
         {
           "title": "",
@@ -114,7 +116,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false, "thresholdsStyle": {"mode": "line+area"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "transparent", "value": null}, {"color": "orange", "value": 0.5}]}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket{job=\"etcd\"}[5m]))", "legendFormat": "p99 {{instance}}", "refId": "A"}]
         },
@@ -124,7 +126,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false, "thresholdsStyle": {"mode": "line+area"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "transparent", "value": null}, {"color": "orange", "value": 0.25}]}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket{job=\"etcd\"}[5m]))", "legendFormat": "p99 {{instance}}", "refId": "A"}]
         },
@@ -185,7 +187,7 @@ data:
         }
       ],
       "schemaVersion": 39,
-      "tags": ["etcd", "rke2"],
+      "tags": ["platform", "etcd", "rke2"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},

@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "Harbor Components Up",
@@ -45,23 +45,13 @@ data:
           "targets": [{"expr": "harbor_statistics_total_repo_amount{job=\"harbor\"}", "legendFormat": "Repositories", "refId": "A"}]
         },
         {
-          "title": "Storage Used",
-          "type": "stat",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
-          "id": 4,
-          "fieldConfig": {"defaults": {"unit": "bytes", "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
-          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor\"}", "legendFormat": "Storage", "refId": "A"}]
-        },
-        {
           "title": "Artifact Pull / Push Request Rate",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "ops", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "rate(harbor_artifact_pulled{job=\"harbor\"}[5m])", "legendFormat": "Pulls", "refId": "A"},
             {"expr": "rate(harbor_core_http_request_total{job=\"harbor\", operation=\"push\"}[5m])", "legendFormat": "Push Request Rate", "refId": "B"}
@@ -73,8 +63,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(harbor_core_http_request_total{job=\"harbor\"}[5m])) by (method, code)", "legendFormat": "{{method}} {{code}}", "refId": "A"}]
         },
         {
@@ -83,8 +73,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor\"}", "legendFormat": "{{project_name}}", "refId": "A"}]
         },
         {
@@ -94,8 +84,8 @@ data:
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 8,
           "description": "Harbor task queue metrics: scheduled tasks, queue latency, and queue size.",
-          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "harbor_task_scheduled_total{job=\"harbor\"}", "legendFormat": "Scheduled Tasks", "refId": "A"},
             {"expr": "harbor_task_queue_latency{job=\"harbor\"}", "legendFormat": "Queue Latency", "refId": "B"},
@@ -108,8 +98,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "harbor_task_scheduled_total{job=\"harbor\"}", "legendFormat": "{{status}}", "refId": "A"}]
         },
         {
@@ -119,12 +109,34 @@ data:
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 10,
           "description": "Harbor registry health status and storage operation counts.",
-          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "harbor_health{job=\"harbor\"}", "legendFormat": "Registry Health", "refId": "A"},
             {"expr": "rate(registry_storage_action_seconds_count{job=\"harbor\"}[5m])", "legendFormat": "Storage Ops ({{action}})", "refId": "B"}
           ]
+        },
+        {
+          "title": "Storage by Project",
+          "description": "Disk space consumed per Harbor project",
+          "type": "bargauge",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "bytes", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5368709120}, {"color": "red", "value": 10737418240}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+          "targets": [{"expr": "harbor_project_quota_usage_byte{job=\"harbor-exporter\"}", "legendFormat": "{{project_name}}", "refId": "A"}]
+        },
+        {
+          "title": "Quota Usage %",
+          "description": "Storage quota consumption across all projects",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "percent", "noValue": "N/A", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(harbor_project_quota_usage_byte{job=\"harbor-exporter\"}) / sum(harbor_project_quota_byte{job=\"harbor-exporter\"}) * 100", "legendFormat": "", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,

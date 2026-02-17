@@ -41,11 +41,19 @@ spec:
               containerPort: 8067
             - name: gossip
               containerPort: 8074
+          env:
+            - name: SSL_CERT_FILE
+              value: "/etc/ssl/certs/vault-root-ca.pem"
           envFrom:
             - configMapRef:
                 name: mattermost-config
             - secretRef:
                 name: mattermost-secret
+          volumeMounts:
+            - name: vault-root-ca
+              mountPath: /etc/ssl/certs/vault-root-ca.pem
+              subPath: ca.crt
+              readOnly: true
           resources:
             requests:
               cpu: 500m
@@ -65,3 +73,7 @@ spec:
               port: 8065
             initialDelaySeconds: 30
             periodSeconds: 30
+      volumes:
+        - name: vault-root-ca
+          configMap:
+            name: vault-root-ca

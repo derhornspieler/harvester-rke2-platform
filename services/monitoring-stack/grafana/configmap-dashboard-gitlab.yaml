@@ -12,7 +12,9 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}
+      ],
       "panels": [
         {
           "title": "GitLab Components Up",
@@ -20,7 +22,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 12, "x": 0, "y": 0},
           "id": 1,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "fieldConfig": {"defaults": {"noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
           "targets": [{"expr": "count(up{namespace=\"gitlab\"} == 1)", "legendFormat": "Components Up", "refId": "A"}]
         },
@@ -30,9 +32,9 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 12, "x": 12, "y": 0},
           "id": 2,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+          "fieldConfig": {"defaults": {"noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
           "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "count(up{namespace=\"gitlab\"} == 0)", "legendFormat": "Components Down", "refId": "A"}]
+          "targets": [{"expr": "count(up{job=\"gitlab-exporter\"} == 0) OR on() vector(0)", "legendFormat": "Components Down", "refId": "A"}]
         },
         {
           "title": "Puma Active Connections",
@@ -40,8 +42,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 3,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "puma_running{namespace=\"gitlab\"}", "legendFormat": "Running {{pod}}", "refId": "A"},
             {"expr": "puma_pool_capacity{namespace=\"gitlab\"}", "legendFormat": "Capacity {{pod}}", "refId": "B"},
@@ -54,8 +56,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 4,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum by (method) (rate(http_requests_total{namespace=\"gitlab\"}[5m]))", "legendFormat": "{{method}}", "refId": "A"}
           ]
@@ -66,8 +68,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(sidekiq_jobs_processed_total{namespace=\"gitlab\"}[5m])", "legendFormat": "Processed", "refId": "A"}]
         },
         {
@@ -76,8 +78,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}, "color": {"mode": "fixed", "fixedColor": "red"}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}, "color": {"mode": "fixed", "fixedColor": "red"}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(sidekiq_jobs_failed_total{namespace=\"gitlab\"}[5m])", "legendFormat": "Failed", "refId": "A"}]
         },
         {
@@ -86,8 +88,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "sidekiq_queue_size{namespace=\"gitlab\"}", "legendFormat": "{{name}}", "refId": "A"}]
         },
         {
@@ -96,8 +98,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "rate(gitaly_service_client_requests_total{namespace=\"gitlab\"}[5m])", "legendFormat": "{{grpc_service}}", "refId": "A"}]
         },
         {
@@ -106,8 +108,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "histogram_quantile(0.99, rate(grpc_server_handling_seconds_bucket{namespace=\"gitlab\", grpc_type=\"unary\"}[5m]))", "legendFormat": "p99", "refId": "A"}]
         },
         {
@@ -116,8 +118,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 12,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "rate(gitlab_redis_client_requests_total{namespace=\"gitlab\"}[5m])", "legendFormat": "{{storage}} - {{request_type}}", "refId": "A"}
           ]
@@ -128,8 +130,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
           "id": 13,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "ruby_process_resident_memory_bytes{namespace=\"gitlab\", pod=~\".*webservice.*\"}", "legendFormat": "{{pod}}", "refId": "A"}
           ]
@@ -157,13 +159,57 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 24, "x": 0, "y": 46},
           "id": 11,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [{"expr": "cnpg_pg_database_size_bytes{cnpg_cluster=\"gitlab-postgresql\"}", "legendFormat": "{{datname}}", "refId": "A"}]
+        },
+        {
+          "title": "",
+          "type": "text",
+          "gridPos": {"h": 2, "w": 24, "x": 0, "y": 54},
+          "id": 14,
+          "options": {"mode": "markdown", "content": "### CI/CD Pipeline Activity"}
+        },
+        {
+          "title": "Queue Latency",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 56},
+          "id": 15,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sidekiq_queue_latency_seconds{namespace=\"gitlab\"}", "legendFormat": "{{name}}", "refId": "A"}]
+        },
+        {
+          "title": "Git Push/Fetch Rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 56},
+          "id": 16,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "targets": [{"expr": "sum(rate(gitaly_service_client_requests_total{namespace=\"gitlab\",grpc_method=~\".*ReceivePack.*|.*UploadPack.*\"}[5m])) by (grpc_method)", "legendFormat": "{{grpc_method}}", "refId": "A"}]
+        },
+        {
+          "title": "Pipeline/Deploy Logs",
+          "type": "logs",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 64},
+          "id": 17,
+          "options": {
+            "showLabels": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true,
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false
+          },
+          "targets": [{"expr": "{namespace=\"gitlab\", container=~\"sidekiq|gitaly\"} |~ \"pipeline|deploy|build|ci_\" | logfmt", "legendFormat": "", "refId": "A"}]
         }
       ],
       "schemaVersion": 39,
-      "tags": ["gitlab", "rke2", "ci-cd"],
+      "tags": ["services", "gitlab", "ci-cd", "pipelines"],
       "templating": {"list": []},
       "time": {"from": "now-1h", "to": "now"},
       "timepicker": {},
@@ -171,5 +217,5 @@ data:
       "title": "GitLab Overview",
       "uid": "gitlab-overview",
       "version": 1,
-      "description": "GitLab monitoring dashboard covering Puma/Rails request metrics, Sidekiq job processing, Gitaly gRPC operations, Redis operations, error logs via Loki, and CloudNativePG database size. Metrics from gitlab-exporter job and annotation-based discovery."
+      "description": "GitLab monitoring dashboard covering Puma/Rails request metrics, Sidekiq job processing, Gitaly gRPC operations, Redis operations, error logs via Loki, CloudNativePG database size, and CI/CD pipeline activity. Metrics from gitlab-exporter job and annotation-based discovery."
     }

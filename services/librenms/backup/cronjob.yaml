@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: librenms-mariadb-backup
+  namespace: librenms
+spec:
+  schedule: "15 3 * * *"  # 03:15 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          nodeSelector:
+            workload-type: general
+          restartPolicy: OnFailure
+          containers:
+            - name: mariadb-backup
+              image: quay.io/minio/mc:latest
+              env:
+                - name: MARIADB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: librenms-mariadb-root
+                      key: password
+                - name: MINIO_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: cnpg-minio-credentials
+                      key: ACCESS_KEY_ID
+                - name: MINIO_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: cnpg-minio-credentials
+                      key: ACCESS_SECRET_KEY
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  apk add --no-cache mariadb-client gzip >/dev/null 2>&1
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  DUMP_FILE="/tmp/librenms-${TIMESTAMP}.sql.gz"
+                  echo "Starting MariaDB dump..."
+                  mariadb-dump \
+                    -h librenms-mariadb-primary.librenms.svc.cluster.local \
+                    -u root \
+                    -p"${MARIADB_PASSWORD}" \
+                    --single-transaction \
+                    --routines \
+                    --triggers \
+                    librenms | gzip > "${DUMP_FILE}"
+                  echo "Dump complete: $(du -h ${DUMP_FILE} | cut -f1)"
+                  mc alias set minio http://minio.minio.svc.cluster.local:9000 \
+                    "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
+                  mc cp "${DUMP_FILE}" "minio/mariadb-backups/librenms/librenms-${TIMESTAMP}.sql.gz"
+                  # Remove backups older than 1 day
+                  mc rm --recursive --force --older-than 1d "minio/mariadb-backups/librenms/" || true
+                  echo "Backup uploaded to MinIO successfully"
+                  rm -f "${DUMP_FILE}"

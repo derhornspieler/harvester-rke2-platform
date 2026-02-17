@@ -12,7 +12,9 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}
+      ],
       "panels": [
         {
           "title": "Vault Metrics Info",
@@ -75,24 +77,25 @@ data:
           "targets": [{"expr": "vault_expire_num_leases{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
-          "title": "Lease Count",
+          "title": "Token Count",
           "type": "stat",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
           "id": 6,
-          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10000}, {"color": "red", "value": 50000}]}}},
-          "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
-          "targets": [{"expr": "vault_expire_num_leases{job=\"vault\"}", "legendFormat": "{{instance}}", "refId": "A"}]
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 5000}, {"color": "red", "value": 10000}]}, "noValue": "0"}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "vault_token_count{job=\"vault\"} OR on() vector(0)", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
           "title": "Barrier Ops Rate",
+          "description": "Combined vault_barrier_get + vault_barrier_put rate. Requires unauthenticated_metrics_access = true on standby nodes.",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
           "id": 7,
           "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "rate(vault_barrier_get{job=\"vault\"}[5m]) + rate(vault_barrier_put{job=\"vault\"}[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
+          "targets": [{"expr": "(rate(vault_barrier_get{job=\"vault\"}[5m]) OR on() vector(0)) + (rate(vault_barrier_put{job=\"vault\"}[5m]) OR on() vector(0))", "legendFormat": "{{instance}}", "refId": "A"}]
         },
         {
           "title": "Raft Commit p99",
@@ -102,7 +105,7 @@ data:
           "id": 8,
           "fieldConfig": {"defaults": {"unit": "ms", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
           "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
-          "targets": [{"expr": "vault_raft_commitTime{quantile=\"0.99\",job=\"vault\"}", "legendFormat": "p99 {{instance}}", "refId": "A"}]
+          "targets": [{"expr": "vault_raft_commitTime{quantile=\"0.99\",job=\"vault\"} OR on() vector(0)", "legendFormat": "p99 {{instance}}", "refId": "A"}]
         },
         {
           "title": "Raft Commit Time",

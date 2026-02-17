@@ -13,8 +13,9 @@ data:
       "editable": true,
       "id": null,
       "links": [
+        {"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"},
         {"title": "Keycloak IAM", "url": "/d/keycloak-overview/keycloak-iam-overview", "targetBlank": false, "icon": "external link"},
-        {"title": "Advanced Security", "url": "/d/security-advanced/advanced-security-monitoring", "targetBlank": false, "icon": "external link"}
+        {"title": "Security Operations", "url": "/d/security-advanced/advanced-security-monitoring", "targetBlank": false, "icon": "external link"}
       ],
       "panels": [
         {
@@ -237,11 +238,13 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum by (uri) (rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=\"200\"}[5m]))", "legendFormat": "{{uri}}", "refId": "A"}
           ]
@@ -261,7 +264,9 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             },
             "overrides": [
@@ -273,7 +278,7 @@ data:
               }
             ]
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m]))", "legendFormat": "HTTP {{status}}", "refId": "A"}
           ]
@@ -293,11 +298,13 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum by (service) (rate(traefik_service_requests_total{service=~\".*oauth2-proxy.*\"}[5m]))", "legendFormat": "{{service}}", "refId": "A"}
           ]
@@ -319,7 +326,9 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               },
               "thresholds": {
                 "mode": "absolute",
@@ -331,7 +340,7 @@ data:
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\",status=~\"4..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"keycloak\",uri=~\".*/protocol/openid-connect/token\"}[5m])) * 100", "legendFormat": "Error %", "refId": "A"}
           ]
@@ -361,11 +370,13 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "container_memory_working_set_bytes{pod=~\"oauth2-proxy.*\",container!=\"\"}", "legendFormat": "{{pod}}", "refId": "A"}
           ]
@@ -385,11 +396,13 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "rate(container_cpu_usage_seconds_total{pod=~\"oauth2-proxy.*\",container!=\"\"}[5m])", "legendFormat": "{{pod}}", "refId": "A"}
           ]
@@ -409,12 +422,14 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               },
               "noValue": "N/A"
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "sum by (service, code) (rate(traefik_service_requests_total{service=~\".*oauth2-proxy.*\"}[5m]))", "legendFormat": "{{service}} [{{code}}]", "refId": "A"}
           ]
@@ -434,11 +449,13 @@ data:
                 "fillOpacity": 10,
                 "lineWidth": 1,
                 "pointSize": 5,
-                "showPoints": "auto"
+                "showPoints": "auto",
+                "stacking": {"mode": "none"},
+                "spanNulls": false
               }
             }
           },
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"]}},
           "targets": [
             {"expr": "kube_pod_container_status_restarts_total{pod=~\"oauth2-proxy.*\"}", "legendFormat": "{{pod}}", "refId": "A"}
           ]

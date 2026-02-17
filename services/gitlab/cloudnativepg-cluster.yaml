@@ -138,24 +138,20 @@ spec:
     nodeSelector:
       workload-type: database
 
-  ## ── Backup (optional but recommended) ──────────────────────────────────────
-  ## CNPG uses Barman for backup/recovery. Configure for your object storage.
-  # backup:
-  #   barmanObjectStore:
-  #     destinationPath: s3://cnpg-backups/gitlab-postgresql
-  #     endpointURL: https://s3.example.com
-  #     s3Credentials:
-  #       accessKeyId:
-  #         name: cnpg-backup-creds
-  #         key: ACCESS_KEY_ID
-  #       secretAccessKey:
-  #         name: cnpg-backup-creds
-  #         key: ACCESS_SECRET_KEY
-  #     wal:
-  #       compression: gzip
-  #     data:
-  #       compression: gzip
-  #   retentionPolicy: "30d"
+  ## ── Backup ─────────────────────────────────────────────────────────────────
+  ## Daily backup to in-cluster MinIO via Barman (triggered by ScheduledBackup CR)
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://cnpg-backups/gitlab-postgresql"
+      endpointURL: "http://minio.minio.svc.cluster.local:9000"
+      s3Credentials:
+        accessKeyId:
+          name: cnpg-minio-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: cnpg-minio-credentials
+          key: ACCESS_SECRET_KEY
+    retentionPolicy: "1d"
 
   ## ── Superuser Access ───────────────────────────────────────────────────────
   ## Disable in production unless needed for debugging.

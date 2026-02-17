@@ -111,6 +111,8 @@ phase_2_postgresql() {
     kube_apply -f "${SERVICES_DIR}/gitlab/cloudnativepg-cluster.yaml"
   fi
 
+  kube_apply -f "${SERVICES_DIR}/gitlab/cloudnativepg-scheduled-backup.yaml"
+
   log_step "Waiting for CNPG primary..."
   wait_for_cnpg_primary database gitlab-postgresql 600
 

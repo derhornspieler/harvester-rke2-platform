@@ -64,4 +64,4 @@ spec:
         secretAccessKey:
           name: cnpg-minio-credentials
           key: ACCESS_SECRET_KEY
-    retentionPolicy: "30d"
+    retentionPolicy: "1d"

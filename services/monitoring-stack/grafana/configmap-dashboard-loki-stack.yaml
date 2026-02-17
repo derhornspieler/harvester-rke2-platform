@@ -13,56 +13,67 @@ data:
       "editable": true,
       "gnetId": 14055,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
+        {
+          "title": "Loki Up",
+          "description": "Loki instances responding to health checks",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 12,
+          "fieldConfig": {"defaults": {"noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(up{job=~\"loki.*\"} == 1) OR on() vector(0)", "legendFormat": "", "refId": "A"}]
+        },
         {
           "title": "Loki Logs Ingestion Rate",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
           "id": 1,
-          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(loki_distributor_bytes_received_total[5m]))", "legendFormat": "Bytes/s", "refId": "A"}]
         },
         {
           "title": "Loki Lines Ingested Rate",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
           "id": 2,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(rate(loki_distributor_lines_received_total[5m]))", "legendFormat": "Lines/s", "refId": "A"}]
         },
         {
           "title": "Active Streams",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "id": 3,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(loki_ingester_memory_streams)", "legendFormat": "Active Streams", "refId": "A"}]
         },
         {
           "title": "Chunks in Memory",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
           "id": 4,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(loki_ingester_memory_chunks)", "legendFormat": "Chunks", "refId": "A"}]
         },
         {
           "title": "Chunk Store Operations",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "sum(rate(loki_chunk_store_index_entries_per_chunk_sum[5m]))", "legendFormat": "Index Entries/s", "refId": "A"},
             {"expr": "sum(rate(loki_ingester_chunk_stored_bytes_total[5m]))", "legendFormat": "Stored Bytes/s", "refId": "B"}
@@ -72,20 +83,20 @@ data:
           "title": "Ingester Flush Queue Length",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "sum(loki_ingester_flush_queue_length)", "legendFormat": "Queue Length", "refId": "A"}]
         },
         {
           "title": "Query Latency (p99)",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
           "id": 7,
-          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "transparent", "value": null}, {"color": "orange", "value": 2}, {"color": "red", "value": 10}]}, "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false, "thresholdsStyle": {"mode": "line+area"}}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "histogram_quantile(0.99, sum(rate(loki_request_duration_seconds_bucket{route=~\"loki_api_v1_query.*\"}[5m])) by (le, route))", "legendFormat": "p99 {{route}}", "refId": "A"}
           ]
@@ -94,10 +105,10 @@ data:
           "title": "Request Rate by Status",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
           "id": 8,
-          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "sum(rate(loki_request_duration_seconds_count[5m])) by (status_code)", "legendFormat": "{{status_code}}", "refId": "A"}
           ]
@@ -106,10 +117,10 @@ data:
           "title": "Loki Process Memory",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
           "id": 9,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "process_resident_memory_bytes{job=\"loki\"}", "legendFormat": "RSS", "refId": "A"},
             {"expr": "go_memstats_heap_inuse_bytes{job=\"loki\"}", "legendFormat": "Heap In Use", "refId": "B"}
@@ -119,17 +130,17 @@ data:
           "title": "Loki CPU Usage",
           "type": "timeseries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
           "id": 10,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "rate(process_cpu_seconds_total{job=\"loki\"}[5m])", "legendFormat": "CPU Cores", "refId": "A"}]
         },
         {
           "title": "Recent Loki Logs",
           "type": "logs",
           "datasource": {"type": "loki", "uid": "loki"},
-          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 40},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 44},
           "id": 11,
           "options": {
             "showLabels": true,

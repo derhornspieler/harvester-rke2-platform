@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: keycloak-pg-daily
+  namespace: database
+spec:
+  schedule: "0 15 2 * * *"  # 02:15 UTC daily
+  backupOwnerReference: self
+  cluster:
+    name: keycloak-pg
+  method: barmanObjectStore

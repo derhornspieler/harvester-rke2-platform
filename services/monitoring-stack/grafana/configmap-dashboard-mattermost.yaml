@@ -12,7 +12,7 @@ data:
       "annotations": {"list": []},
       "editable": true,
       "id": null,
-      "links": [],
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
       "panels": [
         {
           "title": "",
@@ -41,8 +41,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 6, "x": 6, "y": 3},
           "id": 2,
-          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "increase(kube_pod_container_status_restarts_total{pod=~\"mattermost.*\"}[1h])", "legendFormat": "{{pod}}", "refId": "A"}]
         },
         {
@@ -51,8 +51,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 6, "x": 12, "y": 3},
           "id": 3,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "rate(container_cpu_usage_seconds_total{pod=~\"mattermost.*\",container!=\"\"}[5m])", "legendFormat": "{{pod}} / {{container}}", "refId": "A"}]
         },
         {
@@ -61,8 +61,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 4, "w": 6, "x": 18, "y": 3},
           "id": 4,
-          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "container_memory_working_set_bytes{pod=~\"mattermost.*\",container!=\"\"}", "legendFormat": "{{pod}} / {{container}}", "refId": "A"}]
         },
         {
@@ -71,8 +71,8 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 7},
           "id": 5,
-          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [
             {"expr": "rate(container_network_receive_bytes_total{pod=~\"mattermost.*\"}[5m])", "legendFormat": "{{pod}} RX", "refId": "A"},
             {"expr": "rate(container_network_transmit_bytes_total{pod=~\"mattermost.*\"}[5m])", "legendFormat": "{{pod}} TX", "refId": "B"}
@@ -84,9 +84,20 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 7},
           "id": 6,
-          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
-          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
           "targets": [{"expr": "increase(kube_pod_container_status_restarts_total{pod=~\"mattermost.*\"}[1h])", "legendFormat": "{{pod}} / {{container}}", "refId": "A"}]
+        },
+        {
+          "title": "Deployment Ready",
+          "description": "Mattermost deployment readiness based on replica count",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 9,
+          "fieldConfig": {"defaults": {"noValue": "0", "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}, "mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}}}, {"type": "range", "options": {"from": 1, "to": 999, "result": {"text": "UP", "color": "green"}}}]}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "kube_deployment_status_replicas_ready{deployment=~\"mattermost.*\"}", "legendFormat": "", "refId": "A"}]
         },
         {
           "title": "Mattermost Error Logs",
