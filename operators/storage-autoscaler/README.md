@@ -1,121 +1,59 @@
-# storage-autoscaler
-// TODO(user): Add simple overview of use/purpose
+# Storage Autoscaler Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+Kubernetes controller that watches PVC usage via kubelet metrics (scraped by Prometheus) and automatically expands PersistentVolumeClaims when usage exceeds a configurable threshold. This prevents storage-related outages by proactively resizing volumes before they fill up.
 
-## Getting Started
+> **Note**: Throughout this document, `<DOMAIN>` refers to the root domain
+> configured in `scripts/.env` (e.g., `example.com`).
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+## How It Works
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+1. A `VolumeAutoscaler` custom resource targets one or more PVCs (by name or label selector)
+2. The controller polls Prometheus for `kubelet_volume_stats_used_bytes` and `kubelet_volume_stats_capacity_bytes`
+3. When usage exceeds the configured threshold (default 80%), the controller patches the PVC to increase its size
+4. Safety checks enforce cooldown periods, maximum size caps, StorageClass expandability, and volume health before expanding
+5. Inode usage can optionally be monitored via `kubelet_volume_stats_inodes_used` / `kubelet_volume_stats_inodes`
 
-```sh
-make docker-build docker-push IMG=<some-registry>/storage-autoscaler:tag
+## Prometheus Metrics Exported
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `volume_autoscaler_scale_events_total` | Counter | `namespace`, `pvc`, `volumeautoscaler` | Total number of PVC expansion events |
+| `volume_autoscaler_pvc_usage_percent` | Gauge | `namespace`, `pvc`, `volumeautoscaler` | Current usage percentage of managed PVCs |
+| `volume_autoscaler_poll_errors_total` | Counter | `namespace`, `volumeautoscaler`, `reason` | Total number of poll errors |
+| `volume_autoscaler_reconcile_duration_seconds` | Histogram | (none) | Duration of reconcile loops in seconds |
+
+Metrics are served on `:8080` and scraped via the `prometheus.io/scrape` pod annotation.
+
+## Deployment
+
+The storage-autoscaler is deployed in **Phase 3** of `deploy-cluster.sh`. Kubernetes manifests live in `services/storage-autoscaler/` and include:
+
+- `deployment.yaml` -- 3-replica Deployment with leader election, pinned to `workload-type: general` nodes
+- RBAC resources (ServiceAccount, ClusterRole, ClusterRoleBinding)
+- `VolumeAutoscaler` CR instances for cluster PVCs
+
+For airgapped clusters, a pre-built image tarball is available at `operators/images/storage-autoscaler-v0.2.0-amd64.tar.gz`.
+
+## Prerequisites
+
+- Go version 1.25.7
+- Docker 17.03+
+- kubectl v1.11.3+
+- Access to a Kubernetes cluster with Prometheus deployed
+
+## Build
+
+```bash
+# Build and push Docker image to GHCR (multi-arch)
+make docker-buildx IMG=ghcr.io/derhornspieler/storage-autoscaler:v0.2.0
+
+# Or build for local/airgapped deployment (amd64 only, saves tarball)
+make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+## Grafana Dashboard
 
-**Install the CRDs into the cluster:**
-
-```sh
-make install
-```
-
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
-
-```sh
-make deploy IMG=<some-registry>/storage-autoscaler:tag
-```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
-```sh
-kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/storage-autoscaler:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/storage-autoscaler/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+The **"Storage & PV Usage"** Grafana dashboard visualizes PVC usage percentages, scale events, poll errors, and reconcile duration using the metrics exported by this operator.
 
 ## License
 
@@ -132,4 +70,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

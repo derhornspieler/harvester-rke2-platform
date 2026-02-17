@@ -58,7 +58,7 @@ Keycloak will serve as the single sign-on (SSO) provider for all cluster service
 ### Phase 1: Deploy Keycloak
 
 1. **PostgreSQL database** (StatefulSet on database pool)
-   - 1 replica, 10Gi PVC on Harvester CSI
+   - CNPG 3-instance cluster, 10Gi per instance, in database namespace
    - Credentials stored in K8s Secret (migrate to Vault KV in Phase 4)
    - `nodeSelector: workload-type: database`
 
@@ -76,9 +76,8 @@ Keycloak will serve as the single sign-on (SSO) provider for all cluster service
    ├── namespace.yaml
    ├── postgres/
    │   ├── secret.yaml              # DB credentials (CHANGEME placeholder)
-   │   ├── configmap.yaml           # PostgreSQL tuning (shared_buffers, etc.)
-   │   ├── statefulset.yaml         # PostgreSQL 16, 10Gi PVC
-   │   └── service.yaml             # ClusterIP :5432
+   │   ├── keycloak-pg-cluster.yaml # CNPG Cluster (3 instances, PG 16, database namespace)
+   │   └── keycloak-pg-scheduled-backup.yaml  # CNPG ScheduledBackup
    ├── keycloak/
    │   ├── secret.yaml              # Admin credentials
    │   ├── rbac.yaml                # SA + Role for KUBE_PING pod listing
@@ -178,8 +177,9 @@ After Vault KV secrets engine is configured (see `docs/vault-credential-storage.
 # Apply all manifests
 kubectl --context rke2-prod apply -k services/keycloak/
 
-# Wait for PostgreSQL
-kubectl --context rke2-prod -n keycloak rollout status statefulset/keycloak-postgres --timeout=180s
+# Wait for CNPG PostgreSQL cluster (in database namespace)
+kubectl --context rke2-prod -n database get cluster keycloak-pg -w
+# Wait for STATUS: "Cluster in healthy state"
 
 # Wait for Keycloak (startup probe gives 150s for first boot)
 kubectl --context rke2-prod -n keycloak rollout status deployment/keycloak --timeout=300s

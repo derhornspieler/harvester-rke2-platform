@@ -43,15 +43,23 @@ make test
 make build
 
 # Build and push Docker image to GHCR (multi-arch)
-make docker-buildx IMG=ghcr.io/derhornspieler/node-labeler:v0.1.0
+make docker-buildx IMG=ghcr.io/derhornspieler/node-labeler:v0.2.0
 
 # Or build for local/airgapped deployment (amd64 only, saves tarball)
-make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.2.0
 
 # Run locally (requires KUBECONFIG)
 make run
 ```
 
+## Requirements
+
+- Go version 1.25.7 (see `go.mod`)
+
 ## Deployment
 
-See `services/node-labeler/` for Kustomize deployment manifests.
+Deployed in **Phase 1** of `deploy-cluster.sh`. See `services/node-labeler/` for Kustomize deployment manifests.
+
+## Grafana Dashboard
+
+The **"Node Labeler"** Grafana dashboard visualizes label application counts and error rates using the metrics exported by this operator.

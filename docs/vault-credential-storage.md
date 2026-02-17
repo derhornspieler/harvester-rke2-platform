@@ -2,6 +2,12 @@
 
 ## Status: Planning
 
+> **Note (Feb 2026)**: The credential landscape has changed significantly since this document
+> was written. Basic-auth has been replaced by oauth2-proxy ForwardAuth (5 instances), and
+> Keycloak OIDC is fully deployed. The migration targets in this document need updating to
+> reflect oauth2-proxy client/cookie secrets rather than basic-auth secrets. See
+> [security-architecture.md](engineering/security-architecture.md) for current state.
+
 Migrate all service credentials from git-committed YAML files (with placeholder values) to HashiCorp Vault KV secrets engine, synced to Kubernetes via External Secrets Operator.
 
 ---

@@ -247,15 +247,20 @@ phase_1_foundation() {
 
   # 1.3 Gateway API CRDs (required by cert-manager gateway-shim, Traefik, and Cilium)
   log_step "Installing Gateway API standard CRDs..."
-  kube_apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    kube_apply -f "${REPO_ROOT}/crds/gateway-api-v1.3.0-standard-install.yaml"
+  else
+    kube_apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+  fi
   log_ok "Gateway API CRDs installed"
 
   # 1.4 cert-manager
   log_step "Installing cert-manager..."
   helm_repo_add jetstack https://charts.jetstack.io
-  helm repo update jetstack
+  [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update jetstack
 
-  helm_install_if_needed cert-manager jetstack/cert-manager cert-manager \
+  local _chart; _chart=$(resolve_helm_chart "jetstack/cert-manager" "HELM_OCI_CERT_MANAGER")
+  helm_install_if_needed cert-manager "$_chart" cert-manager \
     --version v1.19.3 \
     --set crds.enabled=true \
     --set config.apiVersion=controller.config.cert-manager.io/v1alpha1 \
@@ -274,9 +279,10 @@ phase_1_foundation() {
   # 1.5 CNPG Operator
   log_step "Installing CNPG Operator..."
   helm_repo_add cnpg https://cloudnative-pg.github.io/charts
-  helm repo update cnpg
+  [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update cnpg
 
-  helm_install_if_needed cnpg-operator cnpg/cloudnative-pg cnpg-system \
+  local _chart; _chart=$(resolve_helm_chart "cnpg/cloudnative-pg" "HELM_OCI_CNPG")
+  helm_install_if_needed cnpg-operator "$_chart" cnpg-system \
     --version 0.27.1 \
     --set nodeSelector.workload-type=general \
     --timeout 10m
@@ -313,9 +319,10 @@ clusterNamespace: fleet-default" \
   fi
 
   helm_repo_add autoscaler https://kubernetes.github.io/autoscaler
-  helm repo update autoscaler
+  [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update autoscaler
 
-  helm_install_if_needed cluster-autoscaler autoscaler/cluster-autoscaler kube-system \
+  local _chart; _chart=$(resolve_helm_chart "autoscaler/cluster-autoscaler" "HELM_OCI_CLUSTER_AUTOSCALER")
+  helm_install_if_needed cluster-autoscaler "$_chart" kube-system \
     --set cloudProvider=rancher \
     --set replicaCount=3 \
     --set "extraArgs.leader-elect=true" \
@@ -355,9 +362,10 @@ clusterNamespace: fleet-default" \
   # 1.7 OpsTree Redis Operator (manages Valkey for Harbor, LibreNMS)
   log_step "Installing OpsTree Redis Operator..."
   helm_repo_add ot-helm https://ot-container-kit.github.io/helm-charts/
-  helm repo update ot-helm
+  [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update ot-helm
 
-  helm_install_if_needed redis-operator ot-helm/redis-operator redis-operator-system \
+  local _chart; _chart=$(resolve_helm_chart "ot-helm/redis-operator" "HELM_OCI_REDIS_OPERATOR")
+  helm_install_if_needed redis-operator "$_chart" redis-operator-system \
     --set nodeSelector.workload-type=general \
     --timeout 5m
 
@@ -377,9 +385,10 @@ clusterNamespace: fleet-default" \
   if [[ "${DEPLOY_LIBRENMS}" == "true" ]]; then
     log_step "Installing MariaDB Operator (for LibreNMS)..."
     helm_repo_add mariadb-operator https://mariadb-operator.github.io/mariadb-operator
-    helm repo update mariadb-operator
+    [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update mariadb-operator
 
-    helm_install_if_needed mariadb-operator mariadb-operator/mariadb-operator mariadb-operator-system \
+    local _chart; _chart=$(resolve_helm_chart "mariadb-operator/mariadb-operator" "HELM_OCI_MARIADB_OPERATOR")
+    helm_install_if_needed mariadb-operator "$_chart" mariadb-operator-system \
       --set nodeSelector.workload-type=general \
       --timeout 5m
 
@@ -419,9 +428,10 @@ phase_2_vault() {
   # 2.1 Install Vault HA
   log_step "Installing Vault HA (3 replicas)..."
   helm_repo_add hashicorp https://helm.releases.hashicorp.com
-  helm repo update hashicorp
+  [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update hashicorp
 
-  helm_install_if_needed vault hashicorp/vault vault \
+  local _chart; _chart=$(resolve_helm_chart "hashicorp/vault" "HELM_OCI_VAULT")
+  helm_install_if_needed vault "$_chart" vault \
     --version 0.32.0 \
     -f "${SERVICES_DIR}/vault/vault-values.yaml" \
     --timeout 5m
@@ -796,13 +806,14 @@ phase_4_harbor() {
   # 4.5 Harbor Helm chart (substitute CHANGEME tokens in values before install)
   log_step "Installing Harbor..."
   helm_repo_add goharbor https://helm.goharbor.io
-  helm repo update goharbor
+  [[ "${AIRGAPPED:-false}" != "true" ]] && helm repo update goharbor
 
   local harbor_values_tmp
   harbor_values_tmp=$(mktemp)
   _subst_changeme < "${SERVICES_DIR}/harbor/harbor-values.yaml" > "$harbor_values_tmp"
 
-  helm_install_if_needed harbor goharbor/harbor harbor \
+  local _chart; _chart=$(resolve_helm_chart "goharbor/harbor" "HELM_OCI_HARBOR")
+  helm_install_if_needed harbor "$_chart" harbor \
     --version 1.18.2 \
     -f "$harbor_values_tmp" \
     --timeout 10m
@@ -950,7 +961,8 @@ phase_5_argocd() {
 
   local argocd_values_tmp; argocd_values_tmp=$(mktemp)
   _subst_changeme < "${SERVICES_DIR}/argo/argocd/argocd-values.yaml" > "$argocd_values_tmp"
-  helm_install_if_needed argocd oci://ghcr.io/argoproj/argo-helm/argo-cd argocd \
+  local _chart; _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-cd" "HELM_OCI_ARGOCD")
+  helm_install_if_needed argocd "$_chart" argocd \
     -f "$argocd_values_tmp" --timeout 10m
   rm -f "$argocd_values_tmp"
 
@@ -972,9 +984,12 @@ phase_5_argocd() {
   log_step "Installing Argo Rollouts..."
   ensure_namespace argo-rollouts
 
-  helm_install_if_needed argo-rollouts oci://ghcr.io/argoproj/argo-helm/argo-rollouts argo-rollouts \
-    -f "${SERVICES_DIR}/argo/argo-rollouts/argo-rollouts-values.yaml" \
-    --timeout 5m
+  local rollouts_values_tmp; rollouts_values_tmp=$(mktemp)
+  _subst_changeme < "${SERVICES_DIR}/argo/argo-rollouts/argo-rollouts-values.yaml" > "$rollouts_values_tmp"
+  local _chart; _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-rollouts" "HELM_OCI_ARGO_ROLLOUTS")
+  helm_install_if_needed argo-rollouts "$_chart" argo-rollouts \
+    -f "$rollouts_values_tmp" --timeout 5m
+  rm -f "$rollouts_values_tmp"
 
   log_ok "Argo Rollouts deployed"
 
@@ -1160,11 +1175,12 @@ EOF
 
   # Kasm Helm install (chart name is kasmtech/kasm, NOT kasmtech/kasm-helm)
   helm_repo_add kasmtech https://helm.kasmweb.com/ 2>/dev/null || true
-  helm repo update kasmtech 2>/dev/null || true
+  [[ "${AIRGAPPED:-false}" != "true" ]] && { helm repo update kasmtech 2>/dev/null || true; }
 
   local kasm_values_tmp; kasm_values_tmp=$(mktemp)
   _subst_changeme < "${SERVICES_DIR}/kasm/kasm-values.yaml" > "$kasm_values_tmp"
-  helm_install_if_needed kasm kasmtech/kasm kasm \
+  local _chart; _chart=$(resolve_helm_chart "kasmtech/kasm" "HELM_OCI_KASM")
+  helm_install_if_needed kasm "$_chart" kasm \
     -f "$kasm_values_tmp" --version 1.1181.0 \
     --timeout 10m || log_warn "Kasm Helm install had issues (may need manual review)"
   rm -f "$kasm_values_tmp"

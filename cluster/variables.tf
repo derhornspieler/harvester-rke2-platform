@@ -342,3 +342,32 @@ variable "user_data_worker_file" {
   type        = string
   default     = ""
 }
+
+# -----------------------------------------------------------------------------
+# Airgapped Mode
+# -----------------------------------------------------------------------------
+
+variable "airgapped" {
+  description = "Enable airgapped mode (private repos, system-default-registry)"
+  type        = bool
+  default     = false
+}
+
+variable "private_rocky_repo_url" {
+  description = "Base URL for private Rocky 9 repo mirror (required when airgapped = true)"
+  type        = string
+  default     = ""
+}
+
+variable "private_rke2_repo_url" {
+  description = "Base URL for private RKE2 repo mirror (required when airgapped = true)"
+  type        = string
+  default     = ""
+}
+
+variable "private_ca_pem" {
+  description = "PEM-encoded private CA certificate (required when airgapped = true)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

@@ -131,7 +131,7 @@ grafana.monitoring.svc:3000
                     alloy-config (River pipeline)
                     grafana-datasources
                     grafana-dashboard-provider
-                    grafana-dashboard-* (7 dashboards)
+                    grafana-dashboard-* (24 dashboards across 6 folders)
                     grafana-admin-secret (admin password)
         |
         v
@@ -489,7 +489,7 @@ The stack creates **55 Kubernetes resources** across **46 YAML files**:
 - 2 StatefulSets, 2 Deployments, 2 DaemonSets
 - 6 Services
 - 2 Gateways (monitoring + kube-system namespaces, HTTPS with cert-manager annotations)
-- 4 HTTPRoutes (Grafana, Prometheus, AlertManager, Hubble UI, Traefik Dashboard)
+- 5 HTTPRoutes (Grafana, Prometheus, AlertManager, Hubble UI, Traefik Dashboard)
 - 4 oauth2-proxy Deployments + Services (Prometheus, AlertManager, Hubble, Traefik Dashboard)
 - 4 Middlewares (oauth2-proxy ForwardAuth in monitoring + kube-system)
 - 1 ClusterIssuer (`vault-issuer`)
@@ -580,7 +580,7 @@ kubectl -n monitoring port-forward svc/prometheus 9090:9090
 # Grafana accessible
 kubectl -n monitoring port-forward svc/grafana 3000:3000
 # Visit http://localhost:3000 - log in with admin / <your password>
-# Check all 7 dashboards in the RKE2, Kubernetes, and Loki folders
+# Check all 24 dashboards across 6 folders (Home, Platform, Networking, Services, Security, Observability)
 
 # Loki receiving logs
 kubectl -n monitoring port-forward svc/loki 3100:3100

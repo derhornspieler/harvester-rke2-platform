@@ -243,7 +243,7 @@ no envtest.
 
 | Stage | Base Image | Purpose |
 |-------|-----------|---------|
-| `builder` | `golang:1.25` | Downloads modules, compiles static binary with `CGO_ENABLED=0` |
+| `builder` | `golang:1.25.7` | Downloads modules, compiles static binary with `CGO_ENABLED=0` |
 | *(final)* | `gcr.io/distroless/static:nonroot` | Copies binary, runs as UID 65532 |
 
 ---
@@ -686,7 +686,7 @@ Tests use a mock Prometheus `httptest.Server` that responds to `used_bytes`,
 
 | Stage | Base Image | Purpose |
 |-------|-----------|---------|
-| `builder` | `golang:1.25` | Downloads modules, compiles static binary with `CGO_ENABLED=0` |
+| `builder` | `golang:1.25.7` | Downloads modules, compiles static binary with `CGO_ENABLED=0` |
 | *(final)* | `gcr.io/distroless/static:nonroot` | Copies binary, runs as UID 65532 |
 
 ### 2.11 VolumeAutoscaler Examples
@@ -741,7 +741,7 @@ the production workloads managed by this cluster.
 | Feature | Node Labeler | Storage Autoscaler |
 |---------|-------------|-------------------|
 | **Framework** | Kubebuilder / controller-runtime | Kubebuilder / controller-runtime |
-| **Go version** | 1.25 | 1.25 |
+| **Go version** | 1.25.7 | 1.25.7 |
 | **Custom CRD** | No | Yes (`VolumeAutoscaler`) |
 | **Watched resource** | `corev1.Node` | `VolumeAutoscaler` CR |
 | **Reconcile trigger** | Node create/update events | CR create/update + `RequeueAfter` polling |
@@ -759,6 +759,7 @@ the production workloads managed by this cluster.
 | **Makefile complexity** | Simple (no CRD generation) | Full Kubebuilder scaffold |
 | **CI/CD** | GitHub Actions (test, lint, build-push) | GitHub Actions (test, lint, build-push) |
 | **GHCR image** | `ghcr.io/derhornspieler/node-labeler` | `ghcr.io/derhornspieler/storage-autoscaler` |
+| **Replicas** | 3 (leader election) | 3 (leader election) |
 | **Deploy phase** | Phase 1 (Foundation) | Phase 3 (Monitoring) |
 | **Lines of Go** | ~120 (controller) | ~430 (controller) + ~150 (Prometheus client) + ~170 (types) |
 
@@ -774,11 +775,11 @@ sequenceDiagram
     participant H as Harbor
 
     Note over D,K: Phase 1: Foundation
-    D->>K: Deploy Node Labeler (image: harbor.<DOMAIN>/library/node-labeler:v0.1.0)
+    D->>K: Deploy Node Labeler (image: harbor.<DOMAIN>/library/node-labeler:v0.2.0)
     K-->>K: Pod enters ErrImagePull (Harbor does not exist yet)
 
     Note over D,K: Phase 3: Monitoring
-    D->>K: Deploy Storage Autoscaler (image: harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0)
+    D->>K: Deploy Storage Autoscaler (image: harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0)
     K-->>K: Pod enters ErrImagePull (Harbor does not exist yet)
 
     Note over D,H: Phase 4: Harbor
@@ -786,10 +787,10 @@ sequenceDiagram
     H-->>H: Harbor becomes ready
 
     Note over D,H: Post-Phase 4: push_operator_images()
-    D->>D: docker load < node-labeler-v0.1.0-amd64.tar.gz
-    D->>D: docker load < storage-autoscaler-v0.1.0-amd64.tar.gz
-    D->>H: docker push harbor.<DOMAIN>/library/node-labeler:v0.1.0
-    D->>H: docker push harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0
+    D->>D: docker load < node-labeler-v0.2.0-amd64.tar.gz
+    D->>D: docker load < storage-autoscaler-v0.2.0-amd64.tar.gz
+    D->>H: docker push harbor.<DOMAIN>/library/node-labeler:v0.2.0
+    D->>H: docker push harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
     D->>K: kubectl rollout restart deployment (both operators)
     K-->>K: Pods pull from Harbor successfully
 ```
@@ -798,8 +799,8 @@ sequenceDiagram
 
 1. Operator images are pre-built as `linux/amd64` tarballs using
    `make docker-save` and committed to `operators/images/` as:
-   - `node-labeler-v0.1.0-amd64.tar.gz`
-   - `storage-autoscaler-v0.1.0-amd64.tar.gz`
+   - `node-labeler-v0.2.0-amd64.tar.gz`
+   - `storage-autoscaler-v0.2.0-amd64.tar.gz`
 
 2. During cluster deployment, the operators are installed with image references
    pointing to the Harbor registry (`harbor.<DOMAIN>/library/...`).
@@ -816,10 +817,10 @@ sequenceDiagram
 
 ```bash
 cd operators/node-labeler
-make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.2.0
 
 cd operators/storage-autoscaler
-make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
 ```
 
 ### 3.3 CI/CD Pipeline
@@ -836,17 +837,23 @@ flowchart LR
 
     subgraph "Jobs"
         TEST["test<br/>Go setup + make test"]
+        VULN["govulncheck<br/>(continue-on-error)"]
         LINT["lint<br/>golangci-lint<br/>(continue-on-error)"]
         BUILD["build-and-push<br/>(needs: test, push only)"]
+        SCAN["security-scan<br/>Trivy vulnerability scanner<br/>(needs: build-and-push)"]
     end
 
     PR --> TEST
+    PR --> VULN
     PR --> LINT
     PUSH --> TEST
+    PUSH --> VULN
     PUSH --> LINT
     TAG --> TEST
+    TAG --> VULN
     TAG --> LINT
     TEST --> BUILD
+    BUILD --> SCAN
 
     subgraph "Build Steps"
         LOGIN["Log in to GHCR"]
@@ -872,6 +879,8 @@ flowchart LR
 | Build platforms | linux/amd64, linux/arm64 | linux/amd64, linux/arm64 |
 | GHA cache | Enabled (`type=gha, mode=max`) | Enabled (`type=gha, mode=max`) |
 | Lint blocking | No (`continue-on-error: true`) | No (`continue-on-error: true`) |
+| Govulncheck | Non-blocking (`continue-on-error: true`) | Non-blocking (`continue-on-error: true`) |
+| Security scan | Trivy (after build-and-push, push only) | Trivy (after build-and-push, push only) |
 
 **Tag-based versioning**: When you push a tag like `storage-autoscaler-v0.2.0`,
 the metadata action extracts `0.2.0` from the tag pattern
@@ -1001,7 +1010,7 @@ Copy from an existing operator and adjust if needed:
 cp ../node-labeler/Dockerfile .
 ```
 
-Both existing operators use identical Dockerfiles (golang:1.25 builder +
+Both existing operators use identical Dockerfiles (golang:1.25.7 builder +
 distroless runtime).
 
 #### 5. Add the Makefile docker-save target
@@ -1023,10 +1032,10 @@ docker-save:
 #### 6. Build the initial tarball
 
 ```bash
-make docker-save IMG=harbor.<DOMAIN>/library/my-operator:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/my-operator:v0.2.0
 ```
 
-Commit the tarball at `operators/images/my-operator-v0.1.0-amd64.tar.gz`.
+Commit the tarball at `operators/images/my-operator-v0.2.0-amd64.tar.gz`.
 
 #### 7. Create the GitHub Actions workflow
 

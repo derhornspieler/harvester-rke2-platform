@@ -6,7 +6,7 @@ Authenticate to the RKE2 cluster using your Keycloak identity via kubelogin.
 
 - `kubectl` installed
 - Access to the Keycloak realm (credentials from your admin)
-- The cluster Root CA certificate (from `credentials.txt` or your admin)
+- The cluster Root CA certificate (found at `cluster/root-ca.pem`, or from your admin)
 
 ## 1. Install kubelogin
 
@@ -31,7 +31,7 @@ chmod +x /usr/local/bin/kubectl-oidc_login
 
 ## 2. Import Root CA into OS trust store
 
-The cluster uses a private CA. Import `root-ca.pem` (found in `cluster/credentials.txt`) into your trust store:
+The cluster uses a private CA. Import `root-ca.pem` (found at `cluster/root-ca.pem`) into your trust store:
 
 **macOS:**
 ```bash
@@ -76,19 +76,23 @@ users:
         interactiveMode: IfAvailable
 
 contexts:
-  - name: rke2-oidc
+  - name: ${CLUSTER_NAME}-oidc
     context:
-      cluster: rke2-prod
+      cluster: ${CLUSTER_NAME}
       user: oidc-user
       namespace: default
 ```
 
-Replace `DOMAIN` and `REALM` with your actual values.
+Replace `DOMAIN`, `REALM`, and `${CLUSTER_NAME}` with your actual values (e.g., `rke2-prod-oidc` for a cluster named `rke2-prod`). The helper script `setup-kubectl-oidc.sh` derives the context name as `${CLUSTER_NAME}-oidc` automatically.
+
+> **Note**: For the manual kubeconfig, include `certificate-authority-data` under the cluster
+> definition with the base64-encoded Root CA from `cluster/root-ca.pem`. The helper script
+> embeds this automatically.
 
 ## 4. Test
 
 ```bash
-kubectl --context rke2-oidc get pods -n default
+kubectl --context ${CLUSTER_NAME}-oidc get pods -n default
 ```
 
 Your browser will open for Keycloak authentication. After login, the token is cached locally and refreshed automatically.
@@ -104,6 +108,8 @@ Your access level is determined by your Keycloak group membership:
 | `senior-developers` | `edit` in assigned namespaces |
 | `developers` | `edit` in assigned namespaces |
 | `viewers` | `view` (read-only, cluster-wide) |
+
+Three additional Keycloak groups (`harvester-admins`, `rancher-admins`, `network-engineers`) exist for non-Kubernetes access management and do not have ClusterRoleBindings.
 
 ## Troubleshooting
 

@@ -41,7 +41,7 @@ This Terraform module creates and manages an RKE2 Kubernetes cluster running on 
 cluster/
   versions.tf              # Terraform + provider version constraints, K8s backend
   providers.tf             # Rancher2 and Harvester provider configuration
-  variables.tf             # All input variables (44 variables)
+  variables.tf             # All input variables (54 variables)
   cloud_credential.tf      # rancher2_cloud_credential for Harvester
   image.tf                 # harvester_image (upload) or data source (golden)
   machine_config.tf        # 4x rancher2_machine_config_v2 + cloud-init locals
@@ -277,6 +277,31 @@ graph TD
 |----------|------|---------|-----------|-------------|
 | `user_data_cp_file` | `string` | `""` | No | Path to a custom cloud-init YAML file for control plane nodes. When non-empty, completely replaces the built-in template. |
 | `user_data_worker_file` | `string` | `""` | No | Path to a custom cloud-init YAML file for worker nodes. When non-empty, completely replaces the built-in template. |
+
+### Cluster Autoscaler Behavior
+
+| Variable | Type | Default | Sensitive | Description |
+|----------|------|---------|-----------|-------------|
+| `autoscaler_scale_down_unneeded_time` | `string` | `"30m0s"` | No | How long a node must be unneeded before the autoscaler removes it. |
+| `autoscaler_scale_down_delay_after_add` | `string` | `"15m0s"` | No | Cooldown after adding a node before any scale-down is considered. |
+| `autoscaler_scale_down_delay_after_delete` | `string` | `"30m0s"` | No | Cooldown after deleting a node before the next scale-down. |
+| `autoscaler_scale_down_utilization_threshold` | `string` | `"0.5"` | No | CPU/memory request utilization below which a node is considered unneeded (0.0--1.0). |
+
+### Docker Hub Auth
+
+| Variable | Type | Default | Sensitive | Description |
+|----------|------|---------|-----------|-------------|
+| `dockerhub_username` | `string` | `""` | No | Docker Hub username for authenticated pulls (rate-limit workaround). |
+| `dockerhub_token` | `string` | `""` | **Yes** | Docker Hub personal access token. |
+
+### Airgapped Mode
+
+| Variable | Type | Default | Sensitive | Description |
+|----------|------|---------|-----------|-------------|
+| `airgapped` | `bool` | `false` | No | Enable airgapped mode. When `true`, cloud-init uses private RPM repo mirrors, and `system-default-registry` is set to `harbor.<DOMAIN>` in the machine global config. |
+| `private_rocky_repo_url` | `string` | `""` | No | Base URL for private Rocky 9 repo mirror (used for EPEL when `airgapped = true`). |
+| `private_rke2_repo_url` | `string` | `""` | No | Base URL for private RKE2 repo mirror (used for rke2-common and rke2-1-34 repos when `airgapped = true`). |
+| `private_ca_pem` | `string` | `""` | **Yes** | PEM-encoded private CA certificate. When set and `airgapped = true`, injected into `/etc/pki/ca-trust/source/anchors/` via cloud-init and trusted via `update-ca-trust`. |
 
 ---
 
@@ -520,9 +545,52 @@ Four `null_resource` resources, one per machine config pool. Detailed in [Sectio
 
 ---
 
-### 4.6 Cluster (`cluster.tf`)
+### 4.6 Docker Hub Auth Secret (`cluster.tf`)
+
+A `rancher2_secret_v2` resource is created alongside the cluster to provide Docker Hub
+authentication, working around anonymous pull rate limits:
+
+```hcl
+resource "rancher2_secret_v2" "dockerhub_auth" {
+  cluster_id = "local"
+  name       = "${var.cluster_name}-dockerhub-auth"
+  namespace  = "fleet-default"
+  type       = "kubernetes.io/basic-auth"
+  data = {
+    username = var.dockerhub_username
+    password = var.dockerhub_token
+  }
+}
+```
+
+This secret is referenced in the cluster's `registries` block (see below) so all RKE2
+nodes authenticate to Docker Hub via `registries.yaml`.
+
+---
+
+### 4.7 Cluster (`cluster.tf`)
 
 The central resource -- `rancher2_cluster_v2.rke2` -- defines the entire RKE2 cluster.
+
+#### Cluster-Level Autoscaler Annotations
+
+The cluster resource carries annotations that configure autoscaler scale-down behavior:
+
+```hcl
+annotations = {
+  "cluster.provisioning.cattle.io/autoscaler-scale-down-unneeded-time"         = var.autoscaler_scale_down_unneeded_time
+  "cluster.provisioning.cattle.io/autoscaler-scale-down-delay-after-add"       = var.autoscaler_scale_down_delay_after_add
+  "cluster.provisioning.cattle.io/autoscaler-scale-down-delay-after-delete"    = var.autoscaler_scale_down_delay_after_delete
+  "cluster.provisioning.cattle.io/autoscaler-scale-down-utilization-threshold" = var.autoscaler_scale_down_utilization_threshold
+}
+```
+
+| Annotation | Default | Purpose |
+|------------|---------|---------|
+| `autoscaler-scale-down-unneeded-time` | `30m0s` | Node must be idle this long before removal |
+| `autoscaler-scale-down-delay-after-add` | `15m0s` | Cooldown after adding a node |
+| `autoscaler-scale-down-delay-after-delete` | `30m0s` | Cooldown after deleting a node |
+| `autoscaler-scale-down-utilization-threshold` | `0.5` | Utilization below this marks a node as unneeded |
 
 #### Machine Pools
 
@@ -650,37 +718,82 @@ rke2-traefik:
   tracing:
     otlp:
       enabled: true                 # OpenTelemetry tracing
+  ports:
+    web:
+      redirections:
+        entryPoint:
+          to: websecure             # HTTP -> HTTPS redirect
+          scheme: https
+  volumes:                          # Vault root CA trust injection
+    - name: vault-root-ca
+      mountPath: /vault-ca
+      type: configMap
+    - name: combined-ca
+      mountPath: /combined-ca
+      type: emptyDir
+  deployment:
+    initContainers:
+      - name: combine-ca           # Merges system CAs + Vault root CA
+        image: alpine:3.21
+        command: ["sh", "-c", "cp /etc/ssl/certs/ca-certificates.crt /combined-ca/... && cat /vault-ca/ca.crt >> ..."]
+        volumeMounts:
+          - name: vault-root-ca    # From ConfigMap
+            mountPath: /vault-ca
+          - name: combined-ca      # Output bundle
+            mountPath: /combined-ca
+  env:
+    - name: SSL_CERT_FILE
+      value: /combined-ca/ca-certificates.crt   # Traefik trusts Vault-signed backends
+  additionalArguments:
+    - "--api.insecure=true"                     # Internal API for dashboard
+    - "--entryPoints.web.transport.respondingTimeouts.readTimeout=1800s"
+    - "--entryPoints.web.transport.respondingTimeouts.writeTimeout=1800s"
+    - "--entryPoints.websecure.transport.respondingTimeouts.readTimeout=1800s"
+    - "--entryPoints.websecure.transport.respondingTimeouts.writeTimeout=1800s"
 ```
+
+The Vault CA trust injection ensures Traefik can forward traffic to backends that use
+Vault-signed certificates (e.g., Mattermost) without TLS errors. The `combine-ca` init
+container merges the system CA bundle with the Vault root CA at startup.
 
 #### Machine Global Config
 
 ```hcl
-machine_global_config = yamlencode({
-  cni                   = var.cni
-  "disable-kube-proxy"  = true
-  "disable"             = ["rke2-ingress-nginx"]
-  "etcd-expose-metrics" = true
+machine_global_config = yamlencode(merge(
+  {
+    cni                   = var.cni
+    "disable-kube-proxy"  = true
+    "disable"             = ["rke2-ingress-nginx"]
+    "ingress-controller"  = "traefik"
+    "etcd-expose-metrics" = true
 
-  "kube-apiserver-arg" = [
-    "oidc-issuer-url=https://keycloak.${var.domain}/realms/${var.keycloak_realm}",
-    "oidc-client-id=kubernetes",
-    "oidc-username-claim=preferred_username",
-    "oidc-groups-claim=groups"
-  ]
-  "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
-  "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
-})
+    "kube-apiserver-arg" = [
+      "oidc-issuer-url=https://keycloak.${var.domain}/realms/${var.keycloak_realm}",
+      "oidc-client-id=kubernetes",
+      "oidc-username-claim=preferred_username",
+      "oidc-groups-claim=groups"
+    ]
+    "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
+    "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
+  },
+  var.airgapped ? { "system-default-registry" = "harbor.${var.domain}" } : {}
+))
 ```
+
+The `merge()` conditionally adds `system-default-registry` in airgapped mode, directing
+all RKE2 system images to pull from the local Harbor registry instead of Docker Hub.
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
 | `cni` | `"cilium"` | Use Cilium as CNI |
 | `disable-kube-proxy` | `true` | Cilium replaces kube-proxy |
 | `disable` | `["rke2-ingress-nginx"]` | Disable the default nginx ingress (Traefik is used instead) |
+| `ingress-controller` | `"traefik"` | Explicitly sets Traefik as the ingress controller |
 | `etcd-expose-metrics` | `true` | Expose etcd metrics for Prometheus |
 | `kube-apiserver-arg` | OIDC flags | Configures Keycloak as OIDC provider for `kubectl` login (issuer URL, client ID, username/groups claims) |
 | `kube-scheduler-arg` | `bind-address=0.0.0.0` | Bind scheduler metrics to all interfaces for scraping |
 | `kube-controller-manager-arg` | `bind-address=0.0.0.0` | Bind controller-manager metrics to all interfaces |
+| `system-default-registry` | `"harbor.<DOMAIN>"` | (airgapped only) Redirects all RKE2 system image pulls to local Harbor |
 
 #### Upgrade Strategy
 
@@ -692,6 +805,21 @@ upgrade_strategy {
 ```
 
 Upgrades one node at a time for both control plane and workers. Combined with `max_unavailable = "0"` and `max_surge = "1"` per pool, this ensures zero-downtime upgrades.
+
+#### Private Registry Auth
+
+```hcl
+registries {
+  configs {
+    hostname                = "docker.io"
+    auth_config_secret_name = rancher2_secret_v2.dockerhub_auth.name
+  }
+}
+```
+
+Configures all RKE2 nodes to authenticate to Docker Hub via the `dockerhub_auth` secret
+(see [Section 4.6](#46-docker-hub-auth-secret-clustertf)). This avoids anonymous pull
+rate limits when pulling upstream images that are not yet mirrored to Harbor.
 
 #### Etcd Snapshots
 
@@ -743,7 +871,7 @@ Cluster provisioning can take 20-40 minutes (image download + VM boot + RKE2 boo
 
 ---
 
-### 4.7 Outputs (`outputs.tf`)
+### 4.8 Outputs (`outputs.tf`)
 
 | Output | Value | Description |
 |--------|-------|-------------|
@@ -804,6 +932,13 @@ write_files:
   - path: /etc/yum.repos.d/epel.repo
 ```
 Pre-configures yum repos so `rke2-selinux` can be installed in the `runcmd` phase.
+
+**Airgapped mode**: When `var.airgapped = true` and `var.private_rke2_repo_url` /
+`var.private_rocky_repo_url` are set, the cloud-init templates switch the yum repo URLs
+from the public mirrors to private mirrors (with `gpgcheck=0`). Additionally, if
+`var.private_ca_pem` is set, a private CA certificate is written to
+`/etc/pki/ca-trust/source/anchors/private-ca.pem` and trusted via `update-ca-trust` in
+the `runcmd` phase. This applies to both control plane and worker cloud-init templates.
 
 ```yaml
   # Firewall rules -- default DROP policy with allowlist

@@ -57,7 +57,7 @@ graph TB
     subgraph "External Dependencies (database pool)"
         CNPG["CNPG harbor-pg<br/>3 instances<br/>PostgreSQL 16"]
         RedisSentinel["Redis Sentinel<br/>3 replicas<br/>cache + session"]
-        MinIO["MinIO<br/>750Gi PVC<br/>S3 object store"]
+        MinIO["MinIO<br/>200Gi PVC<br/>S3 object store"]
     end
 
     Client -->|HTTPS| Traefik
@@ -94,7 +94,7 @@ graph TB
         ↓                                     ↓
   ┌──────────────────┐  ┌──────────────────────────────┐
   │ 3a. Deploy MinIO │  │ 3b. Deploy CNPG (harbor-pg)  │
-  │    750Gi PVC     │  │     3-instance cluster       │
+  │    200Gi PVC     │  │     3-instance cluster       │
   │    Deployment    │  │     Database: registry       │
   │    S3 service    │  │                              │
   │    mc bucket job │  └──────────────────────────────┘
@@ -105,8 +105,8 @@ graph TB
         └──────────────────┬───────┘
                            ↓
   ┌──────────────────────────────────────────────────────────────┐
-  │ 3c. Deploy Redis with Sentinel (Bitnami chart)              │
-  │     3 replicas, masterSet: mymaster                         │
+  │ 3c. Deploy Redis with Sentinel (OpsTree Redis Operator)      │
+  │     RedisReplication (3) + RedisSentinel (3), mymaster      │
   └──────────────────┬───────────────────────────────────────────┘
                      ↓
   ┌──────────────────────────────────────────────────────────────┐
@@ -119,7 +119,7 @@ graph TB
   │    - externalURL: https://harbor.<DOMAIN>              │
   │    - database.type: external, connectionString to CNPG      │
   │    - redis.external: true, sentinel endpoints               │
-  │    - storage.s3: MinIO endpoint, bucket registry            │
+  │    - storage.s3: MinIO endpoint, bucket harbor              │
   │    - chart.storage: S3 backend (OCI Helm artifacts)         │
   │    - All stateless components: 2+ replicas, HPA             │
   └──────────────────┬───────────────────────────────────────────┘
@@ -143,7 +143,7 @@ graph LR
     Client["Client<br/>docker pull<br/>quay.io/myapp:v1"]
     Harbor["Harbor Proxy Project<br/>quay"]
     Cache["Redis Cache Layer<br/>(in-memory, TTL)"]
-    MinIO["MinIO S3<br/>blob.registry bucket<br/>(persistent)"]
+    MinIO["MinIO S3<br/>blob.harbor bucket<br/>(persistent)"]
     Upstream["Upstream Registry<br/>quay.io"]
 
     Client -->|1. Pull request| Harbor
@@ -176,9 +176,9 @@ graph LR
 | **jobservice** | Deployment | 2 | general | Async jobs: replication, scanning, gc |
 | **trivy** | StatefulSet | 2 | general | Vulnerability scanner (requires StatefulSet for cache) |
 | **exporter** | Deployment | 1 | general | Prometheus metrics exporter |
-| **harbor-pg** | CNPG Cluster | 3 | database | PostgreSQL 16 (Raft HA) |
-| **mymaster Redis** | Bitnami Helm | 3 | harbor ns | Redis Sentinel for cache + sessions |
-| **MinIO** | Deployment | 1 | minio ns | S3-compatible object store (750Gi PVC) |
+| **harbor-pg** | CNPG Cluster | 3 | database | PostgreSQL 16 (Raft HA, 20Gi/instance) |
+| **harbor-redis** | OpsTree RedisReplication + RedisSentinel | 3+3 | harbor ns | Redis Sentinel for cache + sessions |
+| **MinIO** | Deployment | 1 | minio ns | S3-compatible object store (200Gi PVC) |
 
 ### Replication & Auto-scaling
 
@@ -202,17 +202,9 @@ graph LR
 
 4. **CNPG operator** deployed in database pool (for PostgreSQL cluster)
 
-5. **Bitnami Helm repository** added (for Redis)
-   ```bash
-   helm repo add bitnami https://charts.bitnami.com/bitnami
-   helm repo update
-   ```
+5. **OpsTree Redis Operator** deployed in `redis-operator-system` namespace (for RedisReplication + RedisSentinel CRDs)
 
-6. **goharbor Helm repository** (traditional, not OCI pull from Docker Hub which requires auth)
-   ```bash
-   helm repo add goharbor https://helm.goharbor.io
-   helm repo update
-   ```
+6. **goharbor Helm chart** — either via traditional repo (`helm repo add goharbor https://helm.goharbor.io`) or OCI pull (`oci://registry-1.docker.io/goharbor/harbor-helm`)
 
 7. **Worker pool capacity**: Minimum 3 nodes in general pool (2 for Harbor, 1 for backup/autoscaling)
 
@@ -252,18 +244,18 @@ MinIO provides S3 backend storage for Harbor blobs and chart artifacts.
 
 **Key configuration**:
 - **Image**: Official `quay.io/minio/minio:latest` (not Bitnami, which requires license as of Aug 2025)
-- **Storage**: 750Gi PVC named `minio-data`
+- **Storage**: 200Gi PVC named `minio-data`
 - **Access Keys**: Stored in `minio-secret` (root user, hardcoded for simplicity; rotate in production)
-- **Bucket**: `registry` (created by `job-create-buckets.yaml`)
+- **Bucket**: `harbor` (created by `job-create-buckets.yaml`)
 - **S3 endpoint**: `minio.minio:9000` (in-cluster) or `https://minio.<DOMAIN>:9001` (external)
 
 **Files in `minio/`**:
 - `namespace.yaml` — `minio` namespace
 - `secret.yaml` — MinIO root credentials
-- `pvc.yaml` — 750Gi PersistentVolumeClaim
+- `pvc.yaml` — 200Gi PersistentVolumeClaim
 - `deployment.yaml` — Single MinIO pod (standalone, not HA Distributed)
 - `service.yaml` — ClusterIP services (S3 api port 9000, console port 9001)
-- `job-create-buckets.yaml` — Post-install job to create `registry` bucket
+- `job-create-buckets.yaml` — Post-install job to create `harbor`, `cnpg-backups`, and `mariadb-backups` buckets
 
 **Deploy MinIO**:
 ```bash
@@ -308,39 +300,41 @@ kubectl -n database wait --for=condition=ready pod -l cnpg.io/cluster=harbor-pg,
 kubectl -n database exec -it harbor-pg-1 -- psql -U postgres -c "CREATE DATABASE registry OWNER postgres;"
 ```
 
-### Step 5: Deploy Redis with Sentinel
+### Step 5: Deploy Redis with Sentinel (OpsTree Redis Operator + Valkey)
 
-Redis provides caching and distributed session management for Harbor. Sentinel provides automatic failover.
+Redis provides caching and distributed session management for Harbor. Sentinel provides automatic failover. The deployment uses the OpsTree Redis Operator with Valkey-compatible Redis images.
 
-**Files in `redis/`**:
-- `secret.yaml` — Redis passwords (namespace: `harbor`)
-- `redis-values.yaml` — Bitnami Helm chart values (3 replicas, Sentinel enabled, auth.sentinel: false)
+**Files in `valkey/`**:
+- `secret.yaml` — `harbor-valkey-credentials` secret (namespace: `harbor`)
+- `replication.yaml` — `RedisReplication` CRD (3 replicas, image: `quay.io/opstree/redis:v7.0.15`)
+- `sentinel.yaml` — `RedisSentinel` CRD (3 replicas, masterGroupName: `mymaster`)
+
+**Prerequisites**: The OpsTree Redis Operator must be deployed in `redis-operator-system` namespace (installed in Phase 1).
 
 **Deploy Redis**:
 ```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-
-kubectl apply -f services/harbor/redis/secret.yaml
-
-helm install mymaster bitnami/redis \
-  -n harbor \
-  --values services/harbor/redis/redis-values.yaml \
-  --wait --timeout 5m
+kubectl apply -f services/harbor/valkey/secret.yaml
+kubectl apply -f services/harbor/valkey/replication.yaml
+kubectl apply -f services/harbor/valkey/sentinel.yaml
 ```
 
 **Verify Redis**:
 ```bash
-kubectl -n harbor get pods -l app.kubernetes.io/name=redis
-kubectl -n harbor get statefulset mymaster-redis
-kubectl -n harbor logs -f statefulset/mymaster-redis-sentinel-0 | grep -i "sentinel"
+kubectl -n harbor get pods -l app=harbor-redis
+kubectl -n harbor get pods -l app=harbor-redis-sentinel
+kubectl -n harbor get redisreplication harbor-redis
+kubectl -n harbor get redissentinel harbor-redis
 ```
 
 **Test Redis connectivity**:
 ```bash
-kubectl -n harbor exec -it mymaster-redis-0 -- redis-cli info replication
-kubectl -n harbor exec -it mymaster-redis-sentinel-0 -- redis-cli -p 26379 info sentinel
+kubectl -n harbor exec -it harbor-redis-0 -- redis-cli info replication
+kubectl -n harbor exec -it harbor-redis-sentinel-0 -- redis-cli -p 26379 info sentinel
 ```
+
+**Sentinel endpoint**: `harbor-redis-sentinel.harbor.svc.cluster.local:26379`
+
+**Note**: Sentinel `requirepass` is intentionally disabled (no `kubernetesConfig.redisSecret` on the Sentinel CRD). Harbor chart v1.18 does not pass `sentinelPassword` to go-redis, so enabling sentinel auth would cause connection failures. Only `masterauth` is set via `redisSentinelConfig.redisReplicationPassword`.
 
 ### Step 6: Deploy Harbor via Helm
 
@@ -352,14 +346,20 @@ Harbor core components are deployed using the official goharbor/harbor-helm Helm
 
 **Deploy Harbor**:
 ```bash
-helm repo add goharbor https://helm.goharbor.io
-helm repo update
-
 kubectl apply -f services/harbor/secret.yaml
 
+helm install harbor oci://registry-1.docker.io/goharbor/harbor-helm \
+  -n harbor -f services/harbor/harbor-values.yaml --version 1.18.2 \
+  --wait --timeout 10m
+```
+
+Alternatively, using the traditional Helm repo (deploy-cluster.sh uses `helm_repo_add goharbor` with `resolve_helm_chart` for OCI override support):
+```bash
+helm repo add goharbor https://helm.goharbor.io
+helm repo update
 helm install harbor goharbor/harbor \
-  -n harbor \
-  --values services/harbor/harbor-values.yaml \
+  -n harbor --version 1.18.2 \
+  -f services/harbor/harbor-values.yaml \
   --wait --timeout 10m
 ```
 
@@ -445,14 +445,13 @@ Harbor cache and session store backed by Redis Sentinel:
 redis:
   type: external
   external:
-    addr: mymaster-redis-sentinel.harbor.svc:26379
-    sentinelMasterSet: mymaster
+    sentinelMasterSet: "mymaster"
+    addr: "harbor-redis-sentinel.harbor.svc.cluster.local:26379"
     password: <from secret>
-    cacheIndex: "1"
-    databaseIndex: "2"
+    coreDatabaseIndex: "0"
 ```
 
-**Critical**: `auth.sentinel: false` in Redis chart values — Bitnami Redis Sentinel auth is disabled because Harbor chart v1.18 does not pass sentinelPassword to go-redis client (would cause auth failure).
+**Critical**: Sentinel `requirepass` is intentionally disabled on the `RedisSentinel` CRD. Harbor chart v1.18 does not pass `sentinelPassword` to go-redis client, so enabling sentinel auth would cause connection failures. Only `masterauth` is configured via `redisSentinelConfig.redisReplicationPassword`.
 
 ### S3 Object Storage (MinIO)
 
@@ -465,7 +464,7 @@ storage:
     endpoint: http://minio.minio:9000
     accesskey: minioadmin
     secretkey: <from secret>
-    bucket: registry
+    bucket: harbor
     disableredirect: true
     v4auth: true
     secure: false
@@ -510,7 +509,7 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -u admin:${HARBOR_PASS} \
   -d '{
-    "project_name": "dockerhub",
+    "project_name": "docker.io",
     "public": true,
     "registry_id": 1,
     "storage_limit": -1
@@ -555,12 +554,12 @@ Create these proxy projects for common use cases:
 
 | Project | Upstream | Purpose |
 |---------|----------|---------|
-| `dockerhub` | `registry-1.docker.io` | Docker Hub public images |
-| `quay` | `quay.io` | Quay.io public images |
-| `ghcr` | `ghcr.io` | GitHub Container Registry |
-| `gcr` | `gcr.io` | Google Container Registry |
-| `k8s` | `registry.k8s.io` | Kubernetes images |
-| `elastic` | `docker.elastic.co` | Elastic Stack images |
+| `docker.io` | `registry-1.docker.io` | Docker Hub public images |
+| `quay.io` | `quay.io` | Quay.io public images |
+| `ghcr.io` | `ghcr.io` | GitHub Container Registry |
+| `gcr.io` | `gcr.io` | Google Container Registry |
+| `registry.k8s.io` | `registry.k8s.io` | Kubernetes images |
+| `docker.elastic.co` | `docker.elastic.co` | Elastic Stack images |
 
 ---
 
@@ -737,20 +736,16 @@ kill %1
 
 **Symptom**: Harbor core logs show "connection refused" or "WRONGPASS" errors for Redis.
 
-**Cause**: Redis Sentinel auth is enabled, but Harbor chart v1.18 doesn't pass sentinelPassword to go-redis client.
+**Cause**: Redis Sentinel `requirepass` is enabled, but Harbor chart v1.18 doesn't pass sentinelPassword to go-redis client.
 
 **Solution**:
-1. Verify Redis Sentinel auth is **disabled** in `redis-values.yaml`:
-   ```yaml
-   auth:
-     sentinel: false
-   ```
-2. Redeploy Redis if needed:
+1. Verify the `RedisSentinel` CRD does **not** set `kubernetesConfig.redisSecret` (which enables sentinel `requirepass`). Only `redisSentinelConfig.redisReplicationPassword` should be set (for `masterauth` only):
    ```bash
-   helm upgrade mymaster bitnami/redis \
-     -n harbor \
-     --values services/harbor/redis/redis-values.yaml \
-     --reuse-values
+   kubectl -n harbor get redissentinel harbor-redis -o yaml | grep -A5 kubernetesConfig
+   ```
+2. If sentinel auth was accidentally enabled, remove `kubernetesConfig.redisSecret` from `valkey/sentinel.yaml` and reapply:
+   ```bash
+   kubectl apply -f services/harbor/valkey/sentinel.yaml
    ```
 3. Restart Harbor core pods:
    ```bash
@@ -854,7 +849,7 @@ middlewares: []
    # Inside pod:
    curl http://minio.minio:9000/minio/health/live
    nc -zv harbor-pg-rw.database.svc 5432
-   redis-cli -h mymaster-redis-sentinel.harbor.svc -p 26379 ping
+   redis-cli -h harbor-redis-sentinel.harbor.svc -p 26379 ping
    ```
 2. Check credentials in secrets:
    ```bash
@@ -882,24 +877,24 @@ services/harbor/
 ├── hpa-core.yaml                            # HPA for harbor-core (2-5 replicas, CPU 70%)
 ├── hpa-registry.yaml                        # HPA for harbor-registry (2-5 replicas, CPU 70%)
 ├── hpa-trivy.yaml                           # HPA for harbor-trivy (1-4 replicas, CPU 70%, kind: StatefulSet)
+├── coredns-helmchartconfig.yaml             # CoreDNS HelmChartConfig (DNS customization)
 ├── minio/
 │   ├── namespace.yaml                       # minio namespace
 │   ├── secret.yaml                          # MinIO root credentials
-│   ├── pvc.yaml                             # 750Gi PersistentVolumeClaim
+│   ├── pvc.yaml                             # 200Gi PersistentVolumeClaim
 │   ├── deployment.yaml                      # MinIO standalone Deployment
 │   ├── service.yaml                         # ClusterIP services (S3 port 9000, console 9001)
-│   ├── job-create-buckets.yaml              # Post-install job to create registry bucket
-│   ├── kustomization.yaml                   # Kustomize manifest for minio/
+│   ├── job-create-buckets.yaml              # Post-install job to create harbor, cnpg-backups, mariadb-backups buckets
 │   └── minio-values.yaml                    # (unused) Bitnami Helm chart values
 ├── postgres/
 │   ├── secret.yaml                          # CNPG harbor-pg-password secret
 │   ├── harbor-pg-cluster.yaml               # CNPG Cluster resource (3 instances, Raft HA)
 │   ├── harbor-pg-scheduled-backup.yaml      # Optional S3 backups to MinIO
 │   └── kustomization.yaml                   # Kustomize manifest for postgres/
-└── redis/
-    ├── secret.yaml                          # Redis password (namespace: harbor)
-    ├── redis-values.yaml                    # Bitnami Helm chart values (3 replicas, Sentinel, auth.sentinel: false)
-    └── kustomization.yaml                   # Kustomize manifest for redis/
+└── valkey/
+    ├── secret.yaml                          # harbor-valkey-credentials (namespace: harbor)
+    ├── replication.yaml                     # RedisReplication CRD (3 replicas, quay.io/opstree/redis:v7.0.15)
+    └── sentinel.yaml                        # RedisSentinel CRD (3 replicas, masterGroupName: mymaster)
 ```
 
 ---
@@ -912,7 +907,7 @@ services/harbor/
 | **cert-manager** | 1.x+ | TLS certificate issuance | Pre-existing |
 | **Vault** | 1.x+ | PKI backend for cert-manager | Pre-existing |
 | **CNPG** | 1.x+ (operator) | PostgreSQL HA cluster | Deploy before Harbor |
-| **Bitnami Helm repo** | Latest | Redis Helm chart | Deploy before Harbor |
+| **OpsTree Redis Operator** | Latest | RedisReplication + RedisSentinel CRDs | Deploy before Harbor |
 | **goharbor Helm repo** | Latest | Harbor Helm chart | Final deployment |
 | **Rancher cluster autoscaler** | N/A | Auto-scales worker pools | Pre-existing (Rancher cluster) |
 
@@ -920,8 +915,8 @@ services/harbor/
 
 ## Related Documentation
 
-- **Cluster architecture**: `docs/` (Mermaid diagrams)
-- **Traefik configuration**: `cluster/` (Terraform)
+- **Cluster architecture**: `../../docs/` (Mermaid diagrams)
+- **Traefik configuration**: `../../cluster/` (Terraform)
 - **CNPG PostgreSQL**: Kubernetes documentation on CNPG (external resource)
 - **MinIO S3 API**: https://min.io/docs/minio/linux/developers/minio-drivers.html
 - **Harbor documentation**: https://goharbor.io/docs/

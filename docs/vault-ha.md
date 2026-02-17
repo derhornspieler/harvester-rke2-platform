@@ -105,7 +105,7 @@ kubectl get pvc -n vault
 ```bash
 # Install with HA values
 helm install vault hashicorp/vault -n vault --create-namespace \
-  -f services/monitoring-stack/vault/vault-values.yaml
+  -f services/vault/vault-values.yaml
 
 # Wait for pods (they'll be 0/1 Ready — uninitialized)
 kubectl get pods -n vault -w
@@ -165,7 +165,7 @@ kubectl exec -n vault vault-0 -- sh -c \
 
 ### Step 7: Reconfigure PKI (if fresh install)
 
-Follow Phase 3 in the [monitoring-stack README](../services/monitoring-stack/README.md#phase-3-configure-vault-pki) to set up:
+Follow Step 6 in the [Vault Service README](../services/vault/README.md) to set up:
 - Root CA (generated locally via openssl — key never enters Vault)
 - Intermediate CA (`pki_int/` — key generated inside Vault, CSR signed locally)
 - PKI role (`<DOMAIN_DOT>`)
@@ -174,9 +174,7 @@ Follow Phase 3 in the [monitoring-stack README](../services/monitoring-stack/REA
 ### Step 8: Apply Ingress Manifests
 
 ```bash
-kubectl apply \
-  -f services/monitoring-stack/vault/certificate.yaml \
-  -f services/monitoring-stack/vault/ingressroute.yaml
+kubectl apply -k services/vault/
 ```
 
 ### Step 9: Verify
@@ -261,7 +259,7 @@ kubectl delete pvc -n vault -l app.kubernetes.io/name=vault
 
 # Reinstall standalone (edit vault-values.yaml: set ha.enabled=false, standalone.enabled=true)
 helm install vault hashicorp/vault -n vault --create-namespace \
-  -f services/monitoring-stack/vault/vault-values.yaml
+  -f services/vault/vault-values.yaml
 
 # Restore snapshot, reinitialize, reconfigure PKI
 ```

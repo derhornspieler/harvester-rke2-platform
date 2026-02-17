@@ -248,12 +248,12 @@ kubectl get certificates -A -w
 
 ```
 services/cert-manager/
+├── README.md                    # This file
 ├── rbac.yaml                    # ServiceAccount + Role + RoleBinding for vault-issuer
-├── cluster-issuer.yaml          # ClusterIssuer vault-issuer → Vault PKI
-└── certificate-prometheus.yaml  # Prometheus TLS certificate
+└── cluster-issuer.yaml          # ClusterIssuer vault-issuer → Vault PKI
 ```
 
-> **Note**: Most Certificate resources live in their respective service directories, not here. Only the Prometheus certificate is co-located because it's part of the monitoring-stack Kustomize overlay.
+> **Note**: All Certificate resources live in their respective service directories, not here. Most services use Gateway API with automatic certificate creation via gateway-shim.
 
 ## Dependencies
 

@@ -6,6 +6,7 @@ resources:
   # PostgreSQL (CNPG in database namespace)
   - postgres/secret.yaml
   - postgres/keycloak-pg-cluster.yaml
+  - postgres/keycloak-pg-scheduled-backup.yaml
   # Keycloak
   - keycloak/secret.yaml
   - keycloak/rbac.yaml

@@ -16,9 +16,9 @@ This directory contains the Vault HA deployment on the RKE2 cluster, providing:
 
 Vault runs as a 3-replica HA cluster with integrated Raft storage on the database worker pool. Unsealing is manual via Shamir secret sharing (5 shares, threshold 3). TLS certificates are automatically issued by cert-manager via the Vault PKI backend.
 
-**Vault Version**: 1.18.2 (from hashicorp/vault Helm chart 0.32.0)
+**Vault Version**: 1.19.0 (from hashicorp/vault Helm chart 0.32.0)
 **Sealed by default**: Yes — operator must unseal after pod restarts
-**TLS**: Termination at Traefik, mTLS between Raft peers
+**TLS**: TLS terminated at Traefik; Raft internal communication uses tls_disable=1
 
 ---
 
@@ -282,7 +282,7 @@ Sealed                 false    # ← Must be false
 Total Shares           5
 Threshold              3
 Unseal Progress        0/3
-Version                1.18.2
+Version                1.19.0
 Build Date             2025-01-28T00:00:00Z
 Storage Type           raft
 HA Enabled             true
@@ -387,7 +387,7 @@ path "pki_int/cert/ca" {
 POLICY
 
 # Create K8s auth role
-vault write auth/kubernetes/role/cert-manager \
+vault write auth/kubernetes/role/cert-manager-issuer \
   bound_service_account_names=cert-manager \
   bound_service_account_namespaces=cert-manager \
   policies=cert-manager \
@@ -517,60 +517,59 @@ Key settings for HA Raft deployment:
 ```yaml
 # Server configuration
 server:
-  replicas: 3
-
-  affinity: |
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-            - key: app.kubernetes.io/name
-              operator: In
-              values:
-              - vault
-          topologyKey: kubernetes.io/hostname
+  image:
+    repository: hashicorp/vault
+    tag: "1.19.0"
 
   nodeSelector:
     workload-type: database
 
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vault
+                component: server
+            topologyKey: kubernetes.io/hostname
+
   dataStorage:
+    enabled: true
     size: 10Gi
-    storageClass: "harvester-longhorn"
+    storageClass: harvester
 
   ha:
     enabled: true
     replicas: 3
     raft:
       enabled: true
-      setNodeId: true
       config: |
         ui = true
+
         listener "tcp" {
           address = "[::]:8200"
-          tls_cert_file = "/vault/secrets/tls.crt"
-          tls_key_file  = "/vault/secrets/tls.key"
-          tls_client_ca_file = "/vault/secrets/ca.crt"
+          cluster_address = "[::]:8201"
+          tls_disable = 1
+          telemetry {
+            unauthenticated_metrics_access = true
+          }
         }
+
         storage "raft" {
           path = "/vault/data"
-          node_id = "vault-POD_HOSTNAME"
-          performance_multiplier = 1
-          trailing_logs = 10000
-          snapshot_threshold = 8192
-          retry_join {
-            leader_api_addr = "https://vault-0.vault-internal:8200"
-          }
-          retry_join {
-            leader_api_addr = "https://vault-1.vault-internal:8200"
-          }
-          retry_join {
-            leader_api_addr = "https://vault-2.vault-internal:8200"
-          }
         }
+
         service_registration "kubernetes" {}
+
+        telemetry {
+          prometheus_retention_time = "30s"
+          disable_hostname = true
+        }
 ```
+
+> **Note**: `tls_disable = 1` means TLS is terminated at Traefik (Gateway API), not at Vault itself. Raft peer communication within the cluster uses HTTP on port 8201. The `telemetry` block enables Prometheus metrics scraping without authentication.
 
 ### Services
 
@@ -928,7 +927,7 @@ This allows ArgoCD Kustomize detection to work correctly (only K8s manifests).
 ## Dependencies
 
 ### Upstream
-- **hashicorp/vault Helm chart v0.32.0** → Vault server 1.18.2
+- **hashicorp/vault Helm chart v0.32.0** → Vault server 1.19.0
   - Chart reference: `https://helm.releases.hashicorp.com`
   - `helm install vault hashicorp/vault --values vault-values.yaml`
 
@@ -939,7 +938,7 @@ This allows ArgoCD Kustomize detection to work correctly (only K8s manifests).
 - **Traefik Ingress Controller** (bundled in RKE2 v1.34+)
   - Routes `vault.<DOMAIN>` to vault Service :8200
 - **Harvester cloud-provider** for PVC provisioning
-  - Storage class: `harvester-longhorn`
+  - Storage class: `harvester`
 
 ### Downstream Consumers
 - **cert-manager** — Uses Vault PKI to issue all cluster TLS certificates
@@ -971,6 +970,6 @@ This allows ArgoCD Kustomize detection to work correctly (only K8s manifests).
 ---
 
 **Last Updated:** 2025-02-11
-**Vault Version:** 1.18.2 (hashicorp/vault Helm chart 0.32.0)
+**Vault Version:** 1.19.0 (hashicorp/vault Helm chart 0.32.0)
 **Cluster Version:** RKE2 v1.34+
 **Maintainer:** RKE2 Infrastructure Team

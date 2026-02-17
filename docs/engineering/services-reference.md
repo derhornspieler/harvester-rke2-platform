@@ -34,7 +34,7 @@ graph TD
         Harvester["Harvester CSI<br/>(StorageClass: harvester)"]
         CNPGOp["CNPG Operator<br/>(cnpg-system)"]
         MariaDBOp["MariaDB Operator<br/>(mariadb-operator-system)"]
-        RedisOp["OpsTree Redis Operator<br/>(ot-operators)"]
+        RedisOp["OpsTree Redis Operator<br/>(redis-operator-system)"]
     end
 
     subgraph PKI["PKI and Certificate Layer"]
@@ -43,8 +43,8 @@ graph TD
     end
 
     subgraph Monitoring["Observability Layer"]
-        Prometheus["Prometheus<br/>(29 scrape jobs)"]
-        Grafana["Grafana<br/>(28 dashboards)"]
+        Prometheus["Prometheus<br/>(31 scrape jobs)"]
+        Grafana["Grafana<br/>(24 dashboards)"]
         Loki["Loki<br/>(TSDB, 50Gi)"]
         Alloy["Alloy DaemonSet<br/>(log collection)"]
         Alertmanager["Alertmanager<br/>(route to receivers)"]
@@ -93,6 +93,7 @@ graph TD
     CNPGOp --> Mattermost
     CNPGOp --> Kasm
     MariaDBOp --> LibreNMS
+    RedisOp --> Harbor
     RedisOp --> LibreNMS
 
     Prometheus --> Grafana
@@ -127,7 +128,7 @@ graph TD
 | Phase | Services | Rationale |
 |-------|----------|-----------|
 | 0 | RKE2, Cilium, Traefik, Harvester CSI | Infrastructure base (Terraform) |
-| 1 | cert-manager, Node Labeler, Storage Autoscaler | Cluster foundation (no TLS yet) |
+| 1 | cert-manager, CNPG Operator, Cluster Autoscaler, Redis Operator, Node Labeler, MariaDB Operator* | Cluster foundation (no TLS yet) |
 | 2 | Vault (HA Raft) + PKI | PKI backend for cert-manager ClusterIssuer |
 | 3 | Monitoring Stack | Observability for all subsequent deployments |
 | 4 | Harbor, MinIO, CNPG, Redis Operator, Proxy Cache, Registry Mirrors | Container registry + database operators |
@@ -188,8 +189,8 @@ graph TD
 | **LibreNMS** | MariaDB Galera | 3 | 250m | 1 | 512Mi | 1Gi | database |
 | **LibreNMS** | Valkey Replication | 3 | 100m | 500m | 128Mi | 256Mi | database |
 | **LibreNMS** | Valkey Sentinel | 3 | 50m | 200m | 64Mi | 128Mi | database |
-| **Node Labeler** | Controller | 1 | 10m | 100m | 32Mi | 64Mi | general |
-| **Storage Autoscaler** | Controller | 1 | 50m | 200m | 64Mi | 128Mi | general |
+| **Node Labeler** | Controller | 3 | 10m | 100m | 32Mi | 64Mi | general |
+| **Storage Autoscaler** | Controller | 3 | 50m | 200m | 64Mi | 128Mi | general |
 
 ### Storage Budget
 
@@ -477,7 +478,7 @@ cert-manager runs with 1 replica by default. Leader election is built in, so mul
 | mattermost.DOMAIN | mattermost | Auto (gateway-shim) |
 | kasm.DOMAIN | kasm | Explicit Certificate (IngressRoute exception) |
 | librenms.DOMAIN | librenms | Auto (gateway-shim) |
-| uptime.DOMAIN | uptime-kuma | Auto (gateway-shim) |
+| status.DOMAIN | uptime-kuma | Auto (gateway-shim) |
 
 ### 4.12 Common Issues
 
@@ -520,7 +521,7 @@ graph TD
     Prometheus -->|"alerting"| AM
     Prometheus -->|"scrape"| NE
     Prometheus -->|"scrape"| KSM
-    Prometheus -->|"scrape 28 jobs"| ExternalTargets["All cluster services"]
+    Prometheus -->|"scrape 31 jobs"| ExternalTargets["All cluster services"]
     Alloy -->|"push logs"| Loki
 ```
 
@@ -543,12 +544,12 @@ graph TD
 | Service (ClusterIP) | kube-state-metrics | monitoring | :8080, :8081 |
 | Service (Headless) | node-exporter | monitoring | :9100 per node |
 | Service (Headless) | alloy | monitoring | :12345 per node |
-| ConfigMap | prometheus-config | monitoring | 29 scrape jobs + alert rules |
+| ConfigMap | prometheus-config | monitoring | 31 scrape jobs + alert rules |
 | ConfigMap | alertmanager-config | monitoring | Route/receiver config |
 | ConfigMap | loki-config | monitoring | TSDB + retention config |
 | ConfigMap | alloy-config | monitoring | River pipeline config |
 | ConfigMap | grafana-datasources | monitoring | Prometheus + Loki sources |
-| ConfigMap | grafana-dashboard-* (28) | monitoring | Pre-provisioned dashboards |
+| ConfigMap | grafana-dashboard-* (24) | monitoring | Pre-provisioned dashboards |
 | Secret | grafana-admin-secret | monitoring | Admin password |
 | Secret | etcd-certs | monitoring | etcd TLS certs (optional, mounted but unused -- etcd scraped via plain HTTP :2381) |
 | Secret | oauth2-proxy-prometheus | monitoring | oauth2-proxy OIDC client + cookie secret |
@@ -579,7 +580,7 @@ graph TD
 | Retention (size) | 40GB |
 | Storage path | /prometheus |
 | Web lifecycle | Enabled |
-| Total scrape jobs | 28 |
+| Total scrape jobs | 31 |
 
 **Loki**:
 
@@ -666,7 +667,7 @@ No external database. Prometheus uses its own TSDB. Loki uses embedded TSDB with
 
 Self-monitoring scrape jobs: `prometheus` (job #1), `alloy` (job #19), `loki` (job #20), `alertmanager` (job #27), `oauth2-proxy` (job #28).
 
-28 Grafana dashboards provisioned as ConfigMaps across RKE2, Kubernetes, Loki, and service-specific folders.
+24 Grafana dashboards provisioned as ConfigMaps across RKE2, Kubernetes, Loki, and service-specific folders.
 
 ### 5.9 High Availability
 
@@ -813,6 +814,7 @@ graph TD
 | SSL mode | require |
 | RW service | harbor-pg-rw.database.svc.cluster.local:5432 |
 | RO service | harbor-pg-ro.database.svc.cluster.local:5432 |
+| Scheduled Backup | CNPG ScheduledBackup CR (`harbor-pg-scheduled-backup`) |
 
 ### 6.6 Networking
 
@@ -864,14 +866,18 @@ Harbor admin password is set in `harbor-values.yaml`. Core, portal, registry, jo
 
 ### 6.11 Proxy Cache Projects
 
+Project names match the upstream registry domain they proxy (used by Rancher registry mirrors with rewrite rules):
+
 | Project | Upstream Registry | Purpose |
 |---------|-------------------|---------|
-| dockerhub | registry-1.docker.io | Docker Hub public images |
-| quay | quay.io | Quay.io images |
-| ghcr | ghcr.io | GitHub Container Registry |
-| gcr | gcr.io | Google Container Registry |
-| k8s | registry.k8s.io | Kubernetes images |
-| elastic | docker.elastic.co | Elastic Stack images |
+| docker.io | registry-1.docker.io | Docker Hub public images |
+| quay.io | quay.io | Quay.io images |
+| ghcr.io | ghcr.io | GitHub Container Registry |
+| gcr.io | gcr.io | Google Container Registry |
+| registry.k8s.io | registry.k8s.io | Kubernetes images |
+| docker.elastic.co | docker.elastic.co | Elastic Stack images |
+
+Additional non-proxy projects: `library` (public, operator images), `charts` (public, Helm charts), `dev` (private, development images).
 
 ### 6.12 Common Issues
 
@@ -1129,6 +1135,7 @@ Keycloak itself is stateless. All state is in the CNPG PostgreSQL cluster.
 | RW service | keycloak-pg-rw.database.svc.cluster.local:5432 |
 | Storage | 10Gi per instance |
 | Pool | database |
+| Scheduled Backup | CNPG ScheduledBackup CR (`keycloak-pg-scheduled-backup`) |
 
 ### 8.6 Networking
 
@@ -1159,6 +1166,8 @@ Keycloak itself is stateless. All state is in the CNPG PostgreSQL cluster.
 | Vault | `vault` | Confidential | Native OIDC auth method | platform-admins, infra-engineers |
 | Harbor | `harbor` | Confidential | Native OIDC provider | All (admin: platform-admins) |
 | Mattermost | `mattermost` | Confidential | Native OIDC | All |
+| Kasm | `kasm` | Confidential | Native OIDC (manual Admin UI config) | All |
+| GitLab | `gitlab` | Confidential | Native OIDC (secret created by setup-gitlab.sh) | All |
 | Prometheus | `prometheus-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers |
 | AlertManager | `alertmanager-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers |
 | Hubble UI | `hubble-oidc` | Confidential | oauth2-proxy ForwardAuth | platform-admins, infra-engineers, network-engineers |
@@ -1289,6 +1298,7 @@ graph TD
 | effective_cache_size | 2GB |
 | work_mem | 8MB |
 | Backup | S3 (MinIO) with 30d retention |
+| Scheduled Backup | CNPG ScheduledBackup CR (`mattermost-pg-scheduled-backup`) |
 
 ### 9.6 Networking
 
@@ -1436,6 +1446,7 @@ Kasm is the **only service** that uses Traefik IngressRoute instead of Gateway A
 | max_connections | 200 |
 | shared_buffers | 256MB |
 | Backup | S3 (MinIO) with 30d retention |
+| Scheduled Backup | CNPG ScheduledBackup CR (`kasm-pg-scheduled-backup`) |
 
 ### 10.7 Networking
 
@@ -1484,7 +1495,7 @@ Currently single replica ("small" deployment). Scale by adjusting `deploymentSiz
 
 ```mermaid
 graph TD
-    Traefik6["Traefik LB<br/>uptime.DOMAIN:443"] --> UK["Uptime Kuma<br/>:3001<br/>SQLite embedded"]
+    Traefik6["Traefik LB<br/>status.DOMAIN:443"] --> UK["Uptime Kuma<br/>:3001<br/>SQLite embedded"]
     UK --> Targets["Monitored Endpoints<br/>(HTTP, TCP, DNS, etc.)"]
 ```
 
@@ -1724,7 +1735,7 @@ LibreNMS runs as the container default user. MariaDB Galera uses the operator-pr
 
 ```mermaid
 graph TD
-    NL["Node Labeler Controller<br/>1 replica<br/>leader-elect"]
+    NL["Node Labeler Controller<br/>3 replicas<br/>leader-elect"]
     K8sAPI["Kubernetes API<br/>(watch nodes)"]
     Nodes["Cluster Nodes<br/>(apply labels)"]
 
@@ -1747,8 +1758,8 @@ graph TD
 
 | Parameter | Value |
 |-----------|-------|
-| Image | harbor.DOMAIN/library/node-labeler:v0.1.0 |
-| Replicas | 1 |
+| Image | harbor.DOMAIN/library/node-labeler:v0.2.0 |
+| Replicas | 3 |
 | Args | `--leader-elect`, `--metrics-bind-address=:8080`, `--health-probe-bind-address=:8081` |
 | nodeSelector | workload-type: general |
 | Tolerations | node.kubernetes.io/not-ready (60s) |
@@ -1795,7 +1806,7 @@ ClusterRole: node-labeler
 
 ### 13.9 High Availability
 
-Single replica with leader election (`--leader-elect`). Safe to run multiple replicas; only the leader processes node events.
+3 replicas with leader election (`--leader-elect`). Only the leader processes node events; other replicas are hot standbys.
 
 ### 13.10 Dependencies
 
@@ -1820,7 +1831,7 @@ Single replica with leader election (`--leader-elect`). Safe to run multiple rep
 
 ```mermaid
 graph TD
-    SA["Storage Autoscaler<br/>Controller<br/>1 replica<br/>leader-elect"]
+    SA["Storage Autoscaler<br/>Controller<br/>3 replicas<br/>leader-elect"]
     Prom["Prometheus<br/>(volume metrics)"]
     VaCRD["VolumeAutoscaler CRDs<br/>(per-PVC config)"]
     PVCs["PersistentVolumeClaims<br/>(patch to expand)"]
@@ -1921,8 +1932,8 @@ spec:
 
 | Parameter | Value |
 |-----------|-------|
-| Image | harbor.DOMAIN/library/storage-autoscaler:v0.1.0 |
-| Replicas | 1 |
+| Image | harbor.DOMAIN/library/storage-autoscaler:v0.2.0 |
+| Replicas | 3 |
 | Args | `--leader-elect`, `--metrics-bind-address=:8080`, `--health-probe-bind-address=:8081` |
 | nodeSelector | workload-type: general |
 | Tolerations | node.kubernetes.io/not-ready (60s) |
@@ -1973,7 +1984,7 @@ ClusterRole: storage-autoscaler
 
 ### 14.11 High Availability
 
-Single replica with leader election (`--leader-elect`). Safe to run multiple replicas; only the leader performs PVC expansions.
+3 replicas with leader election (`--leader-elect`). Only the leader performs PVC expansions; other replicas are hot standbys.
 
 ### 14.12 Dependencies
 
@@ -2011,7 +2022,7 @@ Single replica with leader election (`--leader-elect`). Safe to run multiple rep
 | Mattermost | https://mattermost.DOMAIN | Keycloak OIDC (native) |
 | Kasm | https://kasm.DOMAIN | Keycloak OIDC (manual UI config) |
 | Rancher | https://rancher.DOMAIN | Keycloak OIDC (manual UI config) |
-| Uptime Kuma | https://uptime.DOMAIN | Uptime Kuma login |
+| Uptime Kuma | https://status.DOMAIN | Uptime Kuma login |
 | LibreNMS | https://librenms.DOMAIN | LibreNMS login |
 | Hubble UI | https://hubble.DOMAIN | oauth2-proxy ForwardAuth |
 | Traefik Dashboard | https://traefik.DOMAIN | oauth2-proxy ForwardAuth |
@@ -2025,7 +2036,7 @@ Single replica with leader election (`--leader-elect`). Safe to run multiple rep
 | monitoring | Prometheus, Grafana, Loki, Alloy, Node Exporter, kube-state-metrics, Alertmanager |
 | harbor | Harbor (core, portal, registry, jobservice, trivy, exporter), Valkey Sentinel |
 | minio | MinIO (Harbor S3 storage) |
-| database | All CNPG PostgreSQL clusters (harbor-pg, keycloak-pg, mattermost-pg, kasm-pg) |
+| database | All CNPG PostgreSQL clusters (harbor-pg, keycloak-pg, mattermost-pg, kasm-pg, gitlab-pg) |
 | argocd | ArgoCD (server, controller, repo-server, appset, redis-ha) |
 | argo-rollouts | Argo Rollouts (controller, dashboard) |
 | keycloak | Keycloak (server, headless service) |
@@ -2033,12 +2044,13 @@ Single replica with leader election (`--leader-elect`). Safe to run multiple rep
 | kasm | Kasm Workspaces (proxy, manager, share) |
 | uptime-kuma | Uptime Kuma |
 | librenms | LibreNMS, MariaDB Galera, Valkey |
+| gitlab | GitLab (webservice, sidekiq, gitaly, shell, registry), Valkey Sentinel |
 | node-labeler | Node Labeler controller |
 | storage-autoscaler | Storage Autoscaler controller |
 | kube-system | Traefik, Cilium, CoreDNS, Hubble |
 | cnpg-system | CNPG Operator |
 | mariadb-operator-system | MariaDB Operator |
-| ot-operators | OpsTree Redis Operator |
+| redis-operator-system | OpsTree Redis Operator |
 
 ### PKI Certificate Chain
 

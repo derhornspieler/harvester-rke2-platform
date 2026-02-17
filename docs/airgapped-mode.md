@@ -1,237 +1,243 @@
 # Airgapped Deployment Mode
 
-Design document for deploying the RKE2 cluster stack without internet access.
+Guide for deploying the RKE2 cluster stack without internet access.
 
 ## Overview
 
-When `AIRGAPPED=true` is set in `scripts/.env`, the deployment scripts route all container image pulls through an internal upstream proxy registry instead of public registries. Harbor proxy cache projects point to this upstream proxy, and Rancher cluster registries are configured to pull through Harbor with private CA trust.
+When `AIRGAPPED=true` is set in `scripts/.env`, the deployment scripts:
+
+1. **Helm charts**: Route all `helm install` calls through per-chart OCI URL overrides (`HELM_OCI_*` vars)
+2. **Container images**: Route all image pulls through Harbor proxy cache backed by `UPSTREAM_PROXY_REGISTRY`
+3. **Terraform cloud-init**: Use private RPM repo mirrors for Rocky 9 and RKE2 packages
+4. **CRDs**: Apply Gateway API CRDs from bundled file instead of fetching from GitHub
+5. **ArgoCD**: Use `GIT_BASE_URL` for internal git server URLs
+6. **Argo Rollouts**: Use `ARGO_ROLLOUTS_PLUGIN_URL` for internal plugin binary
+7. **RKE2 system images**: Set `system-default-registry` to Harbor
 
 ## `.env` Configuration
 
+### Core Airgapped Variables
+
 ```bash
-# Airgapped mode — when true, Harbor proxy-cache uses UPSTREAM_PROXY_REGISTRY
-AIRGAPPED="false"                    # Set to "true" for airgapped deployment
-UPSTREAM_PROXY_REGISTRY=""           # Required when AIRGAPPED=true (e.g., "registry.internal.corp:5000")
+# Airgapped mode
+AIRGAPPED="true"
+UPSTREAM_PROXY_REGISTRY="registry.internal.corp:5000"
+
+# Git base URL for ArgoCD service repos (internal Gitea/GitLab)
+GIT_BASE_URL="git@gitea.internal:org"
+
+# Argo Rollouts Gateway API plugin (must NOT point to github.com)
+ARGO_ROLLOUTS_PLUGIN_URL="https://internal-artifacts.corp/rollouts-plugin-trafficrouter-gatewayapi/v0.5.0/gateway-api-plugin-linux-amd64"
 ```
 
-When `AIRGAPPED=true`, the deploy script (Phase 4: Harbor) routes all proxy cache registries through the upstream proxy instead of public endpoints:
+### Per-Chart OCI URL Overrides (all required when AIRGAPPED=true)
 
-| Harbor Project | Online Endpoint | Airgapped Endpoint |
-|----------------|-----------------|---------------------|
-| `dockerhub` | `https://registry-1.docker.io` | `https://<UPSTREAM_PROXY>/dockerhub` |
-| `quay` | `https://quay.io` | `https://<UPSTREAM_PROXY>/quay` |
-| `ghcr` | `https://ghcr.io` | `https://<UPSTREAM_PROXY>/ghcr` |
-| `gcr` | `https://gcr.io` | `https://<UPSTREAM_PROXY>/gcr` |
-| `k8s` | `https://registry.k8s.io` | `https://<UPSTREAM_PROXY>/k8s` |
-| `elastic` | `https://docker.elastic.co` | `https://<UPSTREAM_PROXY>/elastic` |
+```bash
+HELM_OCI_CERT_MANAGER="oci://harbor.DOMAIN/charts.jetstack.io/cert-manager"
+HELM_OCI_CNPG="oci://harbor.DOMAIN/charts-cnpg/cloudnative-pg"
+HELM_OCI_CLUSTER_AUTOSCALER="oci://harbor.DOMAIN/charts-autoscaler/cluster-autoscaler"
+HELM_OCI_REDIS_OPERATOR="oci://harbor.DOMAIN/charts-ot-helm/redis-operator"
+HELM_OCI_MARIADB_OPERATOR="oci://harbor.DOMAIN/charts-mariadb/mariadb-operator"  # only if DEPLOY_LIBRENMS=true
+HELM_OCI_VAULT="oci://harbor.DOMAIN/charts-hashicorp/vault"
+HELM_OCI_HARBOR="oci://harbor.DOMAIN/charts-goharbor/harbor"
+HELM_OCI_ARGOCD="oci://harbor.DOMAIN/charts-argoproj/argo-cd"
+HELM_OCI_ARGO_ROLLOUTS="oci://harbor.DOMAIN/charts-argoproj/argo-rollouts"
+HELM_OCI_KASM="oci://harbor.DOMAIN/charts-kasmtech/kasm"
+```
+
+### Terraform Variables (bridged via TF_VAR_ automatically)
+
+```bash
+# Private RPM repo mirrors (set in .env, bridged to Terraform)
+PRIVATE_ROCKY_REPO_URL="https://repo.internal.corp"    # -> TF_VAR_private_rocky_repo_url
+PRIVATE_RKE2_REPO_URL="https://repo.internal.corp"     # -> TF_VAR_private_rke2_repo_url
+```
+
+In `cluster/terraform.tfvars`:
+```hcl
+# Optional: PEM-encoded private CA cert (injected into all node cloud-init)
+private_ca_pem = <<-PEM
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+PEM
+```
+
+## Required Helm Charts
+
+All charts must be pushed to your private OCI registry before deployment.
+
+| `.env` Variable | Chart | Version | Upstream Source |
+|-----------------|-------|---------|----------------|
+| `HELM_OCI_CERT_MANAGER` | cert-manager | v1.19.3 | `https://charts.jetstack.io` |
+| `HELM_OCI_CNPG` | cloudnative-pg | 0.27.1 | `https://cloudnative-pg.github.io/charts` |
+| `HELM_OCI_CLUSTER_AUTOSCALER` | cluster-autoscaler | latest | `https://kubernetes.github.io/autoscaler` |
+| `HELM_OCI_REDIS_OPERATOR` | redis-operator | latest | `https://ot-container-kit.github.io/helm-charts/` |
+| `HELM_OCI_VAULT` | vault | 0.32.0 | `https://helm.releases.hashicorp.com` |
+| `HELM_OCI_HARBOR` | harbor | 1.18.2 | `https://helm.goharbor.io` |
+| `HELM_OCI_ARGOCD` | argo-cd | latest | `oci://ghcr.io/argoproj/argo-helm/argo-cd` |
+| `HELM_OCI_ARGO_ROLLOUTS` | argo-rollouts | latest | `oci://ghcr.io/argoproj/argo-helm/argo-rollouts` |
+| `HELM_OCI_KASM` | kasm | 1.1181.0 | `https://helm.kasmweb.com/` |
+| `HELM_OCI_MARIADB_OPERATOR` | mariadb-operator | latest | `https://mariadb-operator.github.io/mariadb-operator` |
+
+### Pushing Charts to Harbor
+
+From a machine with internet access:
+
+```bash
+HARBOR="harbor.yourdomain.com"
+
+# Example: cert-manager
+helm repo add jetstack https://charts.jetstack.io
+helm pull jetstack/cert-manager --version v1.19.3
+helm push cert-manager-v1.19.3.tgz oci://${HARBOR}/charts.jetstack.io
+
+# Example: OCI-native chart (ArgoCD)
+helm pull oci://ghcr.io/argoproj/argo-helm/argo-cd --version 7.8.23
+helm push argo-cd-7.8.23.tgz oci://${HARBOR}/charts-argoproj
+
+# Repeat for all charts in the table above
+```
 
 ## Prerequisites for Airgapped Mode
 
 ### 1. All Credentials Pre-populated
 
-Every required variable in `.env` must be set. The deployment scripts auto-generate random passwords for any empty variables, but in airgapped mode DNS/network checks during generation may fail.
+Every required variable in `.env` must be set (same as online mode).
 
-Required variables:
-- `DOMAIN` — internal DNS domain
-- `UPSTREAM_PROXY_REGISTRY` — hostname:port of upstream proxy registry
-- `HARBOR_ADMIN_PASSWORD`
-- `HARBOR_REDIS_PASSWORD`
-- `HARBOR_DB_PASSWORD`
-- `HARBOR_MINIO_SECRET_KEY`
-- `KEYCLOAK_DB_PASSWORD`
-- `KEYCLOAK_BOOTSTRAP_CLIENT_SECRET`
-- `GRAFANA_ADMIN_PASSWORD`
-- `MATTERMOST_DB_PASSWORD`
-- `MATTERMOST_MINIO_ROOT_USER`
-- `MATTERMOST_MINIO_ROOT_PASSWORD`
-- `KASM_PG_SUPERUSER_PASSWORD`
-- `KASM_PG_APP_PASSWORD`
-- `LIBRENMS_DB_PASSWORD` (if `DEPLOY_LIBRENMS=true`)
-- `LIBRENMS_VALKEY_PASSWORD` (if `DEPLOY_LIBRENMS=true`)
+### 2. Per-Chart OCI URLs Set
 
-### 2. Internal DNS Resolution
+All 9 (or 10 with LibreNMS) `HELM_OCI_*` variables must be set. The deploy script validates this at startup via `validate_airgapped_prereqs()`.
 
-All service FQDNs must resolve to the Traefik LB IP within the network:
-- `vault.DOMAIN`, `harbor.DOMAIN`, `keycloak.DOMAIN`, `grafana.DOMAIN`, `prometheus.DOMAIN`, `alertmanager.DOMAIN`, `hubble.DOMAIN`, `traefik.DOMAIN`, `argo.DOMAIN`, `rollouts.DOMAIN`, `mattermost.DOMAIN`, `kasm.DOMAIN`, `gitlab.DOMAIN`
-- Optional: `status.DOMAIN` (Uptime Kuma), `librenms.DOMAIN`
+### 3. Gateway API CRDs Bundled
 
-### 3. Upstream Proxy Registry or Harbor Pre-deployed
+The file `crds/gateway-api-v1.3.0-standard-install.yaml` must exist in the repo. It is committed to the repo and applied locally instead of fetching from GitHub.
+
+### 4. Upstream Proxy Registry or Harbor Pre-deployed
 
 One of:
-- **Upstream proxy registry** with pre-cached images from all 6 upstream registries (Docker Hub, Quay, GHCR, GCR, k8s.io, Elastic)
+- **Upstream proxy registry** with pre-cached images from all 6 upstream registries
 - **Harbor already deployed** with proxy cache projects populated from a previous online deployment
 - **Local container registry mirror** with all required images pre-loaded
 
-### 4. Helm Charts Available
+### 5. Internal DNS Resolution
 
-Either:
-- OCI charts accessible via internal Harbor (`oci://harbor.DOMAIN/charts/`)
-- Helm repos reachable via upstream proxy or internal mirror
-- Tarballs in a `charts/` directory (future implementation)
+All service FQDNs must resolve to the Traefik LB IP within the network.
 
-Required Helm charts:
-| Chart | Version | Source |
-|-------|---------|--------|
-| `jetstack/cert-manager` | v1.19.3 | `https://charts.jetstack.io` |
-| `cnpg/cloudnative-pg` | 0.27.1 | `https://cloudnative-pg.github.io/charts` |
-| `hashicorp/vault` | 0.32.0 | `https://helm.releases.hashicorp.com` |
-| `autoscaler/cluster-autoscaler` | latest | `https://kubernetes.github.io/autoscaler` |
-| `ot-helm/redis-operator` | latest | `https://ot-container-kit.github.io/helm-charts/` |
-| `goharbor/harbor` | 1.18.2 | `https://helm.goharbor.io` |
-| `argo-cd` (OCI) | latest | `oci://ghcr.io/argoproj/argo-helm/argo-cd` |
-| `argo-rollouts` (OCI) | latest | `oci://ghcr.io/argoproj/argo-helm/argo-rollouts` |
-| `kasmtech/kasm` | 1.1181.0 | `https://helm.kasmweb.com/` |
-| `mariadb-operator` | latest | `https://mariadb-operator.github.io/mariadb-operator` (if LibreNMS enabled) |
+### 6. Internal Git Server (for ArgoCD)
 
-### 5. Private CA Certificate
+ArgoCD bootstrap apps have hardcoded git URLs. Run `./scripts/prepare-airgapped.sh` to rewrite them to your internal git server, then commit and push.
 
-- Root CA PEM file at `cluster/root-ca.pem` (generated by deploy-cluster.sh Phase 2, or pre-existing from a previous deployment)
-- Root CA key at `cluster/root-ca-key.pem` (needed to sign Intermediate CA)
-- Trusted by all internal services
+### 7. Private RPM Repo Mirrors (for Terraform/cloud-init)
 
-### 6. Vault Init File (Rebuild Scenarios)
+Nodes need Rocky 9 EPEL and RKE2 RPM repos. Set `PRIVATE_ROCKY_REPO_URL` and `PRIVATE_RKE2_REPO_URL` in `.env`.
 
-- `cluster/vault-init.json` must exist if rebuilding from backup
-- Stored as K8s secret on Harvester (synced by `terraform.sh push-secrets`)
+### 8. Private CA Certificate (optional)
 
-## Current Implementation
+If your internal services use a private CA, set `private_ca_pem` in `terraform.tfvars`. It will be injected into all node cloud-init and trusted via `update-ca-trust`.
 
-The following airgapped features are **already implemented** in the codebase:
+## Preparation Workflow
 
-### `.env` Variables (lib.sh)
+### Step 1: Online Preparation
+
+On a machine with internet access:
+
+1. Push all Helm charts to Harbor OCI registry (see table above)
+2. Deploy the cluster once online — Harbor proxy cache auto-caches all pulled images
+3. Run `./scripts/prepare-airgapped.sh` to rewrite ArgoCD git URLs
+4. Download the Argo Rollouts Gateway API plugin binary to an internal artifact server
+
+### Step 2: Configure .env
+
+Set all airgapped variables in `scripts/.env`:
 
 ```bash
-# In lib.sh generate_or_load_env():
-: "${AIRGAPPED:=false}"
-: "${UPSTREAM_PROXY_REGISTRY:=}"
-export AIRGAPPED UPSTREAM_PROXY_REGISTRY
+AIRGAPPED="true"
+UPSTREAM_PROXY_REGISTRY="harbor.yourdomain.com"
+GIT_BASE_URL="git@gitea.internal:org"
+ARGO_ROLLOUTS_PLUGIN_URL="https://artifacts.internal/gateway-api-plugin-linux-amd64"
+HELM_OCI_CERT_MANAGER="oci://harbor.yourdomain.com/charts.jetstack.io/cert-manager"
+# ... (all HELM_OCI_* vars)
+PRIVATE_ROCKY_REPO_URL="https://repo.internal.corp"
+PRIVATE_RKE2_REPO_URL="https://repo.internal.corp"
 ```
 
-### Harbor Proxy Cache Routing (deploy-cluster.sh Phase 4)
+### Step 3: Deploy
 
 ```bash
-# In configure_harbor_projects():
-if [[ "${AIRGAPPED:-false}" == "true" ]]; then
-    if [[ -z "${UPSTREAM_PROXY_REGISTRY:-}" ]]; then
-        die "AIRGAPPED=true but UPSTREAM_PROXY_REGISTRY is not set in .env"
-    fi
-    log_info "Airgapped mode: using upstream proxy ${UPSTREAM_PROXY_REGISTRY}"
-    registry_urls="https://${UPSTREAM_PROXY_REGISTRY}/dockerhub https://${UPSTREAM_PROXY_REGISTRY}/quay ..."
-else
-    registry_urls="https://registry-1.docker.io https://quay.io ..."
-fi
+./scripts/deploy-cluster.sh
 ```
 
-### Rancher Cluster Registries (lib.sh)
+The script will:
+1. Validate all airgapped prerequisites at startup
+2. Skip `helm repo add/update` (charts come from OCI)
+3. Use `resolve_helm_chart()` to route each chart to its OCI URL
+4. Apply Gateway API CRDs from bundled file
+5. Substitute `ARGO_ROLLOUTS_PLUGIN_URL` into Helm values
+6. Use private RPM repos in cloud-init
+7. Set `system-default-registry` in RKE2 machine_global_config
 
-After Harbor is deployed, `configure_rancher_registries()` patches the Rancher cluster resource with:
-- Mirror configurations pointing all upstream registries through Harbor
-- Root CA certificate for TLS trust on all nodes
+## How It Works
 
-This ensures all node-level image pulls go through Harbor, which in airgapped mode pulls from the upstream proxy.
+### Helm Chart Routing
 
-## Image Pre-loading Strategy
+`resolve_helm_chart()` in `lib.sh`:
+- **Online**: returns the original chart ref (e.g., `jetstack/cert-manager`)
+- **Airgapped**: returns the OCI URL from the corresponding `HELM_OCI_*` var
 
-For a fully airgapped deployment, container images must be pre-loaded into the internal registry. Use Harbor's proxy cache feature from a previous online deployment:
+`helm_repo_add()` is a no-op when `AIRGAPPED=true`.
 
-### Step 1: Online Deployment (with internet)
+### Terraform Cloud-Init
 
-Deploy normally. Harbor's proxy cache projects (`dockerhub`, `quay`, `ghcr`, `gcr`, `k8s`, `elastic`) automatically cache images as they are pulled by the cluster.
+When `var.airgapped = true`:
+- RPM repo URLs switch from `rpm.rancher.io` / EPEL metalink to private mirrors
+- Private CA PEM is written to `/etc/pki/ca-trust/source/anchors/` and trusted via `update-ca-trust`
+- `system-default-registry` in `machine_global_config` points RKE2 system images to Harbor
 
-### Step 2: Export Registry Data
+### Validation
 
-Back up Harbor's MinIO storage (750 GiB PVC in `minio` namespace) and CNPG harbor-pg database (in `database` namespace).
+`validate_airgapped_prereqs()` runs at the end of `generate_or_load_env()` and checks:
+- `UPSTREAM_PROXY_REGISTRY` is set
+- All required `HELM_OCI_*` vars are set
+- `GIT_BASE_URL` is set
+- `ARGO_ROLLOUTS_PLUGIN_URL` does NOT point to `github.com`
+- `crds/gateway-api-v1.3.0-standard-install.yaml` exists
 
-### Step 3: Airgapped Deployment
+On failure, it prints the full list of required charts with upstream sources.
 
-Restore Harbor from backup. All cached images are available without internet. Set `AIRGAPPED=true` and `UPSTREAM_PROXY_REGISTRY` to point to the restored Harbor or an intermediate proxy.
+## Phase-by-Phase Airgapped Impact
 
-### Manual Image Loading (Alternative)
-
-For clusters without a prior Harbor deployment:
-
-```bash
-# On machine with internet access:
-# 1. Pull all required images
-# 2. Save as tarballs
-# 3. Transfer to airgapped network
-# 4. Load into internal registry
-
-# Example:
-docker pull gcr.io/distroless/static:nonroot
-docker tag gcr.io/distroless/static:nonroot harbor.internal/gcr/distroless/static:nonroot
-docker push harbor.internal/gcr/distroless/static:nonroot
-```
-
-## Helm Chart Strategy
-
-### OCI Charts via Harbor
-
-Harbor serves as an OCI registry for Helm charts. In online mode, charts are pushed to the `charts` project:
-
-```bash
-helm push cert-manager-v1.19.3.tgz oci://harbor.DOMAIN/charts
-```
-
-In airgapped mode, `helm install` pulls from Harbor instead of upstream:
-
-```bash
-helm install cert-manager oci://harbor.DOMAIN/charts/cert-manager --version v1.19.3
-```
-
-### Local Tarballs (Future)
-
-A future enhancement could download charts to a local `charts/` directory:
-
-```bash
-charts/
-  cert-manager-v1.19.3.tgz
-  cloudnative-pg-0.27.1.tgz
-  vault-0.32.0.tgz
-  harbor-1.18.2.tgz
-  redis-operator-latest.tgz
-  cluster-autoscaler-latest.tgz
-  kasm-1.1181.0.tgz
-  ...
-```
-
-The deploy script would detect `AIRGAPPED=true` and use `helm install -f values.yaml charts/<chart>.tgz` instead of repo-based installs.
-
-## Deploy Script Integration
-
-### Phase-by-Phase Airgapped Considerations
-
-| Phase | Service | Airgapped Impact |
+| Phase | Service | Airgapped Change |
 |-------|---------|-----------------|
-| 0 | Terraform | Rocky 9 image must be available in Harvester (pre-uploaded or via local URL) |
-| 1 | cert-manager, CNPG, Redis Operator, Node Labeler, Cluster Autoscaler | Helm charts + images must be reachable |
-| 2 | Vault + PKI | Helm chart + Vault image; Root CA generated locally (no network needed) |
-| 3 | Monitoring Stack | All images via Kustomize manifests; Storage Autoscaler image from GHCR |
-| 4 | Harbor | **Critical**: proxy cache projects point to `UPSTREAM_PROXY_REGISTRY` in airgapped mode |
-| 5 | ArgoCD + Argo Rollouts | OCI Helm charts from GHCR (need mirror or pre-push to Harbor) |
-| 6 | Keycloak | CNPG keycloak-pg + Keycloak images |
-| 7 | Mattermost, Kasm, Uptime Kuma, LibreNMS | All images + Helm charts must be reachable |
-| 8 | DNS Records | Internal DNS only — no external dependency |
-| 9 | Validation + RBAC | No images needed |
-| 10 | Keycloak OIDC + oauth2-proxy | oauth2-proxy images (from Quay); requires all services accessible internally |
-| 11 | GitLab | GitLab Helm chart + images |
-
-### Validation Points
-
-The airgapped validation should be called:
-1. In `check_prerequisites()` (lib.sh) — runs before any phase
-2. Before Phase 4 (Harbor) — verifies registry backend and upstream proxy are ready
-3. Before Phase 10 (Keycloak OIDC) — verifies all services accessible internally
+| 0 | Terraform | Private RPM repos in cloud-init; `system-default-registry` in machine_global_config |
+| 1 | cert-manager, CNPG, Redis Op, Autoscaler | All charts via `HELM_OCI_*`; Gateway API CRDs from bundled file |
+| 2 | Vault + PKI | Chart via `HELM_OCI_VAULT`; Root CA generated locally (no network needed) |
+| 3 | Monitoring Stack | Images via Kustomize (pulled through Harbor mirrors) |
+| 4 | Harbor | Chart via `HELM_OCI_HARBOR`; proxy cache uses `UPSTREAM_PROXY_REGISTRY` |
+| 5 | ArgoCD + Rollouts | Charts via `HELM_OCI_ARGOCD`/`HELM_OCI_ARGO_ROLLOUTS`; plugin URL substituted |
+| 6 | Keycloak | Images via Harbor mirrors |
+| 7 | Kasm, Mattermost, etc. | Chart via `HELM_OCI_KASM`; images via Harbor mirrors |
+| 8 | DNS Records | Internal DNS only |
+| 9 | Validation | No external dependencies |
+| 10 | Keycloak OIDC | oauth2-proxy images via Harbor mirrors |
+| 11 | GitLab | External chart path (unchanged) |
 
 ## Implementation Status
 
-- [x] Add `AIRGAPPED` and `UPSTREAM_PROXY_REGISTRY` flags to `.env`
+- [x] `AIRGAPPED` and `UPSTREAM_PROXY_REGISTRY` flags in `.env`
 - [x] Export airgapped variables in `generate_or_load_env()` (lib.sh)
-- [x] Route Harbor proxy cache through upstream proxy when `AIRGAPPED=true` (deploy-cluster.sh Phase 4)
-- [x] Configure Rancher cluster registries with Harbor mirrors + Root CA trust (lib.sh)
-- [ ] Implement `validate_airgapped_prereqs()` in `lib.sh`
-- [ ] Add airgapped Helm install path in `helm_install_if_needed()` (OCI from Harbor or local tarballs)
-- [ ] Document required image list per service
-- [ ] Add chart tarball download script for offline preparation
-- [ ] Pre-push OCI charts (ArgoCD, Argo Rollouts) to Harbor in online mode
+- [x] Harbor proxy cache routing through upstream proxy (deploy-cluster.sh Phase 4)
+- [x] Rancher cluster registries with Harbor mirrors + Root CA trust (lib.sh)
+- [x] `validate_airgapped_prereqs()` — validates all airgapped vars at startup
+- [x] `resolve_helm_chart()` — routes 10 chart installs to OCI URLs
+- [x] `helm_repo_add()` — no-op in airgapped mode
+- [x] Gateway API CRDs bundled at `crds/gateway-api-v1.3.0-standard-install.yaml`
+- [x] Argo Rollouts plugin URL via `CHANGEME_ARGO_ROLLOUTS_PLUGIN_URL` token
+- [x] `GIT_BASE_URL` derivation + `CHANGEME_GIT_BASE_URL` substitution
+- [x] Terraform: `system-default-registry` when `var.airgapped = true`
+- [x] Terraform: private RPM repo URLs in cloud-init
+- [x] Terraform: private CA PEM injection + `update-ca-trust`
+- [x] `prepare-airgapped.sh` — rewrites ArgoCD bootstrap app git URLs
+- [x] TF_VAR bridge for `airgapped`, `private_rocky_repo_url`, `private_rke2_repo_url`
+- [ ] Document required container image list per service
 - [ ] Test full airgapped deployment cycle

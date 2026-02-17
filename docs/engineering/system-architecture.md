@@ -47,6 +47,7 @@ The platform provides:
 - **Team messaging** (Mattermost)
 - **Virtual desktop infrastructure** (Kasm Workspaces)
 - **Automated scaling** at both cluster and application layers
+- **Airgapped deployment** mode with private RPM mirrors, private CA trust, and system-default-registry pointing to Harbor
 
 ### Who Uses It
 
@@ -261,7 +262,7 @@ kube-apiserver is configured with OIDC flags for Keycloak integration:
 etcd is configured with:
 - Snapshot schedule: every 6 hours (`0 */6 * * *`)
 - Snapshot retention: 5 snapshots
-- Metrics exposed on `:2379` for Prometheus scraping (mTLS required)
+- Metrics exposed on `:2381` for Prometheus scraping (plain HTTP)
 
 ### Upgrade Strategy
 
@@ -272,6 +273,13 @@ etcd is configured with:
 | Rolling update max unavailable | 0 (per pool) |
 | Rolling update max surge | 1 (per pool) |
 | Drain before delete | Yes (all pools) |
+
+### Registry Configuration
+
+All RKE2 nodes are configured via `registries.yaml` to authenticate to Docker Hub using
+a `rancher2_secret_v2` credential, avoiding anonymous pull rate limits. In airgapped mode,
+the `system-default-registry` is set to `harbor.<DOMAIN>`, redirecting all RKE2 system
+image pulls to the local Harbor registry.
 
 ---
 
@@ -348,12 +356,12 @@ are scheduled.
 ```mermaid
 graph TD
     DNS["DNS: *.<DOMAIN><br/>-> LoadBalancer IP"]
-    LB["Traefik LoadBalancer Service<br/>(kube-system namespace)<br/>:80 -> :8000 (web)<br/>:443 -> :8443 (websecure)<br/>readTimeout=1800s<br/>writeTimeout=1800s"]
+    LB["Traefik LoadBalancer Service<br/>(kube-system namespace)<br/>:80 -> :8000 (web, HTTP->HTTPS redirect)<br/>:443 -> :8443 (websecure)<br/>readTimeout=1800s<br/>writeTimeout=1800s<br/>Vault CA trust via initContainer"]
     L2A["Cilium L2 Announcement<br/>ARP on worker eth1"]
 
     subgraph Routing["Traefik Routing Layer"]
-        GW["Gateway API<br/>(Gateway + HTTPRoute CRDs)<br/>9 services"]
-        IR["IngressRoute<br/>(Traefik CRD)<br/>2 services"]
+        GW["Gateway API<br/>(Gateway + HTTPRoute CRDs)<br/>10 services"]
+        IR["IngressRoute<br/>(Traefik CRD)<br/>1 service"]
     end
 
     subgraph GWAPI["Gateway API Routes"]
@@ -361,6 +369,7 @@ graph TD
         Grafana["grafana.<DOMAIN><br/>-> grafana:3000"]
         Prometheus["prometheus.<DOMAIN><br/>-> prometheus:9090"]
         Hubble["hubble.<DOMAIN><br/>-> hubble-ui:80"]
+        TraefikR["traefik.<DOMAIN><br/>-> traefik-api:8080"]
         VaultR["vault.<DOMAIN><br/>-> vault:8200"]
         HarborR["harbor.<DOMAIN><br/>-> harbor-core/portal"]
         KeycloakR["keycloak.<DOMAIN><br/>-> keycloak:8080"]
@@ -371,7 +380,6 @@ graph TD
 
     subgraph IRRoutes["IngressRoute Routes"]
         direction LR
-        TraefikR["traefik.<DOMAIN><br/>-> api@internal"]
         KasmR["kasm.<DOMAIN><br/>-> kasm-proxy:8443<br/>(backend HTTPS)"]
     end
 
@@ -401,9 +409,16 @@ graph TD
 | `kasm.<DOMAIN>` | kasm | IngressRoute | kasm-proxy:8443 | Keycloak OIDC (manual) | serversTransport (insecureSkipVerify) |
 | `rancher.<DOMAIN>` | cattle-system | Rancher-managed | rancher:443 | Keycloak OIDC (manual) | None |
 
-> **IngressRoute exceptions**: Traefik Dashboard uses `api@internal` (a TraefikService,
-> not a Kubernetes Service). Kasm requires backend HTTPS with `serversTransport`
+> **IngressRoute exception**: Kasm requires backend HTTPS with `serversTransport`
 > `insecureSkipVerify`, which has no Gateway API equivalent.
+
+> **HTTP-to-HTTPS redirect**: Traefik is configured to redirect all HTTP (port 80)
+> traffic to HTTPS (port 443) via `ports.web.redirections.entryPoint`.
+
+> **Vault CA trust**: Traefik runs an `initContainer` (`combine-ca`) that merges the
+> system CA bundle with the Vault root CA from a ConfigMap. The combined bundle is
+> mounted at `/combined-ca/ca-certificates.crt` and set via `SSL_CERT_FILE`, allowing
+> Traefik to forward traffic to backends using Vault-signed certificates (e.g., Mattermost).
 
 ### Worker Dual-NIC Architecture
 
@@ -517,18 +532,18 @@ graph BT
 
     subgraph DataLayer["Data Layer"]
         HarborPG["CNPG harbor-pg<br/>(3 instances, PG 16)<br/>namespace: database"]
-        KasmPG["CNPG kasm-pg<br/>(3 instances, PG 14)<br/>namespace: kasm"]
+        KasmPG["CNPG kasm-pg<br/>(3 instances, PG 14)<br/>namespace: database"]
         KCPG["CNPG keycloak-pg<br/>(3 instances, PG 16)<br/>namespace: database"]
         MMPG["CNPG mattermost-pg<br/>(3 instances, PG 16)<br/>namespace: database"]
         HarborRedis["Valkey Sentinel<br/>(3+3 replicas, OpsTree)<br/>namespace: harbor"]
         ArgoRedis["Redis HA + HAProxy<br/>(3+3 replicas, Valkey 8)<br/>namespace: argocd"]
-        HarborMinio["MinIO (750 GiB)<br/>namespace: minio"]
-        MMMinio["MinIO (50 GiB)<br/>namespace: mattermost"]
+        HarborMinio["MinIO (200 GiB)<br/>namespace: minio"]
+        MMMinio["MinIO (20 GiB)<br/>namespace: mattermost"]
     end
 
     subgraph Monitoring["Monitoring Layer"]
         Prom["Prometheus<br/>(50 GiB, 30d retention)"]
-        Grafana["Grafana<br/>(28 dashboards)"]
+        Grafana["Grafana<br/>(24 dashboards)"]
         Loki["Loki<br/>(50 GiB, 7d retention)"]
         Alloy["Alloy<br/>(DaemonSet log collector)"]
         AM["Alertmanager<br/>(alert routing)"]
@@ -646,19 +661,19 @@ graph TD
             MMPG_v["mattermost-pg x3: 20 GiB each"]
         end
 
-        subgraph MonVol["Monitoring (210 GiB total)"]
+        subgraph MonVol["Monitoring (110 GiB total)"]
             PromPVC["prometheus: 50 GiB"]
             LokiPVC["loki: 50 GiB"]
             GrafPVC["grafana: 10 GiB"]
         end
 
-        subgraph S3Vol["S3 / MinIO (800 GiB total)"]
-            HarborS3["harbor-minio: 750 GiB"]
-            MMS3["mattermost-minio: 50 GiB"]
+        subgraph S3Vol["S3 / MinIO (220 GiB total)"]
+            HarborS3["harbor-minio: 200 GiB"]
+            MMS3["mattermost-minio: 20 GiB"]
         end
 
-        subgraph RedisVol["Redis (48 GiB total)"]
-            HRedis["harbor-redis x3: 8 GiB each"]
+        subgraph RedisVol["Redis (30 GiB total)"]
+            HRedis["harbor-redis x3: 2 GiB each"]
             ARedis["argocd-redis-ha x3: 8 GiB each"]
         end
     end
@@ -677,17 +692,17 @@ graph TD
 |-----------|----------|----------|----------|-------|-----------|---------|
 | vault | vault-{0,1,2} | 10 GiB | 3 | 30 GiB | Permanent | Raft consensus storage |
 | database | harbor-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Harbor registry metadata |
-| kasm | kasm-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Kasm Workspaces metadata |
+| database | kasm-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Kasm Workspaces metadata |
 | database | keycloak-pg-{1,2,3} | 10 GiB | 3 | 30 GiB | Permanent | Keycloak identity data |
 | database | mattermost-pg-{1,2,3} | 20 GiB | 3 | 60 GiB | Permanent | Mattermost messages |
 | monitoring | prometheus | 50 GiB | 1 | 50 GiB | 30 days | Time-series metrics |
 | monitoring | loki | 50 GiB | 1 | 50 GiB | 7 days | Log storage (TSDB v13) |
 | monitoring | grafana | 10 GiB | 1 | 10 GiB | Permanent | Dashboard state + preferences |
-| minio | harbor-minio | 750 GiB | 1 | 750 GiB | Permanent | OCI images, Helm charts |
-| mattermost | mattermost-minio | 50 GiB | 1 | 50 GiB | Permanent | File attachments |
-| harbor | harbor-redis-{0,1,2} | 8 GiB | 3 | 24 GiB | Ephemeral | Harbor cache + sessions |
+| minio | harbor-minio | 200 GiB | 1 | 200 GiB | Permanent | OCI images, Helm charts |
+| mattermost | mattermost-minio | 20 GiB | 1 | 20 GiB | Permanent | File attachments |
+| harbor | harbor-redis-{0,1,2} | 2 GiB | 3 | 6 GiB | Ephemeral | Harbor cache + sessions |
 | argocd | argocd-redis-ha-{0,1,2} | 8 GiB | 3 | 24 GiB | Ephemeral | ArgoCD state cache |
-| **Total** | | | | **~1.29 TiB** | | |
+| **Total** | | | | **~600 GiB** | | |
 
 ---
 
@@ -888,6 +903,17 @@ graph TD
     HT_HPA --> CA
 ```
 
+### Cluster Autoscaler: Scale-Down Behavior
+
+The cluster resource carries annotations that configure autoscaler scale-down behavior:
+
+| Annotation | Default | Purpose |
+|------------|---------|---------|
+| `autoscaler-scale-down-unneeded-time` | 30 min | Node must be idle this long before removal |
+| `autoscaler-scale-down-delay-after-add` | 15 min | Cooldown after adding a node before scale-down |
+| `autoscaler-scale-down-delay-after-delete` | 30 min | Cooldown after deleting a node |
+| `autoscaler-scale-down-utilization-threshold` | 0.5 | CPU/memory utilization below which a node is unneeded |
+
 ### Cluster Autoscaler: Scale-From-Zero
 
 The compute worker pool is configured with `min=0`, enabling scale-from-zero. When a pod
@@ -911,7 +937,7 @@ sequenceDiagram
     Rancher->>K8s: Node joins cluster<br/>with label workload-type=compute
     K8s->>K8s: Pod scheduled on new node
 
-    Note over CA,Harvester: Scale-down: after 10 min idle,<br/>autoscaler removes node
+    Note over CA,Harvester: Scale-down: after 5 min idle,<br/>autoscaler removes node
 ```
 
 The compute pool uses Terraform annotations to advertise its capacity to the autoscaler
@@ -950,7 +976,7 @@ graph TD
         KSM["kube-state-metrics<br/>(Deployment, :8080)<br/>K8s object counts + state"]
         Kubelet["kubelet<br/>(:10250)<br/>Node + container metrics<br/>+ cAdvisor"]
         API["kube-apiserver<br/>(:6443, HTTPS)<br/>API request metrics"]
-        ETCD["etcd<br/>(:2379, mTLS)<br/>Raft + store metrics"]
+        ETCD["etcd<br/>(:2381, HTTP)<br/>Raft + store metrics"]
         Sched["kube-scheduler<br/>(:10259, HTTPS)"]
         KCM["kube-controller-manager<br/>(:10257, HTTPS)"]
         CiliumAg["Cilium Agent<br/>(:9962)<br/>CNI datapath metrics"]
@@ -967,7 +993,7 @@ graph TD
     end
 
     subgraph Visualization["Visualization"]
-        Grafana["Grafana<br/>(Deployment, 1 replica)<br/>:3000<br/>10 GiB PVC<br/>28 dashboards"]
+        Grafana["Grafana<br/>(Deployment, 1 replica)<br/>:3000<br/>10 GiB PVC<br/>24 dashboards"]
     end
 
     NE -->|"scrape"| Prom
@@ -1015,38 +1041,34 @@ graph TD
     Loki -->|"LogQL"| GrafanaL
 ```
 
-### Grafana Dashboard Inventory (29 Dashboards)
+### Grafana Dashboard Inventory (24 Dashboards)
 
-| Folder | Dashboard | Datasource | Description |
-|--------|-----------|------------|-------------|
-| **Home** | Home | Prometheus | Cluster overview with drill-down links |
-| **RKE2** | RKE2 Cluster | Prometheus + Loki | RKE2-specific cluster overview |
-| **RKE2** | Kubernetes RKE Cluster | Prometheus | Kubernetes components health |
-| **RKE2** | etcd | Prometheus | etcd cluster performance and Raft health |
-| **Kubernetes** | Cluster Monitoring | Prometheus | Cluster-wide resource usage |
-| **Kubernetes** | Pod Monitoring | Prometheus | Per-pod resource details |
-| **Kubernetes** | Nodes | Prometheus | Per-node hardware metrics |
-| **Kubernetes** | API Server | Prometheus | API server request latency and errors |
-| **Networking** | Cilium Agent | Prometheus | CNI datapath metrics |
-| **Networking** | CoreDNS | Prometheus | DNS query performance |
-| **Networking** | Traefik | Prometheus | Ingress request rate and latency |
-| **Loki** | Loki Logs | Loki | Log search and exploration |
-| **Loki** | Loki Stack Monitoring | Prometheus + Loki | Loki pipeline health |
-| **Services** | Vault | Prometheus | Seal status, requests, Raft health |
-| **Services** | cert-manager | Prometheus | Certificate expiry, issuance rate |
-| **Services** | ArgoCD | Prometheus | Sync status, app health |
-| **Services** | Argo Rollouts | Prometheus | Rollout progress, analysis results |
-| **Services** | Harbor | Prometheus | Registry requests, storage usage |
-| **Services** | Keycloak | Prometheus | Login events, active sessions |
-| **Services** | Mattermost | Prometheus | Active users, message rate |
-| **Services** | GitLab | Prometheus | CI pipeline metrics |
-| **Storage** | Storage Overview | Prometheus | PVC capacity and IOPS |
-| **Storage** | CNPG | Prometheus | PostgreSQL replication lag, query stats |
-| **Security** | Security | Prometheus | Certificate status, auth failures |
-| **Security** | Security Advanced | Prometheus | Deep security posture metrics |
-| **Security** | oauth2-proxy ForwardAuth | Prometheus + Loki | Per-service proxy health, Keycloak per-client login analytics, resource usage |
-| **Autoscaling** | Operations | Prometheus | Scale events, HPA targets |
-| **CI/CD** | Pipelines | Prometheus | CI/CD pipeline metrics |
+| Folder | Dashboard | ConfigMap | Datasource | Description |
+|--------|-----------|-----------|------------|-------------|
+| **Home** | Home | `configmap-dashboard-home` | Prometheus | Cluster overview with drill-down links |
+| **RKE2** | etcd | `configmap-dashboard-etcd` | Prometheus | etcd cluster performance and Raft health |
+| **Kubernetes** | Node Detail | `configmap-dashboard-node-detail` | Prometheus | Per-node hardware metrics |
+| **Kubernetes** | API Server | `configmap-dashboard-apiserver` | Prometheus | API server request latency and errors |
+| **Networking** | Cilium Agent | `configmap-dashboard-cilium` | Prometheus | CNI datapath metrics |
+| **Networking** | CoreDNS | `configmap-dashboard-coredns` | Prometheus | DNS query performance |
+| **Networking** | Traefik | `configmap-dashboard-traefik` | Prometheus | Ingress request rate and latency |
+| **Loki** | Loki Logs | `configmap-dashboard-loki` | Loki | Log search and exploration |
+| **Loki** | Loki Stack Monitoring | `configmap-dashboard-loki-stack` | Prometheus + Loki | Loki pipeline health |
+| **Services** | Vault | `configmap-dashboard-vault` | Prometheus | Seal status, requests, Raft health |
+| **Services** | cert-manager | `configmap-dashboard-cert-manager` | Prometheus | Certificate expiry, issuance rate |
+| **Services** | ArgoCD | `configmap-dashboard-argocd` | Prometheus | Sync status, app health |
+| **Services** | Argo Rollouts | `configmap-dashboard-argo-rollouts` | Prometheus | Rollout progress, analysis results |
+| **Services** | Harbor | `configmap-dashboard-harbor` | Prometheus | Registry requests, storage usage |
+| **Services** | Keycloak | `configmap-dashboard-keycloak` | Prometheus | Login events, active sessions |
+| **Services** | Mattermost | `configmap-dashboard-mattermost` | Prometheus | Active users, message rate |
+| **Services** | GitLab | `configmap-dashboard-gitlab` | Prometheus | CI pipeline metrics |
+| **Services** | Redis | `configmap-dashboard-redis` | Prometheus | Redis/Valkey cluster health, memory, connections |
+| **Services** | Node Labeler | `configmap-dashboard-node-labeler` | Prometheus | Node labeler controller metrics |
+| **Storage** | Storage Overview | `configmap-dashboard-storage` | Prometheus | PVC capacity and IOPS |
+| **Storage** | CNPG | `configmap-dashboard-cnpg` | Prometheus | PostgreSQL replication lag, query stats |
+| **Security** | Security Advanced | `configmap-dashboard-security-advanced` | Prometheus | Security posture, certificate status, auth metrics |
+| **Security** | oauth2-proxy ForwardAuth | `configmap-dashboard-oauth2-proxy` | Prometheus + Loki | Per-service proxy health, Keycloak per-client login analytics, resource usage |
+| **Operations** | Firing Alerts | `configmap-dashboard-firing-alerts` | Prometheus | Currently firing alerts overview |
 
 ### Alertmanager Configuration
 
@@ -1202,14 +1224,14 @@ graph TD
 | # | Service | Type | Namespace | Instances | Version | Storage | Consumers |
 |---|---------|------|-----------|-----------|---------|---------|-----------|
 | 1 | **harbor-pg** | CNPG Cluster | database | 3 | PG 16 | 20 GiB x 3 | Harbor |
-| 2 | **kasm-pg** | CNPG Cluster | kasm | 3 | PG 14 | 20 GiB x 3 | Kasm Workspaces |
+| 2 | **kasm-pg** | CNPG Cluster | database | 3 | PG 14 | 20 GiB x 3 | Kasm Workspaces |
 | 3 | **keycloak-pg** | CNPG Cluster | database | 3 | PG 16 | 10 GiB x 3 | Keycloak |
 | 4 | **mattermost-pg** | CNPG Cluster | database | 3 | PG 16 | 20 GiB x 3 | Mattermost |
 | 5 | **Vault Raft** | Integrated | vault | 3 | N/A | 10 GiB x 3 | Vault (secrets + PKI) |
-| 6 | **Harbor Valkey** | OpsTree Valkey Sentinel | harbor | 3 server + 3 sentinel | -- | 8 GiB x 3 | Harbor cache + sessions |
+| 6 | **Harbor Valkey** | OpsTree Valkey Sentinel | harbor | 3 server + 3 sentinel | -- | 2 GiB x 3 | Harbor cache + sessions |
 | 7 | **ArgoCD Redis** | HA + HAProxy (Valkey) | argocd | 3 server + 3 HAProxy | Valkey 8-alpine | 8 GiB x 3 | ArgoCD state cache |
-| 8 | **Harbor MinIO** | Deployment | minio | 1 | quay.io/minio/minio | 750 GiB | Harbor blobs + OCI charts |
-| 9 | **Mattermost MinIO** | Deployment | mattermost | 1 | quay.io/minio/minio | 50 GiB | Mattermost file attachments |
+| 8 | **Harbor MinIO** | Deployment | minio | 1 | quay.io/minio/minio | 200 GiB | Harbor blobs + OCI charts |
+| 9 | **Mattermost MinIO** | Deployment | mattermost | 1 | quay.io/minio/minio | 20 GiB | Mattermost file attachments |
 
 ### Namespace Inventory
 
@@ -1224,9 +1246,9 @@ graph TD
 | `argo-rollouts` | Argo Rollouts controller + dashboard | Helm (ArgoCD) |
 | `harbor` | Harbor (core, portal, registry, jobservice, trivy, exporter), Valkey | Helm + Kustomize |
 | `minio` | MinIO (Harbor S3 backend) | Kustomize |
-| `database` | CNPG harbor-pg, keycloak-pg, mattermost-pg | CNPG Operator |
+| `database` | CNPG harbor-pg, kasm-pg, keycloak-pg, mattermost-pg | CNPG Operator |
 | `mattermost` | Mattermost, MinIO | Kustomize |
-| `kasm` | Kasm Workspaces (proxy, manager, share), CNPG kasm-pg | Helm + Kustomize |
+| `kasm` | Kasm Workspaces (proxy, manager, share) | Helm + Kustomize |
 | `cnpg-system` | CNPG Operator | Helm |
 | `storage-autoscaler` | Storage Autoscaler controller | Kustomize |
 | `terraform-state` | Terraform state secret, vault-init.json | Manual |

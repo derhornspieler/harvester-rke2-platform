@@ -94,6 +94,69 @@ check_prerequisites() {
   log_ok "All required commands available"
 }
 
+validate_airgapped_prereqs() {
+  log_info "Validating airgapped prerequisites..."
+  local errors=0
+
+  if [[ -z "${UPSTREAM_PROXY_REGISTRY:-}" ]]; then
+    log_error "AIRGAPPED=true but UPSTREAM_PROXY_REGISTRY is not set"
+    errors=$((errors + 1))
+  fi
+
+  # Check all required HELM_OCI_* vars
+  local required_oci_vars=(
+    HELM_OCI_CERT_MANAGER HELM_OCI_CNPG HELM_OCI_CLUSTER_AUTOSCALER
+    HELM_OCI_REDIS_OPERATOR HELM_OCI_VAULT HELM_OCI_HARBOR
+    HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_KASM
+  )
+  if [[ "${DEPLOY_LIBRENMS:-false}" == "true" ]]; then
+    required_oci_vars+=(HELM_OCI_MARIADB_OPERATOR)
+  fi
+  for var in "${required_oci_vars[@]}"; do
+    if [[ -z "${!var:-}" ]]; then
+      log_error "AIRGAPPED=true but ${var} is not set"
+      errors=$((errors + 1))
+    fi
+  done
+
+  if [[ -z "${GIT_BASE_URL:-}" ]]; then
+    log_error "AIRGAPPED=true but GIT_BASE_URL is not set"
+    errors=$((errors + 1))
+  fi
+
+  if [[ "${ARGO_ROLLOUTS_PLUGIN_URL:-}" == *"github.com"* ]]; then
+    log_error "AIRGAPPED=true but ARGO_ROLLOUTS_PLUGIN_URL still points to github.com"
+    errors=$((errors + 1))
+  fi
+
+  if [[ ! -f "${REPO_ROOT}/crds/gateway-api-v1.3.0-standard-install.yaml" ]]; then
+    log_error "AIRGAPPED=true but crds/gateway-api-v1.3.0-standard-install.yaml not found"
+    errors=$((errors + 1))
+  fi
+
+  if [[ $errors -gt 0 ]]; then
+    echo ""
+    log_info "Required Helm charts for airgapped deployment:"
+    echo "  HELM_OCI_CERT_MANAGER        — cert-manager v1.19.3 (upstream: https://charts.jetstack.io)"
+    echo "  HELM_OCI_CNPG                — cloudnative-pg 0.27.1 (upstream: https://cloudnative-pg.github.io/charts)"
+    echo "  HELM_OCI_CLUSTER_AUTOSCALER  — cluster-autoscaler (upstream: https://kubernetes.github.io/autoscaler)"
+    echo "  HELM_OCI_REDIS_OPERATOR      — redis-operator (upstream: https://ot-container-kit.github.io/helm-charts/)"
+    echo "  HELM_OCI_VAULT               — vault 0.32.0 (upstream: https://helm.releases.hashicorp.com)"
+    echo "  HELM_OCI_HARBOR              — harbor 1.18.2 (upstream: https://helm.goharbor.io)"
+    echo "  HELM_OCI_ARGOCD              — argo-cd (upstream: oci://ghcr.io/argoproj/argo-helm/argo-cd)"
+    echo "  HELM_OCI_ARGO_ROLLOUTS       — argo-rollouts (upstream: oci://ghcr.io/argoproj/argo-helm/argo-rollouts)"
+    echo "  HELM_OCI_KASM                — kasm 1.1181.0 (upstream: https://helm.kasmweb.com/)"
+    if [[ "${DEPLOY_LIBRENMS:-false}" == "true" ]]; then
+      echo "  HELM_OCI_MARIADB_OPERATOR    — mariadb-operator (upstream: https://mariadb-operator.github.io/mariadb-operator)"
+    fi
+    echo ""
+    echo "  Set each to an OCI URL, e.g.: HELM_OCI_CERT_MANAGER=oci://harbor.${DOMAIN:-example.com}/charts.jetstack.io/cert-manager"
+    echo "  See docs/airgapped-mode.md for full instructions."
+    die "Airgapped validation failed with ${errors} error(s). Fix the above issues."
+  fi
+  log_ok "Airgapped prerequisites validated"
+}
+
 # -----------------------------------------------------------------------------
 # CHANGEME Validation
 # -----------------------------------------------------------------------------
@@ -505,11 +568,29 @@ label_unlabeled_nodes() {
 helm_repo_add() {
   local name="$1"
   local url="$2"
+  # In airgapped mode, skip repo add (charts come from OCI overrides)
+  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    log_info "Airgapped: skipping helm repo add '${name}'"
+    return 0
+  fi
   if helm repo list 2>/dev/null | grep -q "^${name}"; then
     log_info "Helm repo '${name}' already exists, updating..."
   else
     log_info "Adding Helm repo '${name}' → ${url}"
     helm repo add "$name" "$url"
+  fi
+}
+
+# Resolve a Helm chart reference: returns OCI URL in airgapped mode, online chart ref otherwise
+# Usage: chart=$(resolve_helm_chart "jetstack/cert-manager" "HELM_OCI_CERT_MANAGER")
+resolve_helm_chart() {
+  local online_chart="$1" oci_var_name="$2"
+  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    local oci_url="${!oci_var_name:-}"
+    [[ -z "$oci_url" ]] && die "Airgapped: ${oci_var_name} not set for ${online_chart}"
+    echo "$oci_url"
+  else
+    echo "$online_chart"
   fi
 }
 
@@ -716,6 +797,22 @@ generate_or_load_env() {
   : "${AIRGAPPED:=false}"
   : "${UPSTREAM_PROXY_REGISTRY:=}"
 
+  # Git base URL for ArgoCD service repos (airgapped: internal Gitea/GitLab)
+  : "${GIT_BASE_URL:=}"
+  # Argo Rollouts Gateway API plugin URL
+  : "${ARGO_ROLLOUTS_PLUGIN_URL:=https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.5.0/gateway-api-plugin-linux-amd64}"
+  # Per-chart OCI URL overrides (required when AIRGAPPED=true)
+  : "${HELM_OCI_CERT_MANAGER:=}"
+  : "${HELM_OCI_CNPG:=}"
+  : "${HELM_OCI_CLUSTER_AUTOSCALER:=}"
+  : "${HELM_OCI_REDIS_OPERATOR:=}"
+  : "${HELM_OCI_MARIADB_OPERATOR:=}"
+  : "${HELM_OCI_VAULT:=}"
+  : "${HELM_OCI_HARBOR:=}"
+  : "${HELM_OCI_ARGOCD:=}"
+  : "${HELM_OCI_ARGO_ROLLOUTS:=}"
+  : "${HELM_OCI_KASM:=}"
+
   # Generate any missing values
   : "${KEYCLOAK_BOOTSTRAP_CLIENT_SECRET:=$(gen_password 32)}"
   : "${KEYCLOAK_DB_PASSWORD:=$(gen_password 32)}"
@@ -785,6 +882,11 @@ generate_or_load_env() {
   : "${KC_REALM:=${DOMAIN%%.*}}"
   : "${GIT_REPO_URL:=$(git -C "${REPO_ROOT}" remote get-url origin 2>/dev/null || echo "git@github.com:OWNER/rke2-cluster.git")}"
 
+  # Derive GIT_BASE_URL from GIT_REPO_URL if not set (strip "/reponame.git")
+  if [[ -z "${GIT_BASE_URL:-}" && -n "${GIT_REPO_URL:-}" ]]; then
+    GIT_BASE_URL="${GIT_REPO_URL%/*}"
+  fi
+
   # Harvester context name in ~/.kube/config (for auto-extracting kubeconfig)
   : "${HARVESTER_CONTEXT:=harvester}"
 
@@ -809,10 +911,21 @@ generate_or_load_env() {
   export ORG_NAME KC_REALM GIT_REPO_URL
   export HARVESTER_CONTEXT
   export USER_DATA_CP_FILE USER_DATA_WORKER_FILE
+  export GIT_BASE_URL ARGO_ROLLOUTS_PLUGIN_URL
+  export HELM_OCI_CERT_MANAGER HELM_OCI_CNPG HELM_OCI_CLUSTER_AUTOSCALER
+  export HELM_OCI_REDIS_OPERATOR HELM_OCI_MARIADB_OPERATOR HELM_OCI_VAULT
+  export HELM_OCI_HARBOR HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_KASM
 
   # Bridge cloud-init overrides to Terraform via TF_VAR_ env vars
   [[ -n "$USER_DATA_CP_FILE" ]] && export TF_VAR_user_data_cp_file="$USER_DATA_CP_FILE"
   [[ -n "$USER_DATA_WORKER_FILE" ]] && export TF_VAR_user_data_worker_file="$USER_DATA_WORKER_FILE"
+
+  # Bridge airgapped vars to Terraform
+  if [[ "${AIRGAPPED}" == "true" ]]; then
+    export TF_VAR_airgapped=true
+    [[ -n "${PRIVATE_ROCKY_REPO_URL:-}" ]] && export TF_VAR_private_rocky_repo_url="$PRIVATE_ROCKY_REPO_URL"
+    [[ -n "${PRIVATE_RKE2_REPO_URL:-}" ]]  && export TF_VAR_private_rke2_repo_url="$PRIVATE_RKE2_REPO_URL"
+  fi
 
   # Save to .env (only if newly generated or updated)
   cat > "$ENV_FILE" <<ENVEOF
@@ -827,6 +940,24 @@ DEPLOY_LIBRENMS="${DEPLOY_LIBRENMS}"
 # Airgapped mode — when true, Harbor proxy-cache uses UPSTREAM_PROXY_REGISTRY
 AIRGAPPED="${AIRGAPPED}"
 UPSTREAM_PROXY_REGISTRY="${UPSTREAM_PROXY_REGISTRY}"
+
+# Git base URL for ArgoCD service repos (airgapped: internal Gitea/GitLab)
+GIT_BASE_URL="${GIT_BASE_URL}"
+
+# Argo Rollouts Gateway API plugin URL
+ARGO_ROLLOUTS_PLUGIN_URL="${ARGO_ROLLOUTS_PLUGIN_URL}"
+
+# Per-chart OCI URL overrides (required when AIRGAPPED=true)
+HELM_OCI_CERT_MANAGER="${HELM_OCI_CERT_MANAGER}"
+HELM_OCI_CNPG="${HELM_OCI_CNPG}"
+HELM_OCI_CLUSTER_AUTOSCALER="${HELM_OCI_CLUSTER_AUTOSCALER}"
+HELM_OCI_REDIS_OPERATOR="${HELM_OCI_REDIS_OPERATOR}"
+HELM_OCI_MARIADB_OPERATOR="${HELM_OCI_MARIADB_OPERATOR}"
+HELM_OCI_VAULT="${HELM_OCI_VAULT}"
+HELM_OCI_HARBOR="${HELM_OCI_HARBOR}"
+HELM_OCI_ARGOCD="${HELM_OCI_ARGOCD}"
+HELM_OCI_ARGO_ROLLOUTS="${HELM_OCI_ARGO_ROLLOUTS}"
+HELM_OCI_KASM="${HELM_OCI_KASM}"
 
 KEYCLOAK_BOOTSTRAP_CLIENT_SECRET="${KEYCLOAK_BOOTSTRAP_CLIENT_SECRET}"
 KEYCLOAK_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD}"
@@ -884,6 +1015,11 @@ USER_DATA_WORKER_FILE="${USER_DATA_WORKER_FILE}"
 ENVEOF
   chmod 600 "$ENV_FILE"
   log_ok "Credentials saved to ${ENV_FILE}"
+
+  # Validate airgapped prerequisites after all vars are loaded
+  if [[ "${AIRGAPPED}" == "true" ]]; then
+    validate_airgapped_prereqs
+  fi
 }
 
 # Replace CHANGEME tokens and domain references in stdin, write to stdout
@@ -909,6 +1045,8 @@ _subst_changeme() {
     -e "s|CHANGEME_OAUTH2_PROXY_REDIS_PASSWORD|${OAUTH2_PROXY_REDIS_PASSWORD}|g" \
     -e "s|CHANGEME_TRAEFIK_LB_IP|${TRAEFIK_LB_IP}|g" \
     -e "s|CHANGEME_GIT_REPO_URL|${GIT_REPO_URL}|g" \
+    -e "s|CHANGEME_ARGO_ROLLOUTS_PLUGIN_URL|${ARGO_ROLLOUTS_PLUGIN_URL}|g" \
+    -e "s|CHANGEME_GIT_BASE_URL|${GIT_BASE_URL}|g" \
     -e "s|CHANGEME_TRAEFIK_FQDN|traefik.${DOMAIN}|g" \
     -e "s|CHANGEME_TRAEFIK_TLS_SECRET|traefik-${DOMAIN_DASHED}-tls|g" \
     -e "s|CHANGEME_KC_REALM|${KC_REALM}|g" \
@@ -1231,7 +1369,7 @@ _configure_registries_curl() {
 # Vault Root CA trusted on the local machine (which it won't be at Phase 4.10).
 # crane --insecure skips TLS verification for the push.
 # Tarball naming convention: <name>-<version>-<arch>.tar.gz
-#   e.g. node-labeler-v0.1.0-amd64.tar.gz → harbor.DOMAIN/library/node-labeler:v0.1.0
+#   e.g. node-labeler-v0.2.0-amd64.tar.gz → harbor.DOMAIN/library/node-labeler:v0.2.0
 # -----------------------------------------------------------------------------
 push_operator_images() {
   local images_dir="${REPO_ROOT}/operators/images"
@@ -1290,7 +1428,7 @@ push_operator_images() {
     local filename
     filename=$(basename "$tarball")
 
-    # Parse image name and tag from filename: node-labeler-v0.1.0-amd64.tar.gz
+    # Parse image name and tag from filename: node-labeler-v0.2.0-amd64.tar.gz
     local name tag ref
     name=$(echo "$filename" | sed 's/-v[0-9].*//')
     tag=$(echo "$filename" | sed 's/.*-\(v[0-9][^-]*\)-.*/\1/')

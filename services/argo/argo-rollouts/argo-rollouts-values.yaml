@@ -44,7 +44,7 @@ controller:
 # Gateway API traffic router plugin for progressive delivery
 trafficRouterPlugins:
   - name: "argoproj-labs/gatewayAPI"
-    location: "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.5.0/gateway-api-plugin-linux-amd64"
+    location: "CHANGEME_ARGO_ROLLOUTS_PLUGIN_URL"
 
 dashboard:
   enabled: true

@@ -19,8 +19,9 @@ Comprehensive engineering reference for the RKE2 cluster monitoring stack. Cover
 7. [Alertmanager Deep Dive](#7-alertmanager-deep-dive)
 8. [Node Exporter](#8-node-exporter)
 9. [kube-state-metrics](#9-kube-state-metrics)
-10. [TLS Integration](#10-tls-integration)
-11. [Dashboard Inventory](#11-dashboard-inventory)
+10. [Redis Session Store](#10-redis-session-store-oauth2-proxy)
+11. [TLS Integration](#11-tls-integration)
+12. [Dashboard Inventory](#12-dashboard-inventory)
 
 ---
 
@@ -37,6 +38,7 @@ The monitoring stack provides full observability for the RKE2 Kubernetes cluster
 | Alertmanager | StatefulSet | `prom/alertmanager:v0.27.0` | 1 | Alert routing and deduplication |
 | Node Exporter | DaemonSet | `prom/node-exporter:v1.8.2` | all nodes | Host-level hardware/OS metrics |
 | kube-state-metrics | Deployment | `kube-state-metrics:v2.13.0` | 1 | Kubernetes object state metrics |
+| Redis (oauth2-proxy sessions) | RedisReplication + RedisSentinel | `opstree/redis:v7.0.15` | 3+3 | Session persistence for oauth2-proxy ForwardAuth (HA via Sentinel) |
 
 ### Architecture Diagram
 
@@ -138,7 +140,7 @@ flowchart LR
     end
 
     subgraph Visualization["Visualization"]
-        Grafana["Grafana<br/>28 dashboards<br/>9 folders"]
+        Grafana["Grafana<br/>24 dashboards<br/>6 folders"]
     end
 
     NE -->|scrape 30s| Prometheus
@@ -227,7 +229,7 @@ Prometheus uses a dedicated `ServiceAccount` named `prometheus` in the `monitori
 | extensions, networking.k8s.io | ingresses | get, list, watch |
 | (non-resource) | /metrics, /metrics/cadvisor | get |
 
-### Scrape Jobs (28 total)
+### Scrape Jobs (30 total)
 
 | # | Job Name | Target | Discovery | Protocol | Port | Auth | Notes |
 |---|----------|--------|-----------|----------|------|------|-------|
@@ -260,10 +262,12 @@ Prometheus uses a dedicated `ServiceAccount` named `prometheus` in the `monitori
 | 26 | `mattermost` | mattermost-metrics endpoints | endpoints SD (mattermost) | HTTP | metrics | none | Requires Enterprise license |
 | 27 | `alertmanager` | alertmanager endpoints | endpoints SD (monitoring) | HTTP | 9093 | none | |
 | 28 | `oauth2-proxy` | oauth2-proxy pods | pod SD (all namespaces) | HTTP | 4180 | none | Label: `app.kubernetes.io/name=oauth2-proxy`; relabels `instance` to `service` |
+| 29 | `redis-exporter` | oauth2-proxy-redis pods | pod SD (monitoring) | HTTP | 9121 | none | Label: `app=oauth2-proxy-redis`; Redis exporter sidecar |
+| 30 | `grafana` | grafana endpoints | endpoints SD (monitoring) | HTTP | http | none | Self-monitoring |
 
 ### Alert Rules
 
-Prometheus defines alert rules organized into 13 groups:
+Prometheus defines alert rules organized into 17 groups:
 
 #### Group: node-alerts
 
@@ -281,8 +285,8 @@ Prometheus defines alert rules organized into 13 groups:
 |-------|-----------|-----|----------|
 | KubeAPIServerDown | `up{job="kubernetes-apiservers"} == 0` | 2m | critical |
 | EtcdMemberDown | `up{job="etcd"} == 0` | 2m | critical |
-| EtcdHighLatency | WAL fsync p99 > 0.5s | 10m | warning |
-| EtcdHighCommitDuration | Backend commit p99 > 0.25s | 10m | warning |
+| EtcdHighLatency | WAL fsync p99 > 1s | 15m | warning |
+| EtcdHighCommitDuration | Backend commit p99 > 0.5s | 15m | warning |
 | KubePodCrashLooping | > 5 restarts in 1h | 15m | warning |
 | KubePodNotReady | Phase Pending or Unknown | 15m | warning |
 | KubeDeploymentReplicasMismatch | Desired != ready replicas | 15m | warning |
@@ -330,6 +334,7 @@ Prometheus defines alert rules organized into 13 groups:
 | PrometheusStorageAlmostFull | TSDB storage > 80% of 50GB | 30m | warning |
 | LokiDown | `up{job=~".*loki.*"} == 0` | 5m | critical |
 | AlloyDown | `up{job="alloy"} == 0` | 5m | warning |
+| GrafanaDown | `up{job="grafana"} == 0` | 5m | warning |
 
 #### Group: traefik-alerts
 
@@ -342,7 +347,7 @@ Prometheus defines alert rules organized into 13 groups:
 
 | Alert | Expression | For | Severity |
 |-------|-----------|-----|----------|
-| CiliumAgentDown | `up{job="cilium-agent"} == 0` | 2m | critical |
+| CiliumAgentDown | `up{job="hubble-relay"} == 0` | 2m | critical |
 | CiliumEndpointNotReady | Endpoints in not-ready state > 0 | 15m | warning |
 
 #### Group: argocd-alerts
@@ -388,6 +393,23 @@ Prometheus defines alert rules organized into 13 groups:
 | APIServerUnusualRequestRate | Non-read requests > 100/s | 10m | warning |
 | HighDNSQueryRate | CoreDNS queries > 5000/s per server | 10m | warning |
 | SecretAccessSpike | Secret read requests > 50/s | 5m | warning |
+
+#### Group: redis-alerts
+
+| Alert | Expression | For | Severity |
+|-------|-----------|-----|----------|
+| RedisDown | `up{job="redis-exporter"} == 0` | 2m | critical |
+| RedisHighMemory | Redis memory > 80% of max | 10m | warning |
+
+#### Group: operator-alerts
+
+| Alert | Expression | For | Severity |
+|-------|-----------|-----|----------|
+| StorageAutoscalerDown | `absent(up{...namespace="storage-autoscaler"} == 1)` | 5m | warning |
+| StorageAutoscalerPollErrors | Poll errors > 5 in 15m | 5m | warning |
+| NodeLabelerDown | `absent(up{...namespace="node-labeler"} == 1)` | 5m | warning |
+| NodeLabelerErrors | Errors > 0 in 15m | 5m | warning |
+| ArgoRolloutsDown | `up{job="argo-rollouts"} == 0` | 5m | warning |
 
 ---
 
@@ -445,19 +467,16 @@ Grafana supports two authentication methods:
 
 ### Dashboard Folder Structure
 
-Dashboards are organized into 9 Grafana folders, configured via the `grafana-dashboard-provider` ConfigMap:
+Dashboards are organized into 6 Grafana folders, configured via the `grafana-dashboard-provider` ConfigMap:
 
 | Folder | Path | Description |
 |--------|------|-------------|
-| RKE2 | `/var/lib/grafana/dashboards/rke2` | RKE2-specific cluster dashboards |
-| Kubernetes | `/var/lib/grafana/dashboards/kubernetes` | General Kubernetes monitoring |
-| Loki | `/var/lib/grafana/dashboards/loki` | Log exploration and Loki health |
-| Services | `/var/lib/grafana/dashboards/services` | Application service dashboards |
-| Networking | `/var/lib/grafana/dashboards/networking` | Network component dashboards |
-| Security | `/var/lib/grafana/dashboards/security` | Security and compliance dashboards |
-| Operations | `/var/lib/grafana/dashboards/operations` | Operational health dashboards |
-| CI/CD | `/var/lib/grafana/dashboards/cicd` | Continuous delivery dashboards |
-| Home | `/var/lib/grafana/dashboards/home` | Home overview dashboard |
+| Home | `/var/lib/grafana/dashboards/home` | Home overview and firing alerts dashboards |
+| Platform | `/var/lib/grafana/dashboards/platform` | etcd, API server, node detail, PV usage, node labeler |
+| Networking | `/var/lib/grafana/dashboards/networking` | Traefik, CoreDNS, Cilium dashboards |
+| Services | `/var/lib/grafana/dashboards/services` | Vault, CNPG, GitLab, ArgoCD, Harbor, Mattermost, Argo Rollouts, Redis |
+| Security | `/var/lib/grafana/dashboards/security` | Keycloak, cert-manager, security advanced, oauth2-proxy |
+| Observability | `/var/lib/grafana/dashboards/observability` | Loki logs and Loki stack monitoring |
 
 ---
 
@@ -748,7 +767,52 @@ kube-state-metrics generates metrics about the state of Kubernetes objects:
 
 ---
 
-## 10. TLS Integration
+## 10. Redis Session Store (oauth2-proxy)
+
+The monitoring stack includes a Redis deployment managed by the OpsTree Redis Operator, providing session persistence for all oauth2-proxy ForwardAuth instances.
+
+### Architecture
+
+| Component | Kind | Image | Replicas | Purpose |
+|-----------|------|-------|----------|---------|
+| Redis Replication | RedisReplication CRD | `quay.io/opstree/redis:v7.0.15` | 3 (1 master + 2 replicas) | Session key-value store |
+| Redis Sentinel | RedisSentinel CRD | `quay.io/opstree/redis-sentinel:v7.0.15` | 3 | HA monitoring + automatic failover |
+| Redis Exporter | Sidecar | `oliver006/redis_exporter:latest` | per-replica | Metrics for Prometheus (port 9121) |
+
+### Resource Allocation
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|-----------|-------------|-----------|----------------|--------------|
+| Redis replica | 50m | 200m | 64Mi | 128Mi |
+| Redis Sentinel | 25m | 100m | 32Mi | 64Mi |
+| Redis Exporter | 25m | 50m | 32Mi | 64Mi |
+
+### Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| Namespace | `monitoring` |
+| Storage | 1Gi PVC per replica (storageClass: harvester) |
+| Authentication | Password from `oauth2-proxy-redis-credentials` Secret |
+| Sentinel master group | `mymaster` |
+| Sentinel quorum | 2 |
+| Node selector | `workload-type: general` |
+| Security context | `runAsUser: 999`, `fsGroup: 999` |
+| Pod anti-affinity | Preferred spread across nodes |
+
+### Sentinel Connection
+
+oauth2-proxy instances connect using `--redis-sentinel-connection-urls` which talks to Sentinel on port 26379 without authentication. Sentinel then provides the current master address. The replication password is configured via `redisSentinelConfig.redisReplicationPassword` (sets `masterauth` only, not `requirepass` on Sentinel).
+
+### Monitoring Integration
+
+- Prometheus scrape job `redis-exporter` (job 29) collects metrics from the exporter sidecar on port 9121
+- Alert rules in the `redis-alerts` group: `RedisDown`, `RedisHighMemory`
+- Grafana dashboard: `Redis Overview` (Services folder)
+
+---
+
+## 11. TLS Integration
 
 All monitoring components exposed externally use TLS certificates issued by the internal PKI chain:
 
@@ -805,59 +869,52 @@ Inter-component communication within the cluster uses plain HTTP over ClusterIP 
 
 ---
 
-## 11. Dashboard Inventory
+## 12. Dashboard Inventory
 
 ### Complete Dashboard Table
 
 | # | Dashboard Name | Grafana Folder | ConfigMap Name | Mount Path | JSON File | Primary Datasource |
 |---|---------------|----------------|----------------|------------|-----------|-------------------|
 | 1 | Cluster Home | Home | `grafana-dashboard-home` | `/var/lib/grafana/dashboards/home/home-overview.json` | `home-overview.json` | Prometheus |
-| 2 | RKE2 Cluster | RKE2 | `grafana-dashboard-rke2` | `/var/lib/grafana/dashboards/rke2/rke2-cluster.json` | `rke2-cluster.json` | Prometheus + Loki |
-| 3 | Kubernetes RKE Cluster | RKE2 | `grafana-dashboard-rke-cluster` | `/var/lib/grafana/dashboards/rke2/rke-cluster.json` | `rke-cluster.json` | Prometheus |
-| 4 | etcd | RKE2 | `grafana-dashboard-etcd` | `/var/lib/grafana/dashboards/rke2/etcd.json` | `etcd.json` | Prometheus |
-| 5 | API Server Performance | RKE2 | `grafana-dashboard-apiserver` | `/var/lib/grafana/dashboards/rke2/apiserver-performance.json` | `apiserver-performance.json` | Prometheus |
-| 6 | Kubernetes Cluster Monitoring | Kubernetes | `grafana-dashboard-cluster` | `/var/lib/grafana/dashboards/kubernetes/cluster-monitoring.json` | `cluster-monitoring.json` | Prometheus |
-| 7 | Pod Monitoring | Kubernetes | `grafana-dashboard-pods` | `/var/lib/grafana/dashboards/kubernetes/pod-monitoring.json` | `pod-monitoring.json` | Prometheus |
-| 8 | Loki Logs | Loki | `grafana-dashboard-loki` | `/var/lib/grafana/dashboards/loki/loki-logs.json` | `loki-logs.json` | Loki |
-| 9 | Loki Stack Monitoring | Loki | `grafana-dashboard-loki-stack` | `/var/lib/grafana/dashboards/loki/loki-stack.json` | `loki-stack.json` | Prometheus + Loki |
-| 10 | Vault Cluster Overview | Services | `grafana-dashboard-vault` | `/var/lib/grafana/dashboards/services/vault-overview.json` | `vault-overview.json` | Prometheus |
-| 11 | CloudNativePG Cluster | Services | `grafana-dashboard-cnpg` | `/var/lib/grafana/dashboards/services/cnpg-cluster.json` | `cnpg-cluster.json` | Prometheus |
-| 12 | GitLab Overview | Services | `grafana-dashboard-gitlab` | `/var/lib/grafana/dashboards/services/gitlab-overview.json` | `gitlab-overview.json` | Prometheus |
-| 13 | ArgoCD Overview | Services | `grafana-dashboard-argocd` | `/var/lib/grafana/dashboards/services/argocd-overview.json` | `argocd-overview.json` | Prometheus |
-| 14 | Harbor Overview | Services | `grafana-dashboard-harbor` | `/var/lib/grafana/dashboards/services/harbor-overview.json` | `harbor-overview.json` | Prometheus |
-| 15 | Mattermost Overview | Services | `grafana-dashboard-mattermost` | `/var/lib/grafana/dashboards/services/mattermost-overview.json` | `mattermost-overview.json` | Prometheus |
-| 16 | Argo Rollouts Overview | Services | `grafana-dashboard-argo-rollouts` | `/var/lib/grafana/dashboards/services/argo-rollouts-overview.json` | `argo-rollouts-overview.json` | Prometheus |
-| 17 | Cilium Overview | Networking | `grafana-dashboard-cilium` | `/var/lib/grafana/dashboards/networking/cilium-overview.json` | `cilium-overview.json` | Prometheus |
-| 18 | Traefik Overview | Networking | `grafana-dashboard-traefik` | `/var/lib/grafana/dashboards/networking/traefik-overview.json` | `traefik-overview.json` | Prometheus |
-| 19 | CoreDNS | Networking | `grafana-dashboard-coredns` | `/var/lib/grafana/dashboards/networking/coredns.json` | `coredns.json` | Prometheus |
+| 2 | Firing Alerts | Home | `grafana-dashboard-firing-alerts` | `/var/lib/grafana/dashboards/home/firing-alerts.json` | `firing-alerts.json` | Prometheus |
+| 3 | etcd | Platform | `grafana-dashboard-etcd` | `/var/lib/grafana/dashboards/platform/etcd.json` | `etcd.json` | Prometheus |
+| 4 | API Server Performance | Platform | `grafana-dashboard-apiserver` | `/var/lib/grafana/dashboards/platform/apiserver-performance.json` | `apiserver-performance.json` | Prometheus |
+| 5 | Node Detail | Platform | `grafana-dashboard-node-detail` | `/var/lib/grafana/dashboards/platform/node-detail.json` | `node-detail.json` | Prometheus |
+| 6 | PV Usage | Platform | `grafana-dashboard-storage` | `/var/lib/grafana/dashboards/platform/pv-usage.json` | `pv-usage.json` | Prometheus |
+| 7 | Node Labeler | Platform | `grafana-dashboard-node-labeler` | `/var/lib/grafana/dashboards/platform/node-labeler.json` | `node-labeler.json` | Prometheus |
+| 8 | Traefik Overview | Networking | `grafana-dashboard-traefik` | `/var/lib/grafana/dashboards/networking/traefik-overview.json` | `traefik-overview.json` | Prometheus |
+| 9 | CoreDNS | Networking | `grafana-dashboard-coredns` | `/var/lib/grafana/dashboards/networking/coredns.json` | `coredns.json` | Prometheus |
+| 10 | Cilium Overview | Networking | `grafana-dashboard-cilium` | `/var/lib/grafana/dashboards/networking/cilium-overview.json` | `cilium-overview.json` | Prometheus |
+| 11 | Vault Cluster Overview | Services | `grafana-dashboard-vault` | `/var/lib/grafana/dashboards/services/vault-overview.json` | `vault-overview.json` | Prometheus |
+| 12 | CloudNativePG Cluster | Services | `grafana-dashboard-cnpg` | `/var/lib/grafana/dashboards/services/cnpg-cluster.json` | `cnpg-cluster.json` | Prometheus |
+| 13 | GitLab Overview | Services | `grafana-dashboard-gitlab` | `/var/lib/grafana/dashboards/services/gitlab-overview.json` | `gitlab-overview.json` | Prometheus |
+| 14 | ArgoCD Overview | Services | `grafana-dashboard-argocd` | `/var/lib/grafana/dashboards/services/argocd-overview.json` | `argocd-overview.json` | Prometheus |
+| 15 | Harbor Overview | Services | `grafana-dashboard-harbor` | `/var/lib/grafana/dashboards/services/harbor-overview.json` | `harbor-overview.json` | Prometheus |
+| 16 | Mattermost Overview | Services | `grafana-dashboard-mattermost` | `/var/lib/grafana/dashboards/services/mattermost-overview.json` | `mattermost-overview.json` | Prometheus |
+| 17 | Argo Rollouts Overview | Services | `grafana-dashboard-argo-rollouts` | `/var/lib/grafana/dashboards/services/argo-rollouts-overview.json` | `argo-rollouts-overview.json` | Prometheus |
+| 18 | Redis Overview | Services | `grafana-dashboard-redis` | `/var/lib/grafana/dashboards/services/redis-overview.json` | `redis-overview.json` | Prometheus |
+| 19 | Keycloak Overview | Security | `grafana-dashboard-keycloak` | `/var/lib/grafana/dashboards/security/keycloak-overview.json` | `keycloak-overview.json` | Prometheus |
 | 20 | cert-manager | Security | `grafana-dashboard-cert-manager` | `/var/lib/grafana/dashboards/security/cert-manager.json` | `cert-manager.json` | Prometheus |
-| 21 | Cluster Security | Security | `grafana-dashboard-security` | `/var/lib/grafana/dashboards/security/cluster-security.json` | `cluster-security.json` | Prometheus |
-| 22 | Security Advanced | Security | `grafana-dashboard-security-advanced` | `/var/lib/grafana/dashboards/security/security-advanced.json` | `security-advanced.json` | Prometheus |
-| 23 | Keycloak Overview | Security | `grafana-dashboard-keycloak` | `/var/lib/grafana/dashboards/security/keycloak-overview.json` | `keycloak-overview.json` | Prometheus |
-| 24 | oauth2-proxy ForwardAuth | Security | `grafana-dashboard-oauth2-proxy` | `/var/lib/grafana/dashboards/security/oauth2-proxy-overview.json` | `oauth2-proxy-overview.json` | Prometheus + Loki |
-| 25 | Cluster Operations | Operations | `grafana-dashboard-operations` | `/var/lib/grafana/dashboards/operations/cluster-operations.json` | `cluster-operations.json` | Prometheus |
-| 26 | Node Detail | Operations | `grafana-dashboard-node-detail` | `/var/lib/grafana/dashboards/operations/node-detail.json` | `node-detail.json` | Prometheus |
-| 27 | PV Usage | Operations | `grafana-dashboard-storage` | `/var/lib/grafana/dashboards/operations/pv-usage.json` | `pv-usage.json` | Prometheus |
-| 28 | Pipelines Overview | CI/CD | `grafana-dashboard-pipelines` | `/var/lib/grafana/dashboards/cicd/pipelines-overview.json` | `pipelines-overview.json` | Prometheus |
+| 21 | Security Advanced | Security | `grafana-dashboard-security-advanced` | `/var/lib/grafana/dashboards/security/security-advanced.json` | `security-advanced.json` | Prometheus |
+| 22 | oauth2-proxy ForwardAuth | Security | `grafana-dashboard-oauth2-proxy` | `/var/lib/grafana/dashboards/security/oauth2-proxy-overview.json` | `oauth2-proxy-overview.json` | Prometheus + Loki |
+| 23 | Loki Logs | Observability | `grafana-dashboard-loki` | `/var/lib/grafana/dashboards/observability/loki-logs.json` | `loki-logs.json` | Loki |
+| 24 | Loki Stack Monitoring | Observability | `grafana-dashboard-loki-stack` | `/var/lib/grafana/dashboards/observability/loki-stack.json` | `loki-stack.json` | Prometheus + Loki |
 
 ### Dashboard Count by Folder
 
 | Folder | Dashboard Count |
 |--------|----------------|
-| RKE2 | 4 |
-| Kubernetes | 2 |
-| Loki | 2 |
-| Services | 6 |
+| Home | 2 |
+| Platform | 5 |
 | Networking | 3 |
-| Security | 5 |
-| Operations | 3 |
-| CI/CD | 1 |
-| Home | 1 |
-| **Total** | **28** |
+| Services | 8 |
+| Security | 4 |
+| Observability | 2 |
+| **Total** | **24** |
 
 ### Home Dashboard Details
 
-The home dashboard (`Cluster Home`, UID: `home-overview`) is a single-page command center providing:
+The Home folder contains two dashboards: the main `Cluster Home` overview and a dedicated `Firing Alerts` dashboard. The home dashboard (`Cluster Home`, UID: `home-overview`) is a single-page command center providing:
 
 - **Top row**: Nodes Ready, Total Pods, Pods Not Ready, Firing Alerts, CPU Usage %, Memory Usage %
 - **Infrastructure row**: Status tiles for etcd, API Server, Traefik, CoreDNS, Cilium, Prometheus, Loki, Alertmanager
@@ -888,5 +945,8 @@ Each tile links to the corresponding detailed dashboard for drill-down.
 | Alloy DaemonSet | `services/monitoring-stack/alloy/daemonset.yaml` |
 | Node Exporter DaemonSet | `services/monitoring-stack/node-exporter/daemonset.yaml` |
 | kube-state-metrics deployment | `services/monitoring-stack/kube-state-metrics/deployment.yaml` |
+| Redis session store secret | `services/monitoring-stack/oauth2-proxy-redis/secret.yaml` |
+| Redis Replication CRD | `services/monitoring-stack/oauth2-proxy-redis/replication.yaml` |
+| Redis Sentinel CRD | `services/monitoring-stack/oauth2-proxy-redis/sentinel.yaml` |
 | TLS integration guide | `services/monitoring-stack/docs/tls-integration-guide.md` |
 | Monitoring stack README | `services/monitoring-stack/README.md` |

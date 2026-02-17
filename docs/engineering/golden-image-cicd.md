@@ -863,26 +863,36 @@ graph TB
 
     D -->|PR| E[test job]
     D -->|PR| F[lint job]
+    D -->|PR| V[govulncheck job]
     D -->|Push/Tag| E
     D -->|Push/Tag| F
+    D -->|Push/Tag| V
     D -->|Push/Tag| G[build-and-push job]
 
     subgraph "test job"
-        E1[actions/checkout@v4]
-        E2[actions/setup-go@v5<br/>go-version-file: go.mod]
+        E1[actions/checkout@v6]
+        E2[actions/setup-go@v6<br/>go-version-file: go.mod]
         E3[make test]
         E1 --> E2 --> E3
     end
 
+    subgraph "govulncheck job (non-blocking)"
+        V1[actions/checkout@v6]
+        V2[actions/setup-go@v6]
+        V3[go install govulncheck@latest]
+        V4[govulncheck ./...]
+        V1 --> V2 --> V3 --> V4
+    end
+
     subgraph "lint job (non-blocking)"
-        F1[actions/checkout@v4]
-        F2[actions/setup-go@v5]
-        F3[golangci-lint-action@v6]
+        F1[actions/checkout@v6]
+        F2[actions/setup-go@v6]
+        F3[golangci-lint-action@v9]
         F1 --> F2 --> F3
     end
 
     subgraph "build-and-push job"
-        G1[actions/checkout@v4]
+        G1[actions/checkout@v6]
         G2[docker/login-action@v3<br/>Registry: ghcr.io]
         G3[docker/setup-buildx-action@v3]
         G4[docker/metadata-action@v5<br/>Tags: branch, semver, sha]
@@ -890,13 +900,19 @@ graph TB
         G1 --> G2 --> G3 --> G4 --> G5
     end
 
+    subgraph "security-scan job"
+        S1["aquasecurity/trivy-action@master<br/>Scan GHCR image for vulnerabilities"]
+    end
+
     E -->|needs: test| G
+    G -->|needs: build-and-push| S1
 
     G5 --> H["ghcr.io/derhornspieler/node-labeler<br/>ghcr.io/derhornspieler/storage-autoscaler"]
 
     style H fill:#2d5016,stroke:#4a8529
 
     E --> E1
+    V --> V1
     F --> F1
     G --> G1
 ```
@@ -906,12 +922,17 @@ graph TB
 | Job | Depends On | Blocks Build? | Runs On |
 |-----|-----------|---------------|---------|
 | `test` | -- | Yes (build-and-push needs test) | `ubuntu-latest` |
+| `govulncheck` | -- | No (`continue-on-error: true`) | `ubuntu-latest` |
 | `lint` | -- | No (`continue-on-error: true`) | `ubuntu-latest` |
 | `build-and-push` | `test` | -- | `ubuntu-latest` |
+| `security-scan` | `build-and-push` | No (post-build scan) | `ubuntu-latest` |
 
 The `lint` job uses `continue-on-error: true` because `golangci-lint` may not
 yet support the Go version used by the operator (the comment explicitly notes
-this). Linting failures produce warnings but do not block the pipeline.
+this). The `govulncheck` job similarly uses `continue-on-error: true` to report
+vulnerabilities without gating the build. The `security-scan` job runs Trivy
+against the pushed GHCR image after a successful build. Linting, vulnerability
+check, and security scan failures produce warnings but do not block the pipeline.
 
 ---
 
@@ -924,9 +945,9 @@ this). Linting failures produce warnings but do not block the pipeline.
 | `push` to `main` | `operators/node-labeler/**` | Yes | -- | Yes |
 | `push` to `main` | `operators/storage-autoscaler/**` | -- | Yes | Yes |
 | Tag `node-labeler-v*` | -- | Yes | -- | Yes |
-| Tag `storage-autoscaler-v*` | -- | Yes | -- | Yes |
-| Pull Request | `operators/node-labeler/**` | Yes | -- | No (test + lint only) |
-| Pull Request | `operators/storage-autoscaler/**` | -- | Yes | No (test + lint only) |
+| Tag `storage-autoscaler-v*` | -- | -- | Yes | Yes |
+| Pull Request | `operators/node-labeler/**` | Yes | -- | No (test + lint + govulncheck only) |
+| Pull Request | `operators/storage-autoscaler/**` | -- | Yes | No (test + lint + govulncheck only) |
 
 ### Key Behaviors
 
@@ -934,8 +955,8 @@ this). Linting failures produce warnings but do not block the pipeline.
   directory change, preventing unnecessary builds when other parts of the
   repository are modified.
 
-- **PR gating**: Pull requests run `test` and `lint` but never `build-and-push`
-  (`if: github.event_name == 'push'` guard).
+- **PR gating**: Pull requests run `test`, `lint`, and `govulncheck` but never
+  `build-and-push` (`if: github.event_name == 'push'` guard).
 
 - **Tag-triggered releases**: Tags matching `<operator>-v*` trigger a full
   pipeline including build-and-push with a semantic version tag.
@@ -956,7 +977,7 @@ The Dockerfile uses a multi-stage build with `TARGETOS` and `TARGETARCH` build
 arguments:
 
 ```dockerfile
-FROM golang:1.25 AS builder
+FROM golang:1.25.7 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager cmd/main.go
@@ -1031,8 +1052,8 @@ no registry serves the images yet.
 
 | File | Target Image |
 |------|-------------|
-| `node-labeler-v0.1.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/node-labeler:v0.1.0` |
-| `storage-autoscaler-v0.1.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0` |
+| `node-labeler-v0.2.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/node-labeler:v0.2.0` |
+| `storage-autoscaler-v0.2.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0` |
 
 These are Docker-format tar archives created by `make docker-save`, then gzip
 compressed. They are committed to the repository and carried through deployment.
@@ -1043,10 +1064,10 @@ From each operator directory:
 
 ```bash
 cd operators/node-labeler
-make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.2.0
 
 cd operators/storage-autoscaler
-make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
 ```
 
 The `docker-save` Makefile target:
@@ -1103,10 +1124,10 @@ operator machine because:
 Filenames follow the convention `<name>-v<version>-<arch>.tar.gz`:
 
 ```
-node-labeler-v0.1.0-amd64.tar.gz
+node-labeler-v0.2.0-amd64.tar.gz
   name = "node-labeler"      (everything before -v)
-  tag  = "v0.1.0"            (version including v prefix)
-  ref  = "harbor.<DOMAIN>/library/node-labeler:v0.1.0"
+  tag  = "v0.2.0"            (version including v prefix)
+  ref  = "harbor.<DOMAIN>/library/node-labeler:v0.2.0"
 ```
 
 ---
@@ -1480,19 +1501,20 @@ All component versions referenced across the codebase:
 
 | Action | Version | Purpose |
 |--------|---------|---------|
-| `actions/checkout` | v4 | Repository checkout |
-| `actions/setup-go` | v5 | Go toolchain |
+| `actions/checkout` | v6 | Repository checkout |
+| `actions/setup-go` | v6 | Go toolchain |
 | `docker/login-action` | v3 | GHCR authentication |
 | `docker/setup-buildx-action` | v3 | Multi-platform builds |
 | `docker/metadata-action` | v5 | Image tag generation |
 | `docker/build-push-action` | v6 | Build and push images |
-| `golangci/golangci-lint-action` | v6 | Go linting |
+| `golangci/golangci-lint-action` | v9 | Go linting |
+| `aquasecurity/trivy-action` | master | Container image vulnerability scanning |
 
 ### Operator Build
 
 | Component | Version | Source |
 |-----------|---------|--------|
-| Go | 1.25.x | `go.mod` / `Dockerfile` |
+| Go | 1.25.7 | `go.mod` / `Dockerfile` |
 | golangci-lint | v2.7.2 | `Makefile` |
 | Base image (runtime) | `gcr.io/distroless/static:nonroot` | `Dockerfile` |
 | Prometheus client | v1.23.2 | `go.mod` |
@@ -1501,8 +1523,8 @@ All component versions referenced across the codebase:
 
 | Image | Version | Format |
 |-------|---------|--------|
-| `node-labeler` | v0.1.0 | `tar.gz` (amd64) + GHCR (multi-arch) |
-| `storage-autoscaler` | v0.1.0 | `tar.gz` (amd64) + GHCR (multi-arch) |
+| `node-labeler` | v0.2.0 | `tar.gz` (amd64) + GHCR (multi-arch) |
+| `storage-autoscaler` | v0.2.0 | `tar.gz` (amd64) + GHCR (multi-arch) |
 
 ### Dev VM Tools
 

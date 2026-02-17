@@ -284,8 +284,8 @@ Metrics are exposed at `/v1/sys/metrics?format=prometheus` on port 8200 with una
 
 | Policy | Path | Capabilities | Consumer |
 |--------|------|-------------|----------|
-| `pki-policy` | `pki_int/sign/<DOMAIN_DOT>` | create, update | cert-manager |
-| `pki-policy` | `pki_int/cert/ca` | read | cert-manager |
+| `cert-manager` | `pki_int/sign/<DOMAIN_DOT>` | create, update | cert-manager |
+| `cert-manager` | `pki_int/cert/ca` | read | cert-manager |
 | `external-secrets` | `secret/data/*` | read | External Secrets Operator (planned) |
 | `external-secrets` | `secret/metadata/*` | read, list | External Secrets Operator (planned) |
 
@@ -301,7 +301,7 @@ Metrics are exposed at `/v1/sys/metrics?format=prometheus` on port 8200 with una
 
 | Role | Bound SA | Bound Namespace | Policies | TTL |
 |------|----------|-----------------|----------|-----|
-| `cert-manager-issuer` | `vault-issuer` | `cert-manager` | `pki-policy` | 1h |
+| `cert-manager-issuer` | `vault-issuer` | `cert-manager` | `cert-manager` | 1h |
 | `external-secrets` | `external-secrets` | `external-secrets` | `external-secrets` | 1h |
 
 ### OIDC Configuration
@@ -556,7 +556,7 @@ sequenceDiagram
 | Data checksums | Enabled |
 | Max connections | 100 |
 | Backup | S3 to MinIO (`s3://cnpg-backups/keycloak-pg`) |
-| Retention | 30d |
+| Retention | 1d |
 
 ### Authentication Matrix
 
@@ -753,6 +753,44 @@ All clients have an `oidc-group-membership-mapper` protocol mapper configured:
 **Role permissions**: `pods` -- verbs: `get`, `list`
 
 This allows Keycloak's Infinispan/JGroups cache to discover peer pods for distributed caching via the `kubernetes` cache stack (DNS query: `keycloak-headless.keycloak.svc.cluster.local`).
+
+### OIDC-Based Kubernetes RBAC
+
+When users authenticate to the Kubernetes API via `kubelogin` (OIDC), Keycloak group memberships are mapped to Kubernetes RBAC via `ClusterRoleBindings`. These are defined in `services/rbac/`:
+
+| ClusterRole | Bound Group | Scope | Manifest |
+|-------------|-------------|-------|----------|
+| `cluster-admin` | `platform-admins` | Cluster-wide | `platform-admins-crb.yaml` |
+| `infra-engineer` (custom) | `infra-engineers` | Cluster-wide | `infra-engineers-cr.yaml` + `infra-engineers-crb.yaml` |
+| `view` | `viewers` | Cluster-wide | `viewers-crb.yaml` |
+| `edit` | `developers`, `senior-developers` | Per-namespace (template) | `developer-rolebinding-template.yaml` |
+
+#### infra-engineer ClusterRole Details
+
+The custom `infra-engineer` ClusterRole provides broad operational access without full cluster-admin:
+
+| API Group | Resources | Verbs |
+|-----------|-----------|-------|
+| `""` (core) | namespaces | get, list, watch |
+| `""` (core) | pods, services, configmaps, secrets, PVCs, events, endpoints | get, list, watch, create, update, patch, delete |
+| `""` (core) | pods/log, pods/exec, pods/portforward | get, create |
+| apps | deployments, statefulsets, daemonsets, replicasets | get, list, watch, create, update, patch, delete |
+| batch | jobs, cronjobs | get, list, watch, create, update, patch, delete |
+| networking.k8s.io | ingresses, networkpolicies | get, list, watch, create, update, patch, delete |
+| gateway.networking.k8s.io | gateways, httproutes, grpcroutes, referencegrants | full CRUD |
+| cert-manager.io | certificates, certificaterequests, issuers, clusterissuers | full CRUD |
+| traefik.io | middlewares, ingressroutes, traefikservices, tlsoptions, tlsstores | full CRUD |
+| apiextensions.k8s.io | customresourcedefinitions | get, list, watch |
+| `""` (core) | nodes | get, list, watch |
+| storage.k8s.io | storageclasses, persistentvolumes | get, list, watch |
+
+#### Developer Namespace Access (Template)
+
+The `developer-rolebinding-template.yaml` creates a `RoleBinding` in a specific namespace, binding both `developers` and `senior-developers` groups to the built-in `edit` ClusterRole. Operators copy the template per namespace:
+
+```bash
+sed 's/CHANGEME_NAMESPACE/my-app/' developer-rolebinding-template.yaml | kubectl apply -f -
+```
 
 ### Service Accounts Inventory
 
@@ -1008,6 +1046,10 @@ Consolidated view of all security gaps with priority and mitigation status.
 | Keycloak Secrets | `services/keycloak/keycloak/secret.yaml` |
 | Keycloak PG Cluster | `services/keycloak/postgres/keycloak-pg-cluster.yaml` |
 | Default TLS Store | `services/monitoring-stack/kube-system/traefik-default-tlsstore.yaml` |
+| OIDC RBAC: platform-admins | `services/rbac/platform-admins-crb.yaml` |
+| OIDC RBAC: infra-engineers | `services/rbac/infra-engineers-cr.yaml`, `services/rbac/infra-engineers-crb.yaml` |
+| OIDC RBAC: viewers | `services/rbac/viewers-crb.yaml` |
+| OIDC RBAC: developer template | `services/rbac/developer-rolebinding-template.yaml` |
 | Keycloak Setup Script | `scripts/setup-keycloak.sh` |
 | Vault HA Migration | `docs/vault-ha.md` |
 | Vault Credential Storage | `docs/vault-credential-storage.md` |

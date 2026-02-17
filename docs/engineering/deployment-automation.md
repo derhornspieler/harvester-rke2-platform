@@ -38,13 +38,13 @@ graph TB
 
     subgraph "Lifecycle Scripts"
         DEPLOY["deploy-cluster.sh<br/><i>Full Deployment</i><br/>12 phases (0-11), zero-touch<br/>Terraform to GitLab"]
-        DESTROY["destroy-cluster.sh<br/><i>Full Teardown</i><br/>4 phases, Harvester cleanup<br/>orphan removal"]
+        DESTROY["destroy-cluster.sh<br/><i>Full Teardown</i><br/>5 phases (0-4), K8s cleanup<br/>Harvester orphan removal"]
         UPGRADE["upgrade-cluster.sh<br/><i>Version Upgrade</i><br/>tfvars update, rolling upgrade<br/>via Rancher"]
     end
 
     subgraph "Post-Deploy Scripts"
         KEYCLOAK["setup-keycloak.sh<br/><i>OIDC Setup</i><br/>5 phases: realm, clients,<br/>service bindings, groups"]
-        CICD["setup-cicd.sh<br/><i>CI/CD Integration</i><br/>6 phases: GitLab-ArgoCD,<br/>Harbor robots, templates"]
+        CICD["setup-cicd.sh<br/><i>CI/CD Integration</i><br/>6 phases: GitHub-ArgoCD,<br/>Harbor robots, templates"]
     end
 
     LIB --> DEPLOY
@@ -177,14 +177,21 @@ The shared library (`scripts/lib.sh`) provides all common functions used across 
 
 | Function | Parameters | Return | Side Effects |
 |----------|-----------|--------|-------------|
-| `label_unlabeled_nodes` | None | None | Labels all worker nodes based on hostname pattern (`*-general-*`, `*-compute-*`, `*-database-*`) with `workload-type` and `node-role.kubernetes.io` labels. Idempotent via `--overwrite`. Called at the start of multiple phases to catch autoscaler-created nodes. |
+| `label_unlabeled_nodes` | None | None | Labels all worker nodes based on hostname pattern (`*-general-*`, `*-compute-*`, `*-database-*`) with `workload-type` and `node-role.kubernetes.io` labels. Idempotent via `--overwrite`. Called in Phase 1 (start and end) to catch autoscaler-created nodes. The Node Labeler operator (also deployed in Phase 1) handles ongoing labeling for nodes created after initial deployment. |
 
 ### 2.8 Helm Helpers
 
 | Function | Parameters | Return | Side Effects |
 |----------|-----------|--------|-------------|
-| `helm_repo_add` | `name`, `url` | None | Adds a Helm repo if not already present, or logs that it exists. |
+| `helm_repo_add` | `name`, `url` | None | Adds a Helm repo if not already present, or logs that it exists. In airgapped mode, skips repo add entirely. |
+| `resolve_helm_chart` | `online_chart`, `oci_var_name` | `string` (chart ref) | Returns OCI URL from the named env var when `AIRGAPPED=true`, otherwise returns the online chart reference. Used by all Helm installs to support airgapped mode. |
 | `helm_install_if_needed` | `release`, `chart`, `namespace`, `...extra_args` | None | If the release exists, runs `helm upgrade`. Otherwise runs `helm install --create-namespace`. All extra arguments are passed through. |
+
+### 2.8a Airgapped Validation
+
+| Function | Parameters | Return | Side Effects |
+|----------|-----------|--------|-------------|
+| `validate_airgapped_prereqs` | None | None | When `AIRGAPPED=true`, validates all required HELM_OCI_* variables are set, GIT_BASE_URL is set, UPSTREAM_PROXY_REGISTRY is set, ARGO_ROLLOUTS_PLUGIN_URL does not point to github.com, and Gateway API CRD file exists locally. Calls `die` with detailed instructions on failure. |
 
 ### 2.9 Rancher API Helpers
 
@@ -237,7 +244,7 @@ The shared library (`scripts/lib.sh`) provides all common functions used across 
 | Function | Parameters | Return | Side Effects |
 |----------|-----------|--------|-------------|
 | `extract_root_ca` | None | `string` (PEM) | Returns Root CA PEM. Primary: reads `cluster/root-ca.pem`. Fallback: extracts root cert from Vault intermediate CA chain. |
-| `distribute_root_ca` | None | None | Creates a `vault-root-ca` ConfigMap containing the Root CA PEM in `monitoring`, `argocd`, `harbor`, and `mattermost` namespaces. |
+| `distribute_root_ca` | None | None | Creates a `vault-root-ca` ConfigMap containing the Root CA PEM in `kube-system`, `monitoring`, `argocd`, `argo-rollouts`, `harbor`, `mattermost`, `gitlab`, and `keycloak` namespaces (8 total). |
 
 ### 2.15 Registry Configuration
 
@@ -275,16 +282,41 @@ All variables are defined in `scripts/.env` (generated from `.env.example`). If 
 | `MATTERMOST_MINIO_ROOT_USER` | `mattermost-minio-admin` | No | MinIO root user for Mattermost object storage |
 | `MATTERMOST_MINIO_ROOT_PASSWORD` | *(random 32 chars)* | Yes | MinIO root password for Mattermost |
 | `HARBOR_REDIS_PASSWORD` | *(random 32 chars)* | Yes | Password for Harbor Valkey Sentinel cluster |
+| `HARBOR_ADMIN_PASSWORD` | *(random 32 chars)* | Yes | Harbor admin user password |
+| `HARBOR_MINIO_SECRET_KEY` | *(random 32 chars)* | Yes | MinIO secret key for Harbor S3 storage |
+| `HARBOR_DB_PASSWORD` | *(random 32 chars)* | Yes | PostgreSQL password for Harbor CNPG cluster |
+| `KASM_PG_SUPERUSER_PASSWORD` | *(random 32 chars)* | Yes | PostgreSQL superuser password for Kasm CNPG cluster |
+| `KASM_PG_APP_PASSWORD` | *(random 30 chars)* | Yes | PostgreSQL app password for Kasm CNPG cluster |
+| `KC_ADMIN_PASSWORD` | *(random 24 chars)* | Yes | Keycloak realm admin password |
 | `GRAFANA_ADMIN_PASSWORD` | *(random 24 chars)* | Yes | Grafana admin password |
 | `BASIC_AUTH_PASSWORD` | *(random 24 chars)* | Yes | **Deprecated**: kept for rollback compatibility. oauth2-proxy secrets are auto-generated at deploy time. |
 | `BASIC_AUTH_HTPASSWD` | *(derived)* | Yes | **Deprecated**: bcrypt htpasswd hash. No longer used — oauth2-proxy handles authentication. |
+| `OAUTH2_PROXY_REDIS_PASSWORD` | *(random 32 chars)* | Yes | Redis session store password for oauth2-proxy instances |
 | `LIBRENMS_DB_PASSWORD` | *(random 32 chars)* | Yes | MariaDB password for LibreNMS (generated even if disabled) |
 | `LIBRENMS_VALKEY_PASSWORD` | *(random 32 chars)* | Yes | Valkey/Redis password for LibreNMS |
+| `GITLAB_ROOT_PASSWORD` | *(random 32 chars)* | Yes | GitLab root user password |
+| `GITLAB_PRAEFECT_DB_PASSWORD` | *(random 32 chars)* | Yes | GitLab Praefect PostgreSQL password |
+| `GITLAB_REDIS_PASSWORD` | *(random 32 chars)* | Yes | GitLab Redis password |
+| `GITLAB_GITALY_TOKEN` | *(random 32 chars)* | Yes | GitLab Gitaly authentication token |
+| `GITLAB_PRAEFECT_TOKEN` | *(random 32 chars)* | Yes | GitLab Praefect authentication token |
+| `GITLAB_CHART_PATH` | `/home/rocky/data/gitlab` | No | Local path to GitLab Helm chart (for offline install) |
 | `TRAEFIK_LB_IP` | `198.51.100.2` | No | Traefik LoadBalancer IP (read from tfvars or default) |
 | `ORG_NAME` | *(derived from DOMAIN)* | Yes | Organization name for PKI CA Common Names (e.g., `Example Org`). Auto-derived from DOMAIN if empty. |
 | `KC_REALM` | *(derived from DOMAIN)* | Yes | Keycloak realm name. Derived from DOMAIN first segment (e.g., `example.com` -> `example`). |
-| `GIT_REPO_URL` | `git@gitlab.${DOMAIN}:infrastructure/rke2-cluster.git` | No | Git repo URL for ArgoCD bootstrap |
-| ~~`OAUTH2_PROXY_COOKIE_SECRET`~~ | — | — | *Removed: per-service cookie secrets are auto-generated during Phase 10 deploy* |
+| `GIT_REPO_URL` | *(derived from git remote)* | Yes | Git repo URL for ArgoCD bootstrap. Derived from `git remote get-url origin`, fallback: `git@github.com:OWNER/rke2-cluster.git` |
+| `GIT_BASE_URL` | *(derived from GIT_REPO_URL)* | Yes | Base URL for ArgoCD service repos (e.g., `git@github.com:org`). Derived by stripping repo name from GIT_REPO_URL. Required for airgapped mode (set to internal git server). |
+| `ARGO_ROLLOUTS_PLUGIN_URL` | GitHub release URL | No | Argo Rollouts Gateway API plugin binary URL. Must point to internal mirror when `AIRGAPPED=true`. |
+| `HELM_OCI_CERT_MANAGER` | *(empty)* | No | OCI URL override for cert-manager chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_CNPG` | *(empty)* | No | OCI URL override for CNPG chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_CLUSTER_AUTOSCALER` | *(empty)* | No | OCI URL override for cluster-autoscaler chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_REDIS_OPERATOR` | *(empty)* | No | OCI URL override for redis-operator chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_MARIADB_OPERATOR` | *(empty)* | No | OCI URL override for mariadb-operator chart (required when `AIRGAPPED=true`, if LibreNMS enabled) |
+| `HELM_OCI_VAULT` | *(empty)* | No | OCI URL override for Vault chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_HARBOR` | *(empty)* | No | OCI URL override for Harbor chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_ARGOCD` | *(empty)* | No | OCI URL override for ArgoCD chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_ARGO_ROLLOUTS` | *(empty)* | No | OCI URL override for Argo Rollouts chart (required when `AIRGAPPED=true`) |
+| `HELM_OCI_KASM` | *(empty)* | No | OCI URL override for Kasm chart (required when `AIRGAPPED=true`) |
+| ~~`OAUTH2_PROXY_COOKIE_SECRET`~~ | -- | -- | *Removed: per-service cookie secrets are auto-generated during Phase 10 deploy* |
 | `HARVESTER_CONTEXT` | `harvester` | No | kubectl context name for Harvester in `~/.kube/config` |
 | `USER_DATA_CP_FILE` | *(empty)* | No | Custom cloud-init file for control plane nodes |
 | `USER_DATA_WORKER_FILE` | *(empty)* | No | Custom cloud-init file for worker nodes |
@@ -333,11 +365,22 @@ The `_subst_changeme` function performs inline substitution of placeholder token
 | `CHANGEME_GRAFANA_ADMIN_PASSWORD` | `$GRAFANA_ADMIN_PASSWORD` |
 | `CHANGEME_LIBRENMS_DB_PASSWORD` | `$LIBRENMS_DB_PASSWORD` |
 | `CHANGEME_LIBRENMS_VALKEY_PASSWORD` | `$LIBRENMS_VALKEY_PASSWORD` |
+| `CHANGEME_HARBOR_ADMIN_PASSWORD` | `$HARBOR_ADMIN_PASSWORD` |
+| `CHANGEME_HARBOR_MINIO_SECRET_KEY` | `$HARBOR_MINIO_SECRET_KEY` |
+| `CHANGEME_HARBOR_DB_PASSWORD` | `$HARBOR_DB_PASSWORD` |
+| `CHANGEME_KASM_PG_SUPERUSER_PASSWORD` | `$KASM_PG_SUPERUSER_PASSWORD` |
+| `CHANGEME_KASM_PG_APP_PASSWORD` | `$KASM_PG_APP_PASSWORD` |
+| `CHANGEME_KC_ADMIN_PASSWORD` | `$KC_ADMIN_PASSWORD` |
+| `CHANGEME_GITLAB_REDIS_PASSWORD` | `$GITLAB_REDIS_PASSWORD` |
+| `CHANGEME_OAUTH2_PROXY_REDIS_PASSWORD` | `$OAUTH2_PROXY_REDIS_PASSWORD` |
 | `admin:CHANGEME_GENERATE_WITH_HTPASSWD` | `$BASIC_AUTH_HTPASSWD` |
 | `CHANGEME_TRAEFIK_LB_IP` | `$TRAEFIK_LB_IP` |
 | `CHANGEME_GIT_REPO_URL` | `$GIT_REPO_URL` |
+| `CHANGEME_ARGO_ROLLOUTS_PLUGIN_URL` | `$ARGO_ROLLOUTS_PLUGIN_URL` |
+| `CHANGEME_GIT_BASE_URL` | `$GIT_BASE_URL` |
 | `CHANGEME_TRAEFIK_FQDN` | `traefik.${DOMAIN}` |
 | `CHANGEME_TRAEFIK_TLS_SECRET` | `traefik-${DOMAIN_DASHED}-tls` |
+| `CHANGEME_KC_REALM` | `$KC_REALM` |
 | `<DOMAIN_DOT>` (e.g., `example-dot-com`) | `$DOMAIN_DOT` |
 | `<DOMAIN_DASHED>` (e.g., `example-com`) | `$DOMAIN_DASHED` |
 | `<DOMAIN>` (e.g., `example.com`) | `$DOMAIN` |
@@ -528,8 +571,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START["Phase 4: Harbor"] --> LABELS["label_unlabeled_nodes()"]
-    LABELS --> NS["Create namespaces: harbor, minio, database"]
+    START["Phase 4: Harbor"] --> NS["Create namespaces: harbor, minio, database"]
 
     NS --> MINIO["Deploy MinIO<br/>secret -> PVC -> deployment -> service"]
     MINIO --> MINIOW["Wait for MinIO deployment"]
@@ -547,10 +589,10 @@ flowchart TD
     HW --> GW["Apply Gateway + HTTPRoute + HPAs"]
     GW --> TLS["Wait for TLS secret + HTTPS check"]
 
-    TLS --> PROXY["Configure Harbor proxy cache projects<br/>dockerhub, quay, ghcr, gcr, k8s, elastic"]
+    TLS --> PROXY["Configure Harbor proxy cache projects<br/>docker.io, quay.io, ghcr.io, gcr.io,<br/>registry.k8s.io, docker.elastic.co"]
     PROXY --> CICD["Create CICD projects<br/>library, charts, dev"]
 
-    CICD --> ROOTCA["distribute_root_ca()<br/>monitoring, argocd, harbor, mattermost"]
+    CICD --> ROOTCA["distribute_root_ca()<br/>kube-system, monitoring, argocd,<br/>argo-rollouts, harbor, mattermost,<br/>gitlab, keycloak"]
 
     ROOTCA --> REG["configure_rancher_registries()<br/>Mirror docker.io/quay.io/ghcr.io etc. to Harbor"]
 
@@ -567,9 +609,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START["Phase 5: ArgoCD + Rollouts"] --> LABELS["label_unlabeled_nodes()"]
-
-    LABELS --> ARGONS["ensure_namespace argocd"]
+    START["Phase 5: ArgoCD + Rollouts"] --> ARGONS["ensure_namespace argocd"]
     ARGONS --> ARGOCD["Helm install ArgoCD HA<br/>OCI chart from ghcr.io"]
     ARGOCD --> ARGOWAIT["Wait for argocd-server deployment"]
     ARGOWAIT --> ARGOGW["Apply ArgoCD Gateway + HTTPRoute"]
@@ -578,7 +618,8 @@ flowchart TD
 
     ARGOPASS --> ROLLNS["ensure_namespace argo-rollouts"]
     ROLLNS --> ROLLOUTS["Helm install Argo Rollouts<br/>OCI chart from ghcr.io"]
-    ROLLOUTS --> ROLLGW["Apply Gateway, HTTPRoute"]
+    ROLLOUTS --> ROLLOAUTH["Apply Rollouts oauth2-proxy<br/>+ ForwardAuth middleware"]
+    ROLLOAUTH --> ROLLGW["Apply Gateway, HTTPRoute"]
     ROLLGW --> ROLLTLS["Wait for rollouts TLS secret"]
 
     ROLLTLS --> HTTPS["HTTPS checks: argo, rollouts"]
@@ -594,9 +635,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START["Phase 6: Keycloak"] --> LABELS["label_unlabeled_nodes()"]
-
-    LABELS --> NS["ensure_namespace keycloak, database"]
+    START["Phase 6: Keycloak"] --> NS["ensure_namespace keycloak, database"]
 
     NS --> PG["Deploy CNPG keycloak-pg<br/>secret (substituted) + cluster"]
     PG --> PGW["Wait for keycloak-pg primary (600s)"]
@@ -619,8 +658,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START["Phase 7: Remaining Services"] --> LABELS["label_unlabeled_nodes()"]
-    LABELS --> DBNS["ensure_namespace database"]
+    START["Phase 7: Remaining Services"] --> DBNS["ensure_namespace database"]
 
     subgraph "7.1 Mattermost"
         DBNS --> MMPG["CNPG mattermost-pg"]
@@ -676,8 +714,7 @@ Phase 8 is informational only -- it prints the required DNS A records pointing t
 
 ```mermaid
 flowchart TD
-    START["Phase 9: Validation"] --> LABELS["label_unlabeled_nodes()"]
-    LABELS --> RBAC["Apply RBAC manifests<br/>(Keycloak OIDC groups -> K8s RBAC)"]
+    START["Phase 9: Validation"] --> RBAC["Apply RBAC manifests<br/>(Keycloak OIDC groups -> K8s RBAC)"]
     RBAC --> VA["Re-apply all VolumeAutoscaler CRs<br/>(all namespaces now exist)"]
 
     VA --> NODES["Check: all nodes Ready"]
@@ -700,9 +737,20 @@ flowchart TD
     style SUMMARY fill:#6b4c9a,color:#fff
 ```
 
-### 4.13 Phase 10: Keycloak OIDC Setup
+### 4.13 Phase 10: Keycloak OIDC Setup + oauth2-proxy ForwardAuth
 
-Phase 10 calls `setup-keycloak.sh` as a child process. See [Section 8](#8-setup-keycloaksh-flow) for details.
+Phase 10 has two stages:
+
+1. **Keycloak OIDC Setup**: Calls `setup-keycloak.sh` as a child process, which creates the realm, 14 OIDC clients, service bindings, and 8 groups. See [Section 8](#8-setup-keycloaksh-flow) for details.
+
+2. **oauth2-proxy ForwardAuth**: After Keycloak setup completes, Phase 10 reads the generated `oidc-client-secrets.json` and:
+   - Creates per-service `oauth2-proxy-*` Secrets in the correct namespaces for: prometheus (monitoring), alertmanager (monitoring), hubble (kube-system), traefik-dashboard (kube-system), rollouts (argo-rollouts)
+   - Distributes oauth2-proxy Redis session store credentials to `kube-system` and `argo-rollouts` namespaces
+   - Applies oauth2-proxy Deployment + ForwardAuth Middleware manifests for all 5 protected services
+
+### 4.14 Phase 11: GitLab
+
+Phase 11 calls `setup-gitlab.sh`, which deploys GitLab with 7 internal phases: Prerequisites, CNPG PostgreSQL, Secrets, OpsTree Redis, Gateway, Helm Install, and Validation. See `scripts/setup-gitlab.sh` for details.
 
 ---
 
@@ -793,9 +841,11 @@ flowchart TD
     CLEANUP --> TLSCHECK["Wait for Vault TLS secret"]
     TLSCHECK --> HTTPSCHECK["check_https vault.DOMAIN"]
 
-    HTTPSCHECK --> DIST["distribute_root_ca()<br/>monitoring, argocd, harbor, mattermost"]
+    HTTPSCHECK --> DIST["distribute_root_ca()<br/>kube-system, monitoring, argocd,<br/>argo-rollouts, harbor, mattermost,<br/>gitlab, keycloak"]
 
-    DIST --> DONE["Phase 2 Complete<br/>TLS available cluster-wide"]
+    DIST --> TRAEFIK_RESTART["Restart Traefik DaemonSet<br/>to pick up Root CA"]
+
+    TRAEFIK_RESTART --> DONE["Phase 2 Complete<br/>TLS available cluster-wide"]
 
     style START fill:#6b4c9a,color:#fff
     style GENROOT fill:#a02d2d,color:#fff
@@ -889,19 +939,31 @@ flowchart TD
         PROMPT -->|Match| P1CHECK
     end
 
-    P1CHECK{"--skip-tf?"}
-    P1CHECK -->|No| P1["Phase 1: Terraform Destroy"]
-    P1CHECK -->|Yes| P2
+    P1CHECK --> P1["Phase 1: K8S Workload Cleanup"]
 
-    subgraph "Phase 1: Terraform Destroy"
-        P1 --> PUSHSEC["Push secrets to Harvester<br/>(backup before destroy)"]
+    subgraph "Phase 1: K8S Workload Cleanup"
+        P1 --> RKECHECK{"RKE2 kubeconfig<br/>exists + cluster reachable?"}
+        RKECHECK -->|No| P1SKIP["Skip K8s cleanup"]
+        RKECHECK -->|Yes| GLUNINSTALL["Helm uninstall GitLab"]
+        GLUNINSTALL --> GLREDIS["Delete GitLab Redis CRs<br/>(sentinel + replication)"]
+        GLREDIS --> GLCNPG["Delete GitLab CNPG cluster<br/>(gitlab-postgresql)"]
+        GLCNPG --> GLNS["Delete gitlab namespace"]
+    end
+
+    P1SKIP --> TFCHECK{"--skip-tf?"}
+    GLNS --> TFCHECK
+    TFCHECK -->|No| P2["Phase 2: Terraform Destroy"]
+    TFCHECK -->|Yes| P3
+
+    subgraph "Phase 2: Terraform Destroy"
+        P2 --> PUSHSEC["Push secrets to Harvester<br/>(backup before destroy)"]
         PUSHSEC --> TFDESTROY["terraform.sh destroy<br/>(with -auto-approve if --auto)"]
     end
 
-    TFDESTROY --> P2["Phase 2: Harvester Orphan Cleanup"]
+    TFDESTROY --> P3["Phase 3: Harvester Orphan Cleanup"]
 
-    subgraph "Phase 2: Harvester Cleanup"
-        P2 --> VMWAIT["Wait for VMs to be deleted by CAPI<br/>Timeout: 300s, poll every 10s"]
+    subgraph "Phase 3: Harvester Cleanup"
+        P3 --> VMWAIT["Wait for VMs to be deleted by CAPI<br/>Timeout: 300s, poll every 10s"]
         VMWAIT --> STUCKVMS["Remove stuck VMs<br/>Patch finalizers to null"]
         STUCKVMS --> STUCKVMIS["Remove stuck VMIs<br/>Patch finalizers + delete"]
         STUCKVMIS --> DVCLEAN["Delete orphaned DataVolumes<br/>Patch finalizers + delete"]
@@ -909,10 +971,10 @@ flowchart TD
         PVCCLEAN --> VERIFY["Verify namespace is clean<br/>Count remaining VMs + PVCs"]
     end
 
-    VERIFY --> P3["Phase 3: Local Cleanup"]
+    VERIFY --> P4["Phase 4: Local Cleanup"]
 
-    subgraph "Phase 3: Local Cleanup"
-        P3 --> RMKC["Remove kubeconfig-rke2.yaml"]
+    subgraph "Phase 4: Local Cleanup"
+        P4 --> RMKC["Remove kubeconfig-rke2.yaml"]
         RMKC --> RMCREDS["Remove credentials.txt"]
         RMCREDS --> PRESERVE["Log preserved files:<br/>terraform.tfvars, kubeconfig-harvester.yaml,<br/>kubeconfig-harvester-cloud-cred.yaml,<br/>harvester-cloud-provider-kubeconfig, .env"]
     end
@@ -1089,7 +1151,7 @@ flowchart TD
     P4 -->|Yes| PHASE4["Phase 4: Groups + Role Mapping"]
 
     subgraph "Phase 4: Groups"
-        PHASE4 --> GROUPS["Create groups:<br/>platform-admins, harvester-admins,<br/>rancher-admins, infra-engineers,<br/>senior-developers, developers, viewers"]
+        PHASE4 --> GROUPS["Create groups (8):<br/>platform-admins, harvester-admins,<br/>rancher-admins, infra-engineers,<br/>network-engineers, senior-developers,<br/>developers, viewers"]
         GROUPS --> ASSIGN1["Add admin -> platform-admins"]
         ASSIGN1 --> ASSIGN2["Add user -> developers"]
         ASSIGN2 --> MAPPERS["Add group-membership protocol mapper<br/>to all OIDC clients<br/>claim name: groups"]
@@ -1140,8 +1202,8 @@ flowchart TD
 
 | Argument | Description |
 |----------|-------------|
-| `--skip-gitlab` | Skip GitLab API calls (deploy key must be added manually) |
 | `--from N` | Resume from phase N (1-6) |
+| `--dry-run` | Print actions without executing |
 | `-h`, `--help` | Print usage and exit |
 
 ### 9.2 Complete CI/CD Setup Flow
@@ -1151,28 +1213,20 @@ flowchart TD
     START["main()"] --> PREREQ["check_prerequisites()"]
     PREREQ --> P1{"FROM_PHASE <= 1?"}
 
-    P1 -->|Yes| PHASE1["Phase 1: GitLab <-> ArgoCD Connection"]
+    P1 -->|Yes| PHASE1["Phase 1: GitHub <-> ArgoCD Connection"]
 
-    subgraph "Phase 1: GitLab-ArgoCD"
+    subgraph "Phase 1: GitHub-ArgoCD"
         PHASE1 --> KEYGEN{"Deploy key<br/>exists?"}
         KEYGEN -->|No| GEN["ssh-keygen -t ed25519"]
         KEYGEN -->|Yes| SKIP["Skip generation"]
 
-        GEN --> GITLAB{"--skip-gitlab?"}
-        SKIP --> GITLAB
+        GEN --> GHAPI["Add deploy key to GitHub repos<br/>via gh CLI"]
+        SKIP --> GHAPI
 
-        GITLAB -->|No| TOKEN{"GITLAB_API_TOKEN<br/>set?"}
-        TOKEN -->|Yes| APIKEY["POST deploy key via GitLab API"]
-        TOKEN -->|No| MANUAL["Print: add deploy key manually"]
-        GITLAB -->|Yes| PRINTKEY["Print public key"]
-
-        APIKEY --> HOSTKEY
-        MANUAL --> HOSTKEY
-        PRINTKEY --> HOSTKEY
-
-        HOSTKEY["ssh-keyscan gitlab.DOMAIN"] --> REPOSECRET["Create ArgoCD repo Secret<br/>(SSH key + known hosts)"]
+        GHAPI --> HOSTKEY["ssh-keyscan github.com"]
+        HOSTKEY --> REPOSECRET["Create ArgoCD credential template<br/>(SSH key + known hosts)"]
         REPOSECRET --> KNOWNHOSTS["Update argocd-ssh-known-hosts-cm"]
-        KNOWNHOSTS --> VERIFY["Verify ArgoCD recognizes repo<br/>(argocd repo list via kubectl exec)"]
+        KNOWNHOSTS --> VERIFY["Verify ArgoCD recognizes repos"]
     end
 
     VERIFY --> P2{"FROM_PHASE <= 2?"}
@@ -1180,10 +1234,10 @@ flowchart TD
     P2 -->|Yes| PHASE2["Phase 2: App-of-Apps Bootstrap"]
 
     subgraph "Phase 2: Bootstrap"
-        PHASE2 --> ROOTAPP["Apply app-of-apps root Application"]
-        ROOTAPP --> CHILDREN["Verify child apps:<br/>cert-manager, monitoring-stack,<br/>argo-rollouts, vault"]
-        CHILDREN --> SVCAPPS["Create ArgoCD Applications:<br/>harbor (manual-sync)<br/>keycloak (auto-sync)<br/>mattermost (auto-sync)"]
-        SVCAPPS --> SELFMGMT["Apply ArgoCD self-management<br/>(optional, if YAML exists)"]
+        PHASE2 --> SVCREPOS["Create private GitHub repos<br/>(svc-REALM-NAME per service)"]
+        SVCREPOS --> PUSHMANIFESTS["Push substituted manifests<br/>to each service repo"]
+        PUSHMANIFESTS --> GENBOOTSTRAP["Generate ArgoCD Application<br/>manifests (app-of-apps)"]
+        GENBOOTSTRAP --> SELFMGMT["Apply ArgoCD self-management<br/>(optional, if YAML exists)"]
     end
 
     SELFMGMT --> P3{"FROM_PHASE <= 3?"}
@@ -1829,23 +1883,24 @@ deploy-cluster.sh
 
 destroy-cluster.sh
   Phase 0:  Pre-flight + Confirmation
-  Phase 1:  Terraform Destroy
-  Phase 2:  Harvester Orphan Cleanup (VMs, VMIs, DVs, PVCs)
-  Phase 3:  Local File Cleanup
+  Phase 1:  K8S Workload Cleanup (GitLab Helm, Redis CRs, CNPG, namespace)
+  Phase 2:  Terraform Destroy
+  Phase 3:  Harvester Orphan Cleanup (VMs, VMIs, DVs, PVCs)
+  Phase 4:  Local File Cleanup
 
 upgrade-cluster.sh
   Modes:    --check | --list | VERSION
 
 setup-keycloak.sh
   Phase 1:  Realm + Admin/User Creation + TOTP
-  Phase 2:  OIDC Client Creation (9 clients)
+  Phase 2:  OIDC Client Creation (14 clients)
   Phase 3:  Service Bindings (Grafana, ArgoCD, Harbor, Vault, Mattermost, Kasm*, GitLab*)
-  Phase 4:  Groups + Role Mapping (platform-admins, harvester-admins, rancher-admins, infra-engineers, senior-developers, developers, viewers)
+  Phase 4:  Groups + Role Mapping (8 groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, network-engineers, senior-developers, developers, viewers)
   Phase 5:  Validation + Summary
 
 setup-cicd.sh
-  Phase 1:  GitLab <-> ArgoCD Connection (SSH deploy key)
-  Phase 2:  App-of-Apps Bootstrap
+  Phase 1:  GitHub <-> ArgoCD Connection (SSH deploy key)
+  Phase 2:  App-of-Apps Bootstrap (create service repos, generate manifests)
   Phase 3:  Harbor CI Robot Accounts
   Phase 4:  Argo Rollouts Analysis Templates
   Phase 5:  Sample Rollout + CI Templates

@@ -510,7 +510,7 @@ flowchart TD
     MinIO --> CNPG
 
     subgraph CNPG [CNPG PostgreSQL]
-        PG_Secret[Apply harbor-pg secret] --> PG_Cluster[Apply harbor-pg-cluster<br/>2 instances, database pool]
+        PG_Secret[Apply harbor-pg secret] --> PG_Cluster[Apply harbor-pg-cluster<br/>3 instances, database pool]
         PG_Cluster --> PG_Backup[Apply scheduled backup]
         PG_Backup --> PG_Wait[wait_for_cnpg_primary<br/>up to 600s]
     end
@@ -1317,7 +1317,7 @@ flowchart TD
         Kubelet --> Prom
         AppMetrics --> Prom
 
-        Prom[Prometheus<br/>monitoring namespace<br/>Scrapes targets every 15-30s<br/>TSDB retention: 15d]
+        Prom[Prometheus<br/>monitoring namespace<br/>Scrapes targets every 30s<br/>TSDB retention: 30d]
         Prom --> PromStore[(Prometheus TSDB<br/>PVC with VolumeAutoscaler)]
     end
 

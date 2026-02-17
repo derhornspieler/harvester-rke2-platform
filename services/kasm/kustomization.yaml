@@ -6,6 +6,7 @@ resources:
   # PostgreSQL (CNPG cluster in database namespace)
   - postgres/secret.yaml
   - postgres/kasm-pg-cluster.yaml
+  - postgres/kasm-pg-scheduled-backup.yaml
   # Kasm control plane (deployed via Helm, supplementary resources below)
   # TLS + Ingress
   - certificate.yaml

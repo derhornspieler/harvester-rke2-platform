@@ -23,8 +23,8 @@ deployments so pods recover.
 
 | File | Image |
 |------|-------|
-| `node-labeler-v0.1.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/node-labeler:v0.1.0` |
-| `storage-autoscaler-v0.1.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0` |
+| `node-labeler-v0.2.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/node-labeler:v0.2.0` |
+| `storage-autoscaler-v0.2.0-amd64.tar.gz` | `harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0` |
 
 ## Rebuilding
 
@@ -32,10 +32,10 @@ From each operator directory:
 
 ```bash
 cd operators/node-labeler
-make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.2.0
 
 cd operators/storage-autoscaler
-make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.1.0
+make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
 ```
 
 This builds a linux/amd64 image, then runs `docker save | gzip` into this
@@ -44,7 +44,7 @@ directory. Commit the updated tarballs.
 ## Manual Verification
 
 ```bash
-docker load -i <(gunzip -c node-labeler-v0.1.0-amd64.tar.gz)
-docker load -i <(gunzip -c storage-autoscaler-v0.1.0-amd64.tar.gz)
+docker load -i <(gunzip -c node-labeler-v0.2.0-amd64.tar.gz)
+docker load -i <(gunzip -c storage-autoscaler-v0.2.0-amd64.tar.gz)
 docker images | grep harbor.<DOMAIN>/library
 ```

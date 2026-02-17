@@ -1,12 +1,7 @@
 [![Built with Claude Code](https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?logo=anthropic)](https://claude.ai/claude-code)
-[![ShellCheck](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/shellcheck.yml)
-[![Terraform](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/terraform.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/terraform.yml)
-[![YAML Lint](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/yamllint.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/yamllint.yml)
-[![Kubeconform](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/kubeconform.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/kubeconform.yml)
-[![Gitleaks](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/gitleaks.yml)
-[![CodeQL](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/codeql.yml)
-[![Node Labeler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/node-labeler.yml)
-[![Storage Autoscaler](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml/badge.svg)](https://github.com/derhornspieler/harvester-rke2-platform/actions/workflows/storage-autoscaler.yml)
+[![CI](https://github.com/derhornspieler/rke2-cluster/actions/workflows/codeql.yml/badge.svg)](https://github.com/derhornspieler/rke2-cluster/actions/workflows/codeql.yml)
+[![Node Labeler](https://github.com/derhornspieler/rke2-cluster/actions/workflows/node-labeler.yml/badge.svg)](https://github.com/derhornspieler/rke2-cluster/actions/workflows/node-labeler.yml)
+[![Storage Autoscaler](https://github.com/derhornspieler/rke2-cluster/actions/workflows/storage-autoscaler.yml/badge.svg)](https://github.com/derhornspieler/rke2-cluster/actions/workflows/storage-autoscaler.yml)
 
 [![Harvester](https://img.shields.io/badge/Harvester-v1.7.1-00897B?logo=suse&logoColor=white)](https://harvesterhci.io/)
 [![RKE2](https://img.shields.io/badge/RKE2-v1.34.2-0075A8?logo=rancher&logoColor=white)](https://docs.rke2.io/)
@@ -68,7 +63,7 @@ graph BT
     end
 
     subgraph Data["Data Layer"]
-        CNPG["CNPG PostgreSQL<br/>harbor-pg, kasm-pg,<br/>keycloak-pg, mattermost-pg"]
+        CNPG["CNPG PostgreSQL<br/>harbor-pg, kasm-pg,<br/>keycloak-pg, mattermost-pg<br/>Scheduled Backups"]
         Redis["Valkey Sentinel<br/>Harbor cache"]
         MinIO["MinIO<br/>Harbor + Mattermost S3"]
     end
@@ -118,6 +113,10 @@ graph BT
 │   ├── kasm/                    # Kasm Workspaces: virtual desktops, CNPG PG 14
 │   ├── rbac/                    # Kubernetes RBAC (ClusterRoles, bindings)
 │   └── ...                      # + node-labeler, storage-autoscaler, uptime-kuma, librenms, gitlab
+├── operators/                   # Custom Kubebuilder operators (Go source)
+│   ├── node-labeler/            # Auto-labels nodes by pool type
+│   ├── storage-autoscaler/      # PVC auto-expansion operator
+│   └── images/                  # Pre-built operator image tarballs
 └── docs/                        # Architecture, flows, operations
 ```
 
@@ -139,6 +138,8 @@ cp terraform.tfvars.example terraform.tfvars
 # Or use: ./scripts/deploy-cluster.sh (automated zero-touch deployment)
 ```
 
+**Airgapped mode:** For air-gapped / offline deployments, set `AIRGAPPED=true` in `scripts/.env` and see [Airgapped Mode](docs/airgapped-mode.md) for full instructions.
+
 See [DEVELOPERS_GUIDE.md](DEVELOPERS_GUIDE.md) for prerequisites and detailed setup.
 
 ## Node Pools
@@ -154,7 +155,7 @@ Autoscaling is managed by Rancher Cluster Autoscaler deployed in `kube-system`.
 
 ## TLS Endpoints
 
-All external services are served over HTTPS via Traefik using Gateway API (HTTPRoute + Gateway with cert-manager gateway-shim for automatic TLS). Two exceptions use Traefik IngressRoute CRDs: Traefik Dashboard (`api@internal` backend) and Kasm (backend HTTPS with `serversTransport`). Certificates are issued by Vault PKI (Root CA > Intermediate CA) and auto-renewed by cert-manager.
+All external services are served over HTTPS via Traefik using Gateway API (HTTPRoute + Gateway with cert-manager gateway-shim for automatic TLS). One exception uses Traefik IngressRoute CRDs: Kasm (backend HTTPS with `serversTransport`). The Traefik Dashboard uses Gateway API with a ClusterIP Service (`traefik-api` on port 8080). Certificates are issued by Vault PKI (Root CA > Intermediate CA) and auto-renewed by cert-manager.
 
 | Endpoint | Namespace | Ingress Type | Auth Method |
 |----------|-----------|-------------|-------------|
@@ -168,6 +169,7 @@ All external services are served over HTTPS via Traefik using Gateway API (HTTPR
 | `argo.<DOMAIN>` | argocd | Gateway + HTTPRoute | ArgoCD login |
 | `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | oauth2-proxy ForwardAuth |
 | `mattermost.<DOMAIN>` | mattermost | Gateway + HTTPRoute | Mattermost login |
+| `alertmanager.<DOMAIN>` | monitoring | Gateway + HTTPRoute | oauth2-proxy ForwardAuth |
 | `kasm.<DOMAIN>` | kasm | IngressRoute | Kasm login |
 | `gitlab.<DOMAIN>` | gitlab | External | GitLab login |
 
@@ -180,7 +182,7 @@ See the **[Documentation Index](docs/README.md)** for a complete master index wi
 | Document | Description |
 |----------|-------------|
 | [System Architecture](docs/engineering/system-architecture.md) | Infrastructure topology, networking, cluster topology, storage architecture |
-| [Terraform Infrastructure](docs/engineering/terraform-infrastructure.md) | All Terraform resources, 44 variables, cloud-init templates, state management |
+| [Terraform Infrastructure](docs/engineering/terraform-infrastructure.md) | All Terraform resources, 54 variables, cloud-init templates, state management |
 | [Deployment Automation](docs/engineering/deployment-automation.md) | All scripts, 12-phase deployment, lib.sh reference, upgrade procedures |
 | [Services Reference](docs/engineering/services-reference.md) | All 14+ K8s services: architecture, resources, networking, storage, HA design |
 | [Monitoring & Observability](docs/engineering/monitoring-observability.md) | Prometheus, Grafana, Loki, Alloy, Alertmanager deep dive |
@@ -213,7 +215,7 @@ Each service has its own README with architecture diagrams, deployment steps, co
 | Keycloak | [services/keycloak/README.md](services/keycloak/README.md) | Deployed (HA) |
 | ArgoCD + Rollouts | [services/argo/README.md](services/argo/README.md) | Deployed (HA) |
 | Harbor | [services/harbor/README.md](services/harbor/README.md) | Deployed (HA) |
-| Mattermost | [services/mattermost/README.md](services/mattermost/README.md) | Manifests ready |
+| Mattermost | [services/mattermost/README.md](services/mattermost/README.md) | Deployed |
 | Kasm Workspaces | [services/kasm/README.md](services/kasm/README.md) | Deployed |
 
 ## Contributors

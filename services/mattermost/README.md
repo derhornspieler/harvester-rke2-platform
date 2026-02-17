@@ -41,7 +41,7 @@ Mattermost provides Slack-like team messaging with full control over data. The d
                 │   (database)    │  │   (general pool)  │
                 │   :5432         │  │   :9000 (S3)      │
                 │   20Gi PVC      │  │   :9001 (console) │
-                │   PG 16-alpine  │  │   50Gi PVC        │
+                │   PG 16         │  │   20Gi PVC        │
                 └─────────────────┘  └──────────────────┘
 ```
 
@@ -67,8 +67,8 @@ Pre-configured HA features already in the manifests:
 | Component | Image | Kind | Replicas | CPU (req/lim) | Memory (req/lim) | Storage | Pool |
 |-----------|-------|------|----------|---------------|-------------------|---------|------|
 | Mattermost | `mattermost/mattermost-enterprise-edition:10.5` | Deployment | 1 | 500m / 2 | 1Gi / 4Gi | none | general |
-| PostgreSQL | `postgres:16-alpine` | StatefulSet | 1 | 250m / 1 | 512Mi / 2Gi | 20Gi PVC | database |
-| MinIO | `quay.io/minio/minio` | StatefulSet | 1 | 250m / 1 | 512Mi / 2Gi | 50Gi PVC | general |
+| PostgreSQL | `ghcr.io/cloudnative-pg/postgresql:16.6` | CNPG Cluster | 3 instances | 250m / 1 | 512Mi / 2Gi | 20Gi PVC | database namespace |
+| MinIO | `docker.io/minio/minio:latest` | StatefulSet | 1 | 250m / 1 | 512Mi / 2Gi | 20Gi PVC | general |
 
 ## Prerequisites
 
@@ -76,14 +76,24 @@ Pre-configured HA features already in the manifests:
 - Traefik ingress running
 - DNS: `mattermost.<DOMAIN>` → `203.0.113.202`
 
+## TLS Trust (Internal CA)
+
+Mattermost needs to trust the Vault Root CA for internal HTTPS connections (e.g., webhook integrations, plugin downloads). The deployment mounts the `vault-root-ca` ConfigMap as a trusted certificate:
+
+- **Environment variable**: `SSL_CERT_FILE=/etc/ssl/certs/vault-root-ca.pem`
+- **Volume mount**: `vault-root-ca` ConfigMap (`ca.crt` key) at `/etc/ssl/certs/vault-root-ca.pem`
+
+> **Prerequisite**: The `vault-root-ca` ConfigMap must exist in the `mattermost` namespace before deploying. It is created by the cluster bootstrap script (`deploy-cluster.sh`).
+
 ## Deployment
 
 ```bash
 # Apply all manifests
 kubectl apply -k services/mattermost/
 
-# Wait for PostgreSQL
-kubectl -n mattermost rollout status statefulset/mattermost-postgres --timeout=180s
+# Wait for CNPG PostgreSQL cluster (in database namespace)
+kubectl -n database get cluster mattermost-pg -w
+# Wait for STATUS: "Cluster in healthy state"
 
 # Wait for MinIO
 kubectl -n mattermost rollout status statefulset/mattermost-minio --timeout=120s
@@ -124,12 +134,12 @@ All Mattermost configuration is via `MM_*` environment variables in a ConfigMap 
 | `MM_SQLSETTINGS_DRIVERNAME` | `postgres` | Database driver |
 | `MM_FILESETTINGS_DRIVERNAME` | `amazons3` | S3 file storage |
 | `MM_FILESETTINGS_AMAZONS3BUCKET` | `mattermost` | MinIO bucket |
-| `MM_FILESETTINGS_AMAZONS3ENDPOINT` | `mattermost-minio:9000` | MinIO endpoint |
+| `MM_FILESETTINGS_AMAZONS3ENDPOINT` | `mattermost-minio.mattermost.svc.cluster.local:9000` | MinIO endpoint |
 | `MM_FILESETTINGS_AMAZONS3SSL` | `false` | Internal connection |
 | `MM_LOGSETTINGS_CONSOLEJSON` | `true` | JSON logs to stdout |
 | `MM_METRICSSETTINGS_ENABLE` | `true` | Prometheus metrics on :8067 |
 | `MM_CLUSTERSETTINGS_ENABLE` | `false` | Set `true` for HA |
-| `MM_CLUSTERSETTINGS_CLUSTERNAME` | `mattermost-cluster` | Gossip cluster name |
+| `MM_CLUSTERSETTINGS_CLUSTERNAME` | `mattermost-prod` | Gossip cluster name |
 | `MM_CLUSTERSETTINGS_GOSSIPPORT` | `8074` | Inter-node gossip |
 
 ### Key Settings (Secret)
@@ -148,8 +158,6 @@ All Mattermost configuration is via `MM_*` environment variables in a ConfigMap 
 | `max_connections` | `200` | Connection pool size |
 | `effective_cache_size` | `1536MB` | OS cache estimate |
 | `work_mem` | `4MB` | Per-operation memory |
-
-> **postgres:16-alpine security context**: Do NOT set `runAsUser`/`runAsNonRoot`. The entrypoint needs root to chmod the data directory, then drops to UID 70. Only set `fsGroup: 70`.
 
 ## Metrics and Logging
 
@@ -210,12 +218,11 @@ services/mattermost/
 ├── httproute.yaml                # HTTPRoute (no basic-auth middleware)
 ├── postgres/
 │   ├── secret.yaml               # PostgreSQL credentials (CHANGEME)
-│   ├── configmap.yaml            # PostgreSQL tuning
-│   ├── statefulset.yaml          # PostgreSQL 16-alpine, 20Gi PVC
-│   └── service.yaml              # ClusterIP :5432
+│   ├── mattermost-pg-cluster.yaml  # CNPG Cluster (3 instances, PG 16, database namespace)
+│   └── mattermost-pg-scheduled-backup.yaml  # CNPG ScheduledBackup
 ├── minio/
 │   ├── secret.yaml               # MinIO credentials (CHANGEME)
-│   ├── statefulset.yaml          # MinIO, 50Gi PVC
+│   ├── statefulset.yaml          # MinIO, 20Gi PVC
 │   └── service.yaml              # ClusterIP :9000 + :9001
 └── mattermost/
     ├── secret.yaml               # MM_* secrets (CHANGEME)
@@ -228,6 +235,6 @@ services/mattermost/
 ## Dependencies
 
 - **Vault + cert-manager** (TLS certificate issuance)
-- **Traefik** (ingress with sticky cookie)
+- **Traefik** (ingress)
 - **Harvester CSI** (PVCs for PostgreSQL and MinIO)
 - **DNS**: `mattermost.<DOMAIN>` → `203.0.113.202`

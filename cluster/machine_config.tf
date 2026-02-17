@@ -80,6 +80,82 @@ locals {
   EOF
 
   # ---------------------------------------------------------------------------
+  # Airgapped RPM repo content (switches on var.airgapped)
+  # ---------------------------------------------------------------------------
+  _use_private_rke2  = var.airgapped && var.private_rke2_repo_url != ""
+  _use_private_rocky = var.airgapped && var.private_rocky_repo_url != ""
+
+  _repo_rke2_common_private = <<-REPO
+        [rancher-rke2-common]
+        name=Rancher RKE2 Common
+        baseurl=${var.private_rke2_repo_url}/rke2/latest/common/centos/9/noarch
+        enabled=1
+        gpgcheck=0
+  REPO
+
+  _repo_rke2_common_public = <<-REPO
+        [rancher-rke2-common]
+        name=Rancher RKE2 Common
+        baseurl=https://rpm.rancher.io/rke2/latest/common/centos/9/noarch
+        enabled=1
+        gpgcheck=1
+        gpgkey=https://rpm.rancher.io/public.key
+  REPO
+
+  _repo_rke2_common = local._use_private_rke2 ? local._repo_rke2_common_private : local._repo_rke2_common_public
+
+  _repo_rke2_134_private = <<-REPO
+        [rancher-rke2-1-34]
+        name=Rancher RKE2 1.34
+        baseurl=${var.private_rke2_repo_url}/rke2/latest/1.34/centos/9/x86_64
+        enabled=1
+        gpgcheck=0
+  REPO
+
+  _repo_rke2_134_public = <<-REPO
+        [rancher-rke2-1-34]
+        name=Rancher RKE2 1.34
+        baseurl=https://rpm.rancher.io/rke2/latest/1.34/centos/9/x86_64
+        enabled=1
+        gpgcheck=1
+        gpgkey=https://rpm.rancher.io/public.key
+  REPO
+
+  _repo_rke2_134 = local._use_private_rke2 ? local._repo_rke2_134_private : local._repo_rke2_134_public
+
+  _repo_epel_private = <<-REPO
+        [epel]
+        name=Extra Packages for Enterprise Linux 9
+        baseurl=${var.private_rocky_repo_url}/epel/9/Everything/x86_64
+        enabled=1
+        gpgcheck=0
+  REPO
+
+  _repo_epel_public = <<-REPO
+        [epel]
+        name=Extra Packages for Enterprise Linux 9
+        metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=x86_64
+        enabled=1
+        gpgcheck=1
+        gpgkey=https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9
+  REPO
+
+  _repo_epel = local._use_private_rocky ? local._repo_epel_private : local._repo_epel_public
+
+  # Private CA trust injection for cloud-init (airgapped only)
+  _ca_write_file = var.airgapped && var.private_ca_pem != "" ? [
+    {
+      path        = "/etc/pki/ca-trust/source/anchors/private-ca.pem"
+      permissions = "0644"
+      content     = var.private_ca_pem
+    }
+  ] : []
+
+  _ca_runcmd = var.airgapped && var.private_ca_pem != "" ? [
+    "update-ca-trust"
+  ] : []
+
+  # ---------------------------------------------------------------------------
   # Full mode: complete cloud-init for vanilla Rocky 9 (current behavior)
   # ---------------------------------------------------------------------------
   iptables_rules = chomp(<<-EOT
@@ -128,37 +204,29 @@ EOT
     - path: /etc/yum.repos.d/rancher-rke2-common.repo
       permissions: '0644'
       content: |
-        [rancher-rke2-common]
-        name=Rancher RKE2 Common
-        baseurl=https://rpm.rancher.io/rke2/latest/common/centos/9/noarch
-        enabled=1
-        gpgcheck=1
-        gpgkey=https://rpm.rancher.io/public.key
+        ${chomp(local._repo_rke2_common)}
 
     - path: /etc/yum.repos.d/rancher-rke2-1-34.repo
       permissions: '0644'
       content: |
-        [rancher-rke2-1-34]
-        name=Rancher RKE2 1.34
-        baseurl=https://rpm.rancher.io/rke2/latest/1.34/centos/9/x86_64
-        enabled=1
-        gpgcheck=1
-        gpgkey=https://rpm.rancher.io/public.key
+        ${chomp(local._repo_rke2_134)}
 
     - path: /etc/yum.repos.d/epel.repo
       permissions: '0644'
       content: |
-        [epel]
-        name=Extra Packages for Enterprise Linux 9
-        metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=x86_64
-        enabled=1
-        gpgcheck=1
-        gpgkey=https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9
+        ${chomp(local._repo_epel)}
 
     - path: /etc/sysconfig/iptables
       permissions: '0600'
       content: |
         ${indent(4, local.iptables_rules)}
+%{for f in local._ca_write_file~}
+
+    - path: ${f.path}
+      permissions: '${f.permissions}'
+      content: |
+        ${indent(4, f.content)}
+%{endfor~}
 
     - path: /var/lib/rancher/rke2/server/manifests/cilium-lb-ippool.yaml
       permissions: '0644'
@@ -192,6 +260,9 @@ EOT
           loadBalancerIPs: true
 
     runcmd:
+%{for cmd in local._ca_runcmd~}
+    - ${cmd}
+%{endfor~}
     - mkdir -p /var/lib/rancher/rke2/server/manifests
     - systemctl enable --now qemu-guest-agent.service
     - systemctl disable --now firewalld || true
@@ -219,32 +290,17 @@ EOT
     - path: /etc/yum.repos.d/rancher-rke2-common.repo
       permissions: '0644'
       content: |
-        [rancher-rke2-common]
-        name=Rancher RKE2 Common
-        baseurl=https://rpm.rancher.io/rke2/latest/common/centos/9/noarch
-        enabled=1
-        gpgcheck=1
-        gpgkey=https://rpm.rancher.io/public.key
+        ${chomp(local._repo_rke2_common)}
 
     - path: /etc/yum.repos.d/rancher-rke2-1-34.repo
       permissions: '0644'
       content: |
-        [rancher-rke2-1-34]
-        name=Rancher RKE2 1.34
-        baseurl=https://rpm.rancher.io/rke2/latest/1.34/centos/9/x86_64
-        enabled=1
-        gpgcheck=1
-        gpgkey=https://rpm.rancher.io/public.key
+        ${chomp(local._repo_rke2_134)}
 
     - path: /etc/yum.repos.d/epel.repo
       permissions: '0644'
       content: |
-        [epel]
-        name=Extra Packages for Enterprise Linux 9
-        metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=x86_64
-        enabled=1
-        gpgcheck=1
-        gpgkey=https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9
+        ${chomp(local._repo_epel)}
 
     - path: /etc/sysconfig/iptables
       permissions: '0600'
@@ -275,8 +331,18 @@ EOT
           ip route replace default via $GW dev eth1 table ingress 2>/dev/null || true
           [ -n "$SUBNET" ] && ip route replace $SUBNET dev eth1 table ingress 2>/dev/null || true
         fi
+%{for f in local._ca_write_file~}
+
+    - path: ${f.path}
+      permissions: '${f.permissions}'
+      content: |
+        ${indent(4, f.content)}
+%{endfor~}
 
     runcmd:
+%{for cmd in local._ca_runcmd~}
+    - ${cmd}
+%{endfor~}
     - systemctl enable --now qemu-guest-agent.service
     - systemctl disable --now firewalld || true
     - dnf install -y rke2-selinux

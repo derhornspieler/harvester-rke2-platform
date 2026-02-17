@@ -6,6 +6,7 @@ resources:
   # PostgreSQL (CNPG in database namespace)
   - postgres/secret.yaml
   - postgres/mattermost-pg-cluster.yaml
+  - postgres/mattermost-pg-scheduled-backup.yaml
   # MinIO (S3-compatible file storage)
   - minio/secret.yaml
   - minio/statefulset.yaml

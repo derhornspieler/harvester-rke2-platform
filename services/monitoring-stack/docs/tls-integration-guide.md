@@ -56,7 +56,7 @@ spec:
   listeners:
     - name: https
       protocol: HTTPS
-      port: 443
+      port: 8443
       hostname: myservice.<DOMAIN>
       tls:
         mode: Terminate
@@ -99,7 +99,7 @@ spec:
 3. Sends a CSR to Vault via `pki_int/sign/<DOMAIN_DOT>`
 4. Vault signs the certificate with the Intermediate CA
 5. cert-manager stores the signed cert + key in Secret `myservice-<DOMAIN_DASHED>-tls`
-6. Traefik loads the Secret and terminates TLS on port 443
+6. Traefik loads the Secret and terminates TLS (internal port 8443, exposed as 443)
 
 ---
 

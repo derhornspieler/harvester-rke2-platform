@@ -1,5 +1,12 @@
 # Golden Image Plan: Pre-Baked Rocky 9 for Faster Node Provisioning
 
+> **Historical Document**: This planning document describes the original design for the golden
+> image build system. The actual implementation diverged significantly (using Terraform +
+> virt-customize instead of Packer) and is documented in the authoritative engineering reference:
+> **[Golden Image & CI/CD Engineering Guide](engineering/golden-image-cicd.md)**.
+>
+> The implementation is in the `golden-image/` directory (not `packer/` as originally planned).
+
 **Status**: Implemented
 **Created**: 2026-02-11
 **Goal**: Reduce node boot-to-ready time by ~100s by pre-baking all static configuration into a reusable qcow2 image, leaving only per-node/per-cluster config for runtime cloud-init.

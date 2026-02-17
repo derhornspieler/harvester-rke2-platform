@@ -8,7 +8,7 @@
 #   1. Creates the realm (derived from DOMAIN) with admin user + TOTP
 #   2. Creates OIDC clients for every service (incl. kubernetes + per-service oauth2-proxy + rancher)
 #   3. Binds each service to Keycloak for SSO
-#   4. Creates user groups with role mappings (7 groups)
+#   4. Creates user groups with role mappings (8 groups)
 #
 # Prerequisites:
 #   - Keycloak running (keycloak.<DOMAIN>)

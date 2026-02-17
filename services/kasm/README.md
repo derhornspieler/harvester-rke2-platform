@@ -84,15 +84,15 @@ kubectl apply -f services/kasm/namespace.yaml
 kubectl apply -f services/kasm/postgres/secret.yaml
 kubectl apply -f services/kasm/postgres/kasm-pg-cluster.yaml
 
-# Wait for CNPG cluster to be ready (3 instances)
-kubectl -n kasm get cluster kasm-pg -w
+# Wait for CNPG cluster to be ready (3 instances, in database namespace)
+kubectl -n database get cluster kasm-pg -w
 # STATUS: Cluster in healthy state
 ```
 
 ### Step 2: Helm Install
 
 ```bash
-helm repo add kasmtech https://kasmtech.github.io/kasm-helm
+helm repo add kasmtech https://helm.kasmweb.com/
 helm repo update
 
 helm install kasm kasmtech/kasm \
@@ -107,7 +107,6 @@ Kasm remains on IngressRoute (not migrated to Gateway API) due to backend HTTPS 
 ```bash
 kubectl apply \
   -f services/kasm/certificate.yaml \
-  -f services/kasm/serverstransport.yaml \
   -f services/kasm/ingressroute.yaml
 ```
 
@@ -127,7 +126,7 @@ kubectl apply \
 | Parameter | Value | Description |
 |-----------|-------|-------------|
 | `database.standalone` | `true` | Use external PostgreSQL (CNPG) |
-| `database.host` | `kasm-pg-rw.kasm.svc` | CNPG read-write service |
+| `database.host` | `kasm-pg-rw.database.svc.cluster.local` | CNPG read-write service |
 | `database.port` | `5432` | PostgreSQL port |
 | `database.name` | `kasm` | Database name |
 | `proxy.type` | `ClusterIP` | Service type (Traefik handles LB) |
@@ -148,8 +147,8 @@ kubectl apply \
 # All pods running
 kubectl -n kasm get pods
 
-# CNPG cluster healthy
-kubectl -n kasm get cluster kasm-pg
+# CNPG cluster healthy (in database namespace)
+kubectl -n database get cluster kasm-pg
 # STATUS: Cluster in healthy state
 
 # TLS certificate issued
@@ -180,7 +179,7 @@ Check the CNPG operator is installed and the secret exists:
 
 ```bash
 kubectl get pods -n cnpg-system
-kubectl -n kasm get secret kasm-pg-superuser
+kubectl -n database get secret kasm-pg-superuser
 ```
 
 ### Kasm pods CrashLoopBackOff
@@ -201,15 +200,15 @@ Verify the Harvester VM Provider is configured in Admin UI. Agent VMs need netwo
 
 ```
 services/kasm/
-├── kustomization.yaml           # Lists namespace, cert, serverstransport, ingressroute
+├── kustomization.yaml           # Lists namespace, cert, ingressroute
 ├── namespace.yaml               # kasm namespace
 ├── kasm-values.yaml             # Helm values (external PG, ClusterIP proxy)
 ├── certificate.yaml             # Explicit TLS cert for kasm.<DOMAIN> (not auto via gateway-shim)
-├── serverstransport.yaml        # Traefik ServersTransport (insecureSkipVerify for HTTPS backend)
-├── ingressroute.yaml            # Traefik IngressRoute (exception: uses serversTransport)
+├── ingressroute.yaml            # Traefik IngressRoute (exception: embeds ServersTransport for HTTPS backend)
 └── postgres/
     ├── secret.yaml              # CNPG superuser credentials (CHANGEME)
-    └── kasm-pg-cluster.yaml     # CNPG Cluster (3 instances, PG 14)
+    ├── kasm-pg-cluster.yaml     # CNPG Cluster (3 instances, PG 14)
+    └── kasm-pg-scheduled-backup.yaml  # CNPG ScheduledBackup
 ```
 
 > **Note**: Kasm is the only service that remains on IngressRoute (not migrated to Gateway API) because it requires backend HTTPS with `insecureSkipVerify`, which Gateway API HTTPRoute does not yet support via extensionRef.
@@ -217,7 +216,7 @@ services/kasm/
 ## Dependencies
 
 - **Vault + cert-manager** (TLS certificate issuance)
-- **Traefik** (ingress with 1800s timeout, sticky cookie)
+- **Traefik** (ingress with 1800s timeout)
 - **CNPG Operator** (PostgreSQL cluster management)
 - **Harvester CSI** (PVCs for CNPG)
 - **Harvester** (VM provisioning for agent nodes)

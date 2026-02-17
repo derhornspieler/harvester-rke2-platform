@@ -15,7 +15,7 @@ This directory deploys two complementary GitOps tools:
 - **ArgoCD v3.3.0** — Declarative continuous deployment via Git-based configuration. Watches Git repositories and automatically syncs cluster state to match desired state.
 - **Argo Rollouts v1.8.3** — Progressive delivery framework extending Kubernetes Deployments with canary and blue-green deployment strategies, traffic management, and automated promotion.
 
-Both run in HA configuration with redundant replicas, shared state via Redis, and are fronted by Traefik IngressRouter for secure HTTPS access.
+Both run in HA configuration with redundant replicas, shared state via Redis, and are fronted by Traefik via Gateway API (Gateway + HTTPRoute) for secure HTTPS access.
 
 ## Architecture
 
@@ -109,7 +109,7 @@ sequenceDiagram
 | ArgoCD AppSet | 3.3.0 | 2 | general | Generates Applications from templates |
 | Argo Rollouts Controller | 1.8.3 | 2 | general | Manages Rollout CRDs, traffic shifting |
 | Argo Rollouts Dashboard | 1.8.3 | 1 | general | UI for Rollout visualization |
-| Redis HA Server | - | 3 | general | ArgoCD state cache |
+| Redis HA Server (Valkey) | valkey/valkey:8-alpine | 3 | general | ArgoCD state cache |
 | Redis HA Haproxy | - | 3 | general | Redis cluster proxy |
 
 ## Prerequisites
@@ -270,9 +270,8 @@ controller:
 
 # Traffic router plugin: Gateway API (top-level, NOT nested under controller)
 trafficRouterPlugins:
-  enabled: true
-  argoproj_labs_rollouts_gateway_api:
-    className: gatewayapi
+  - name: "argoproj-labs/gatewayAPI"
+    location: "CHANGEME_ARGO_ROLLOUTS_PLUGIN_URL"
 
 # Dashboard (single replica, oauth2-proxy ForwardAuth)
 dashboard:
@@ -280,7 +279,7 @@ dashboard:
   replicas: 1
 ```
 
-**Critical**: `trafficRouterPlugins` MUST be top-level in values. Nesting under `controller` causes JSON unmarshal crash.
+**Critical**: `trafficRouterPlugins` MUST be top-level in values (array format). Nesting under `controller` causes JSON unmarshal crash. The `CHANGEME` URL is replaced at deploy time by `_subst_changeme()` in `scripts/lib.sh`.
 
 ### Redis HA Anti-Affinity Fix
 
@@ -561,10 +560,19 @@ services/argo/
     ├── app-of-apps.yaml               # Root Application (auto-syncs children)
     ├── argocd-self-manage.yaml        # (Optional) ArgoCD self-manage app
     └── apps/
-        ├── monitoring-stack.yaml      # Child app: monitoring-stack (auto-sync)
-        ├── vault.yaml                 # Child app: vault (manual-sync only)
+        ├── argocd.yaml                # Child app: argocd (self-manage)
         ├── argo-rollouts.yaml         # Child app: argo-rollouts (auto-sync)
-        └── cert-manager.yaml          # Child app: cert-manager (auto-sync)
+        ├── cert-manager.yaml          # Child app: cert-manager (auto-sync)
+        ├── harbor.yaml                # Child app: harbor (auto-sync)
+        ├── kasm.yaml                  # Child app: kasm (auto-sync)
+        ├── keycloak.yaml              # Child app: keycloak (auto-sync)
+        ├── mattermost.yaml            # Child app: mattermost (auto-sync)
+        ├── monitoring-stack.yaml      # Child app: monitoring-stack (auto-sync)
+        ├── node-labeler.yaml          # Child app: node-labeler (auto-sync)
+        ├── rbac.yaml                  # Child app: rbac (auto-sync)
+        ├── storage-autoscaler.yaml    # Child app: storage-autoscaler (auto-sync)
+        ├── uptime-kuma.yaml           # Child app: uptime-kuma (auto-sync)
+        └── vault.yaml                 # Child app: vault (manual-sync only)
 ```
 
 ## Dependencies

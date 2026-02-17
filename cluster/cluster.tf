@@ -270,22 +270,25 @@ resource "rancher2_cluster_v2" "rke2" {
     # -----------------------------------------------------------------
     # Global Machine Config
     # -----------------------------------------------------------------
-    machine_global_config = yamlencode({
-      cni                   = var.cni
-      "disable-kube-proxy"  = true
-      "disable"             = ["rke2-ingress-nginx"]
-      "ingress-controller"  = "traefik"
-      "etcd-expose-metrics" = true
+    machine_global_config = yamlencode(merge(
+      {
+        cni                   = var.cni
+        "disable-kube-proxy"  = true
+        "disable"             = ["rke2-ingress-nginx"]
+        "ingress-controller"  = "traefik"
+        "etcd-expose-metrics" = true
 
-      "kube-apiserver-arg" = [
-        "oidc-issuer-url=https://keycloak.${var.domain}/realms/${var.keycloak_realm}",
-        "oidc-client-id=kubernetes",
-        "oidc-username-claim=preferred_username",
-        "oidc-groups-claim=groups"
-      ]
-      "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
-      "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
-    })
+        "kube-apiserver-arg" = [
+          "oidc-issuer-url=https://keycloak.${var.domain}/realms/${var.keycloak_realm}",
+          "oidc-client-id=kubernetes",
+          "oidc-username-claim=preferred_username",
+          "oidc-groups-claim=groups"
+        ]
+        "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
+        "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
+      },
+      var.airgapped ? { "system-default-registry" = "harbor.${var.domain}" } : {}
+    ))
 
     # -----------------------------------------------------------------
     # Private Registry Auth (Docker Hub rate-limit workaround)
