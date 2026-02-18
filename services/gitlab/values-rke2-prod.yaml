@@ -172,17 +172,9 @@ nginx-ingress:
 traefik:
   install: false
 
-## ── Container Registry → general nodes ──────────────────────────────────────
+## ── Container Registry — DISABLED (Harbor is the platform registry) ─────────
 registry:
-  enabled: true
-  nodeSelector:
-    workload-type: general
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      memory: 512Mi
+  enabled: false
 
 ## ── GitLab Sub-Charts ────────────────────────────────────────────────────────
 gitlab:

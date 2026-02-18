@@ -259,8 +259,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         setTokens(data.access_token, data.refresh_token ?? null);
 
-        // Clean up the URL
-        window.history.replaceState({}, "", "/");
+        // Clean up the URL and redirect to dashboard
+        window.history.replaceState({}, "", "/dashboard");
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Authentication failed",

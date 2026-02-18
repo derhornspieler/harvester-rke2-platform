@@ -36,8 +36,13 @@ runners:
 nodeSelector:
   workload-type: general
 
-## Service account for the runner manager pod
-serviceAccountName: gitlab-runner-sa
+## Use pre-existing RBAC and ServiceAccount (from rbac.yaml)
+rbac:
+  create: false
+
+serviceAccount:
+  create: false
+  name: gitlab-runner-sa
 
 ## Mount Root CA into the runner manager pod for GitLab TLS trust
 volumeMounts:

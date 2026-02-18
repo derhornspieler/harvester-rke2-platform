@@ -1,0 +1,21 @@
+# Infrastructure pipeline pattern — lint, validate, plan, apply
+include:
+  - local: '/base.yml'
+  - local: '/jobs/lint.yml'
+  - local: '/jobs/scan.yml'
+
+secret-detection:
+  extends: .scan:gitleaks
+
+yamllint:
+  extends: .lint:yamllint
+
+validate-manifests:
+  stage: test
+  image: bitnami/kubectl:latest
+  script:
+    - |
+      find . -name '*.yaml' -o -name '*.yml' | while read -r f; do
+        kubectl apply --dry-run=client -f "$f" 2>/dev/null || echo "WARN: $f may not be a K8s manifest"
+      done
+  allow_failure: true

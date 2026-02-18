@@ -1,0 +1,27 @@
+# Container image build templates
+
+.build:kaniko:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  variables:
+    DOCKERFILE: Dockerfile
+    CONTEXT: .
+  script:
+    - mkdir -p /kaniko/.docker
+    - |
+      echo "{\"auths\":{\"${HARBOR_REGISTRY}\":{\"username\":\"${HARBOR_CI_USER}\",\"password\":\"${HARBOR_CI_PASSWORD}\"}}}" \
+        > /kaniko/.docker/config.json
+    - |
+      /kaniko/executor \
+        --context "${CONTEXT}" \
+        --dockerfile "${CONTEXT}/${DOCKERFILE}" \
+        --destination "${IMAGE_FULL}" \
+        --destination "${IMAGE_NAME}:latest" \
+        --cache=true \
+        --cache-repo="${HARBOR_REGISTRY}/ci-cache/${CI_PROJECT_NAME}" \
+        --snapshot-mode=redo \
+        --skip-tls-verify
+  rules:
+    - if: '$CI_COMMIT_BRANCH'

@@ -5,33 +5,33 @@ type User struct {
 	ID              string            `json:"id"`
 	Username        string            `json:"username"`
 	Email           string            `json:"email"`
-	FirstName       string            `json:"first_name"`
-	LastName        string            `json:"last_name"`
+	FirstName       string            `json:"firstName"`
+	LastName        string            `json:"lastName"`
 	Enabled         bool              `json:"enabled"`
-	EmailVerified   bool              `json:"email_verified"`
-	CreatedAt       int64             `json:"created_at"`
-	Groups          []string          `json:"groups,omitempty"`
-	RealmRoles      []string          `json:"realm_roles,omitempty"`
+	EmailVerified   bool              `json:"emailVerified"`
+	CreatedAt       int64             `json:"createdTimestamp"`
+	Groups          []Group           `json:"groups,omitempty"`
+	RealmRoles      []Role            `json:"roles,omitempty"`
 	Attributes      map[string]string `json:"attributes,omitempty"`
-	MFAEnabled      bool              `json:"mfa_enabled"`
-	RequiredActions []string          `json:"required_actions,omitempty"`
+	MFAEnabled      bool              `json:"mfaEnabled"`
+	RequiredActions []string          `json:"requiredActions,omitempty"`
 }
 
 // CreateUserRequest is the payload for creating a new user.
 type CreateUserRequest struct {
 	Username  string `json:"username"`
 	Email     string `json:"email"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
 	Enabled   bool   `json:"enabled"`
-	Password  string `json:"password,omitempty"`
+	Password  string `json:"password,omitempty"` //nolint:gosec // DTO field, not a hardcoded credential
 }
 
 // UpdateUserRequest is the payload for updating an existing user.
 type UpdateUserRequest struct {
 	Email     *string `json:"email,omitempty"`
-	FirstName *string `json:"first_name,omitempty"`
-	LastName  *string `json:"last_name,omitempty"`
+	FirstName *string `json:"firstName,omitempty"`
+	LastName  *string `json:"lastName,omitempty"`
 	Enabled   *bool   `json:"enabled,omitempty"`
 }
 
@@ -40,33 +40,40 @@ type UserProfile struct {
 	ID            string   `json:"id"`
 	Username      string   `json:"username"`
 	Email         string   `json:"email"`
-	FirstName     string   `json:"first_name"`
-	LastName      string   `json:"last_name"`
-	EmailVerified bool     `json:"email_verified"`
+	FirstName     string   `json:"firstName"`
+	LastName      string   `json:"lastName"`
+	EmailVerified bool     `json:"emailVerified"`
 	Groups        []string `json:"groups"`
-	RealmRoles    []string `json:"realm_roles"`
-	MFAEnabled    bool     `json:"mfa_enabled"`
+	RealmRoles    []string `json:"roles"`
+	MFAEnabled    bool     `json:"mfaEnabled"`
 }
 
 // MFAStatus represents the MFA enrollment status for a user.
 type MFAStatus struct {
-	Enabled      bool     `json:"enabled"`
+	Enrolled     bool     `json:"enrolled"`
+	Type         string   `json:"type,omitempty"`
 	Methods      []string `json:"methods,omitempty"`
-	ConfiguredAt string   `json:"configured_at,omitempty"`
+	ConfiguredAt string   `json:"configuredAt,omitempty"`
 }
 
 // ResetPasswordRequest is the payload for an admin password reset.
 type ResetPasswordRequest struct {
-	Password  string `json:"password"`
+	Password  string `json:"password"` //nolint:gosec // DTO field, not a hardcoded credential
 	Temporary bool   `json:"temporary"`
 }
 
 // DashboardStats holds aggregate stats for the admin dashboard.
 type DashboardStats struct {
-	TotalUsers     int `json:"total_users"`
-	EnabledUsers   int `json:"enabled_users"`
-	DisabledUsers  int `json:"disabled_users"`
-	MFAEnrolled    int `json:"mfa_enrolled"`
-	ActiveSessions int `json:"active_sessions"`
-	TotalGroups    int `json:"total_groups"`
+	TotalUsers     int     `json:"totalUsers"`
+	ActiveUsers    int     `json:"activeUsers"`
+	MFAEnrolled    int     `json:"mfaEnrolled"`
+	MFAPercentage  float64 `json:"mfaPercentage"`
+	ActiveSessions int     `json:"activeSessions"`
+	SSHCertsToday  int     `json:"sshCertsToday"`
+}
+
+// UsersResponse wraps a paginated list of users.
+type UsersResponse struct {
+	Users []User `json:"users"`
+	Total int    `json:"total"`
 }

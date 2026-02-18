@@ -6,6 +6,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { ProtectedRoute } from "@/components/protected-route";
 import { AdminRoute } from "@/components/admin-route";
 import { AppLayout } from "@/components/layout/app-layout";
+import { LandingPage } from "@/pages/landing";
 import { DashboardPage } from "@/pages/dashboard";
 import { LoginCallbackPage } from "@/pages/login-callback";
 import { UsersListPage } from "@/pages/users/users-list";
@@ -38,7 +39,8 @@ export default function App() {
         <AuthProvider>
           <BrowserRouter>
             <Routes>
-              {/* Public callback route */}
+              {/* Public routes */}
+              <Route index element={<LandingPage />} />
               <Route path="/login/callback" element={<LoginCallbackPage />} />
 
               {/* Protected routes */}
@@ -49,7 +51,7 @@ export default function App() {
                   </ProtectedRoute>
                 }
               >
-                <Route index element={<DashboardPage />} />
+                <Route path="dashboard" element={<DashboardPage />} />
 
                 {/* Admin routes */}
                 <Route

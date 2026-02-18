@@ -19,17 +19,6 @@ spec:
       allowedRoutes:
         namespaces:
           from: Same
-    - name: registry-web
-      port: 8443
-      protocol: HTTPS
-      hostname: "registry.example.com"
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - name: registry-example-com-tls
-      allowedRoutes:
-        namespaces:
-          from: Same
     - name: kas-web
       port: 8443
       protocol: HTTPS

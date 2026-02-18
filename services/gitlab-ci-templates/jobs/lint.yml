@@ -1,0 +1,32 @@
+# Lint job templates
+
+.lint:hadolint:
+  stage: lint
+  image: hadolint/hadolint:latest-alpine
+  script:
+    - hadolint ${DOCKERFILE:-Dockerfile}
+  rules:
+    - exists:
+        - Dockerfile
+        - "*.Dockerfile"
+
+.lint:yamllint:
+  stage: lint
+  image: cytopia/yamllint:latest
+  script:
+    - yamllint -c .yamllint.yml . || yamllint .
+  rules:
+    - exists:
+        - "*.yaml"
+        - "*.yml"
+  allow_failure: true
+
+.lint:shellcheck:
+  stage: lint
+  image: koalaman/shellcheck-alpine:stable
+  script:
+    - find . -name '*.sh' -exec shellcheck {} +
+  rules:
+    - exists:
+        - "*.sh"
+  allow_failure: true

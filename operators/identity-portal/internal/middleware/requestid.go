@@ -5,18 +5,22 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"regexp"
 )
 
 type contextKey string
 
 const requestIDKey contextKey = "request_id"
 
+// validRequestID matches alphanumeric characters, hyphens, and underscores (max 64 chars).
+var validRequestID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
 // RequestID adds a unique X-Request-ID header to each request.
-// If the incoming request already has one, it is preserved.
+// If the incoming request already has one and it is valid, it is preserved.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")
-		if id == "" {
+		if !validRequestID.MatchString(id) {
 			id = generateRequestID()
 		}
 

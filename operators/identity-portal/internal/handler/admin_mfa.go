@@ -29,13 +29,14 @@ func (h *Handler) GetUserMFAStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := model.MFAStatus{
-		Enabled: false,
-		Methods: []string{},
+		Enrolled: false,
+		Methods:  []string{},
 	}
 
 	for _, cred := range creds {
 		if cred.Type != nil && (*cred.Type == "otp" || *cred.Type == "webauthn") {
-			status.Enabled = true
+			status.Enrolled = true
+			status.Type = *cred.Type
 			status.Methods = append(status.Methods, *cred.Type)
 			if cred.CreatedDate != nil && status.ConfiguredAt == "" {
 				t := time.UnixMilli(*cred.CreatedDate)

@@ -104,7 +104,7 @@ func (h *Handler) UpdateSSHRole(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DeleteSSHRole handles DELETE /api/v1/admin/vault/ssh/roles/{name}
@@ -129,5 +129,20 @@ func (h *Handler) DeleteSSHRole(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetAdminSSHCA handles GET /api/v1/admin/vault/ssh/ca
+func (h *Handler) GetAdminSSHCA(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	publicKey, err := h.Vault.GetSSHCAPublicKey(ctx)
+	if err != nil {
+		h.Logger.Error("failed to get SSH CA public key", zap.Error(err),
+			zap.String("request_id", middleware.GetRequestID(ctx)))
+		writeError(w, http.StatusInternalServerError, "VAULT_ERROR", "failed to get SSH CA public key")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.SSHCAResponse{PublicKey: publicKey})
 }

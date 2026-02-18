@@ -166,6 +166,28 @@ func (c *Client) GetGroupMembers(ctx context.Context, groupID string) ([]model.U
 	return result, nil
 }
 
+// GetUserGroupsDetailed returns the groups a user belongs to with full details.
+func (c *Client) GetUserGroupsDetailed(ctx context.Context, userID string) ([]model.Group, error) {
+	token, err := c.Token(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	groups, err := c.gc.GetUserGroups(ctx, token, c.cfg.KeycloakRealm, userID, gocloak.GetGroupsParams{})
+	if err != nil {
+		metrics.KeycloakErrorsTotal.WithLabelValues("get_user_groups").Inc()
+		return nil, fmt.Errorf("get user groups: %w", err)
+	}
+
+	metrics.KeycloakRequestsTotal.WithLabelValues("get_user_groups", "success").Inc()
+
+	result := make([]model.Group, 0, len(groups))
+	for _, g := range groups {
+		result = append(result, mapGroup(g))
+	}
+	return result, nil
+}
+
 func mapGroup(g *gocloak.Group) model.Group {
 	group := model.Group{}
 	if g.ID != nil {

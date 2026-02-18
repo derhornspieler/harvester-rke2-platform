@@ -1059,7 +1059,10 @@ kubectl exec -n vault vault-0 -- env VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKE
 # 5. Delete all TLS secrets to force reissuance
 kubectl delete secret -A -l cert-manager.io/certificate-name
 
-# 6. Verify certificates reissue
+# 6. Sync Rancher agent CA checksum (prevents system-agent-upgrader failures)
+source scripts/lib.sh && sync_rancher_agent_ca
+
+# 7. Verify certificates reissue
 kubectl get certificates -A -w
 ```
 
@@ -1102,7 +1105,10 @@ cd cluster && ./terraform.sh push-secrets
 # 4. Delete all TLS secrets
 kubectl delete secret -A -l cert-manager.io/certificate-name
 
-# 5. Verify all certificates reissue
+# 5. Sync Rancher agent CA checksum (prevents system-agent-upgrader failures)
+source scripts/lib.sh && sync_rancher_agent_ca
+
+# 6. Verify all certificates reissue
 kubectl get certificates -A -w
 ```
 
@@ -1165,6 +1171,75 @@ kubectl get secret <tls-secret-name> -n <ns>
 **Prevention**: Distribute Root CA to all clients during onboarding. The `credentials.txt` file includes the Root CA PEM.
 
 **Escalation**: Not required. This is a client configuration issue.
+
+---
+
+### 4.6 System-Agent-Upgrader CA Checksum Mismatch (Rancher Management Cluster CA Change)
+
+**Severity**: P2
+
+**Symptom**: All `apply-system-agent-upgrader-*` pods in `cattle-system` fail with:
+```
+[ERROR]  Configured cacerts checksum (<hash-from-cacerts>) does not match given --ca-checksum (<hash-from-stv-aggregation>)
+```
+
+Typically 70+ pods in `Error` state — one per node per retry cycle. The system-upgrade-controller keeps creating new jobs that immediately fail.
+
+**Root Cause**: The Rancher management cluster's TLS CA has changed, but the downstream cluster's `stv-aggregation` secret in `cattle-system` still contains the old `CATTLE_CA_CHECKSUM`. This happens when:
+
+1. **k3k vcluster failure/rebuild** — Rancher management vcluster is recreated and gets a new TLS certificate (different CA or cert chain)
+2. **Rancher management cluster DR** — Full Rancher rebuild with new certificates
+3. **Rancher TLS cert rotation** — The certificate at `rancher.<domain>/cacerts` changes (e.g., new intermediate CA signed by same root, or full chain changes)
+4. **Migration between Rancher clusters** — Downstream cluster re-imported into a Rancher instance with different CA
+
+The system-agent-upgrader install script downloads the full cert chain from `/cacerts`, computes its sha256, and compares it against `CATTLE_CA_CHECKSUM` in the `stv-aggregation` secret. Rancher does **not** automatically reconcile this checksum when the management CA changes.
+
+**Diagnostic Steps**:
+```bash
+# 1. Confirm the error (check any failing pod's logs)
+kubectl logs -n cattle-system $(kubectl get pods -n cattle-system \
+  -l upgrade.cattle.io/plan=system-agent-upgrader \
+  --field-selector=status.phase=Failed -o name | head -1)
+
+# 2. Compare the checksums
+# What /cacerts currently serves:
+curl -sk https://rancher.<domain>/cacerts | sha256sum
+
+# What stv-aggregation expects:
+kubectl get secret stv-aggregation -n cattle-system \
+  -o jsonpath='{.data.CATTLE_CA_CHECKSUM}' | base64 -d && echo
+
+# 3. Check when the CA changed
+curl -sk https://rancher.<domain>/cacerts | openssl x509 -noout -subject -dates -issuer
+```
+
+**Resolution**:
+```bash
+# Automated fix (recommended) — syncs checksum + cleans up failed pods:
+source scripts/lib.sh && sync_rancher_agent_ca
+
+# Manual fix if lib.sh is not available:
+CHECKSUM=$(curl -sk https://rancher.<domain>/cacerts | sha256sum | awk '{print $1}')
+CACERTS=$(curl -sk https://rancher.<domain>/cacerts)
+kubectl patch secret stv-aggregation -n cattle-system --type merge \
+  -p "{\"data\":{\"CATTLE_CA_CHECKSUM\":\"$(echo -n $CHECKSUM | base64 -w0)\",\"ca.crt\":\"$(echo -n "$CACERTS" | base64 -w0)\"}}"
+
+# Delete failed pods so the controller retries immediately
+kubectl delete pods -n cattle-system \
+  -l upgrade.cattle.io/plan=system-agent-upgrader \
+  --field-selector=status.phase=Failed
+
+# Verify new pods complete successfully
+kubectl get pods -n cattle-system -l upgrade.cattle.io/plan=system-agent-upgrader -w
+```
+
+**Prevention**: The `sync_rancher_agent_ca` function in `lib.sh` runs automatically during Phase 1 (foundation) of `deploy-cluster.sh`. For ad-hoc Rancher CA changes outside the deploy flow:
+
+- After k3k vcluster rebuild: run `source scripts/lib.sh && sync_rancher_agent_ca`
+- After Rancher DR/migration: run `source scripts/lib.sh && sync_rancher_agent_ca`
+- After any Rancher TLS cert change: run `source scripts/lib.sh && sync_rancher_agent_ca`
+
+**Escalation**: Not required. This is a configuration drift issue that `sync_rancher_agent_ca` resolves in seconds.
 
 ---
 
@@ -3104,6 +3179,12 @@ graph TD
     DR_SCOPE -->|"etcd corruption"| ETCD_DR["etcd Restore"]
     DR_SCOPE -->|"Database loss"| DB_DR["CNPG PITR"]
     DR_SCOPE -->|"Full cluster loss"| FULL_DR["Full Cluster Rebuild"]
+    DR_SCOPE -->|"Rancher mgmt cluster<br/>(k3k vcluster)"| RANCHER_DR["Rancher Management DR"]
+
+    RANCHER_DR --> RANCHER_REBUILD["Rebuild k3k vcluster"]
+    RANCHER_REBUILD --> RANCHER_REIMPORT["Re-import downstream cluster"]
+    RANCHER_REIMPORT --> SYNC_CA["sync_rancher_agent_ca"]
+    SYNC_CA --> VERIFY["Verify system-agent-upgrader pods"]
 
     FULL_DR --> PREREQS{"Have vault-init.json?"}
     PREREQS -->|"Yes"| REBUILD["Terraform + Vault Restore"]
@@ -3155,6 +3236,53 @@ ls -la vault-init.json terraform.tfvars root-ca.pem root-ca-key.pem
 ```
 
 **Expected Duration**: 1-2 hours for infrastructure, plus time for data restoration.
+
+**Note**: If the Rancher management cluster was rebuilt with a new CA (e.g., k3k vcluster DR), Phase 1 automatically runs `sync_rancher_agent_ca` to fix the downstream cluster's CA checksum. See [Section 4.6](#46-system-agent-upgrader-ca-checksum-mismatch-rancher-management-cluster-ca-change) for details.
+
+---
+
+### 10.1a Rancher Management Cluster (k3k vcluster) Recovery
+
+**Severity**: P1
+
+**Symptom**: The Rancher management vcluster (k3k) has failed, been rebuilt, or been migrated. After recovery, the downstream RKE2 cluster's `system-agent-upgrader` pods fail with CA checksum mismatch errors. The downstream cluster workloads continue running normally since they don't depend on the management cluster, but Rancher-managed upgrades and scaling operations are broken.
+
+**Root Cause**: When the k3k vcluster is recreated, Rancher generates a new TLS certificate (or the cert-manager issuer provisions a new one). The `/cacerts` endpoint now serves a different certificate chain than what was stored in the downstream cluster's `stv-aggregation` secret at registration time.
+
+**Procedure**:
+```bash
+# 1. Verify Rancher management cluster is back online
+curl -sk https://rancher.<domain>/cacerts | openssl x509 -noout -subject -dates
+
+# 2. Verify downstream cluster is visible in Rancher
+# (cluster workloads run independently — this checks Rancher connectivity only)
+kubectl get clusters.provisioning.cattle.io -n fleet-default
+
+# 3. Sync the Rancher agent CA checksum on the downstream cluster
+source scripts/lib.sh && sync_rancher_agent_ca
+
+# 4. Verify system-agent-upgrader pods are completing
+kubectl get pods -n cattle-system -l upgrade.cattle.io/plan=system-agent-upgrader -w
+
+# 5. Verify cluster autoscaler can reach Rancher (uses same CA)
+kubectl logs -n kube-system -l app.kubernetes.io/name=cluster-autoscaler --tail=20
+
+# 6. Update the autoscaler's Rancher CA configmap if needed
+rancher_ca=$(curl -sk "$(source scripts/lib.sh && get_rancher_url)/v3/settings/cacerts" \
+  -H "Authorization: Bearer $(source scripts/lib.sh && get_rancher_token)" | jq -r '.value // empty')
+if [[ -n "$rancher_ca" ]]; then
+  kubectl create configmap cluster-autoscaler-rancher-ca \
+    -n kube-system --from-literal=ca.pem="$rancher_ca" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl rollout restart deployment/cluster-autoscaler -n kube-system
+fi
+```
+
+**Expected Duration**: 5-10 minutes (downstream cluster is unaffected during Rancher outage).
+
+**Prevention**: `deploy-cluster.sh` Phase 1 automatically runs `sync_rancher_agent_ca` on every deploy, so running `./scripts/deploy-cluster.sh --skip-tf --from 1` after any Rancher rebuild handles this automatically.
+
+**Escalation**: If the downstream cluster was re-imported into a completely different Rancher instance, you may also need to update the `CATTLE_SERVER` and `CATTLE_TOKEN` in the `stv-aggregation` secret. This requires re-registering the cluster in Rancher.
 
 ---
 

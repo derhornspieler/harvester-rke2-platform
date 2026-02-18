@@ -110,7 +110,7 @@ func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DeleteRole handles DELETE /api/v1/admin/roles/{name}
@@ -135,5 +135,5 @@ func (h *Handler) DeleteRole(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	w.WriteHeader(http.StatusNoContent)
 }

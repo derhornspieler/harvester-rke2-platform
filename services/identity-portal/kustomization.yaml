@@ -8,8 +8,11 @@ resources:
   - backend/configmap.yaml
   - backend/secret.yaml
   - backend/serviceaccount.yaml
+  - backend/pdb.yaml
   - frontend/deployment.yaml
   - frontend/service.yaml
   - frontend/configmap.yaml
+  - frontend/pdb.yaml
   - gateway.yaml
   - httproute.yaml
+  - networkpolicy.yaml

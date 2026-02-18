@@ -1,0 +1,33 @@
+## GitLab Runner — Security Scanner Pool
+## Dedicated runners for security scanning jobs (trivy, semgrep, gitleaks)
+## Tagged: security, trivy, semgrep, gitleaks — does NOT run untagged jobs
+
+replicas: 1
+
+gitlabUrl: ""
+runnerToken: ""
+
+rbac:
+  create: true
+  clusterWideAccess: false
+
+runners:
+  config: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "gitlab-runners"
+        image = "alpine:3.21"
+        cpu_request = "200m"
+        memory_request = "512Mi"
+        memory_limit = "2Gi"
+        cpu_limit = "1"
+        service_cpu_request = "100m"
+        service_memory_request = "256Mi"
+        poll_interval = 5
+        poll_timeout = 3600
+  tags: "security,trivy,semgrep,gitleaks"
+  runUntagged: false
+  locked: false
+  secret: gitlab-runner-certs
+
+certsSecretName: gitlab-runner-certs

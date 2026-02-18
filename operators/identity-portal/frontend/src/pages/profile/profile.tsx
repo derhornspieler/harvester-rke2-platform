@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import {
   Download,
   KeyRound,
+  RotateCcw,
   Shield,
   Terminal,
   User,
@@ -15,16 +17,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QueryError } from "@/components/error-boundary";
 import { useAuth } from "@/hooks/use-auth";
-import { useProfile, useMfaStatus } from "@/hooks/use-api";
+import { useProfile, useMfaStatus, useResetSelfMfa } from "@/hooks/use-api";
 
 export function ProfilePage() {
   const { user: tokenUser } = useAuth();
   const profile = useProfile();
   const mfa = useMfaStatus();
+  const resetMfa = useResetSelfMfa();
+  const [showMfaReset, setShowMfaReset] = useState(false);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -117,27 +131,74 @@ export function ProfilePage() {
               message="Failed to load MFA status"
             />
           ) : (
-            <div className="flex items-center gap-3">
-              {mfa.data?.enrolled ? (
-                <>
-                  <Badge variant="success">Enrolled</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    Your account is protected by multi-factor authentication
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Badge variant="warning">Not Enrolled</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    Contact your administrator or enroll via Keycloak account
-                    settings
-                  </span>
-                </>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                {mfa.data?.enrolled ? (
+                  <>
+                    <Badge variant="success">Enrolled</Badge>
+                    <span className="text-sm text-muted-foreground">
+                      Your account is protected by multi-factor authentication
+                      {(mfa.data.methods?.length ?? 0) > 0 &&
+                        ` (${mfa.data.methods!.join(", ")})`}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Badge variant="warning">Not Enrolled</Badge>
+                    <span className="text-sm text-muted-foreground">
+                      You can enroll MFA via your Keycloak account settings
+                    </span>
+                  </>
+                )}
+              </div>
+              {mfa.data?.enrolled && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowMfaReset(true)}
+                  disabled={resetMfa.isPending}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  {resetMfa.isPending ? "Resetting..." : "Reset MFA"}
+                </Button>
+              )}
+              {resetMfa.isSuccess && (
+                <p className="text-sm text-green-600">
+                  MFA has been reset. You can re-enroll on your next login.
+                </p>
+              )}
+              {resetMfa.isError && (
+                <p className="text-sm text-destructive">
+                  Failed to reset MFA. Please try again or contact an
+                  administrator.
+                </p>
               )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* MFA Reset Confirmation Dialog */}
+      <AlertDialog open={showMfaReset} onOpenChange={setShowMfaReset}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset Multi-Factor Authentication?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove all MFA methods from your account. You will need
+              to re-enroll MFA on your next login. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => resetMfa.mutate()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Reset MFA
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Groups */}
       <Card>

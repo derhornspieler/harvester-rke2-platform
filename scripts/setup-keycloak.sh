@@ -8,7 +8,8 @@
 #   1. Creates the realm (derived from DOMAIN) with admin user + TOTP
 #   2. Creates OIDC clients for every service (incl. kubernetes + per-service oauth2-proxy + rancher)
 #   3. Binds each service to Keycloak for SSO
-#   4. Creates user groups with role mappings (8 groups)
+#   4. Creates user groups with role mappings (9 groups)
+#   5. Creates 12 test users across all groups for development/testing
 #
 # Prerequisites:
 #   - Keycloak running (keycloak.<DOMAIN>)
@@ -307,7 +308,7 @@ phase_1_realm() {
         \"emailVerified\": true,
         \"firstName\": \"Realm\",
         \"lastName\": \"Admin\",
-        \"requiredActions\": [\"CONFIGURE_TOTP\"],
+        \"requiredActions\": [],
         \"credentials\": [{
           \"type\": \"password\",
           \"value\": \"${REALM_ADMIN_PASS}\",
@@ -350,7 +351,7 @@ phase_1_realm() {
         \"emailVerified\": true,
         \"firstName\": \"General\",
         \"lastName\": \"User\",
-        \"requiredActions\": [\"CONFIGURE_TOTP\"],
+        \"requiredActions\": [],
         \"credentials\": [{
           \"type\": \"password\",
           \"value\": \"${REALM_USER_PASS}\",
@@ -372,11 +373,11 @@ phase_1_realm() {
     }" 2>/dev/null || true
   log_ok "TOTP policy configured"
 
-  # Set CONFIGURE_TOTP as default required action for all new users
+  # Ensure CONFIGURE_TOTP is available but not forced on new users (MFA is optional)
   kc_api PUT "/realms/${KC_REALM}/authentication/required-actions/CONFIGURE_TOTP" \
-    -d '{"alias":"CONFIGURE_TOTP","name":"Configure OTP","defaultAction":true,"enabled":true,"priority":10}' \
+    -d '{"alias":"CONFIGURE_TOTP","name":"Configure OTP","defaultAction":false,"enabled":true,"priority":10}' \
     2>/dev/null || true
-  log_ok "TOTP set as default required action for new users"
+  log_ok "TOTP available as optional action (not forced on new users)"
 
   echo ""
   log_ok "Realm credentials:"
@@ -518,32 +519,70 @@ phase_2_clients() {
     "https://rancher.${DOMAIN}/verify-auth" "Rancher")
   jq --arg s "$secret" '.rancher = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
 
-  # 2.11 Identity Portal
-  log_step "Creating identity-portal OIDC client"
-  secret=$(kc_create_client "identity-portal" \
-    "https://identity.${DOMAIN}/*" "Identity Portal")
-  jq --arg s "$secret" '.["identity-portal"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+  # 2.11 Identity Portal (two-client setup)
+  #   - identity-portal:       PUBLIC client for frontend PKCE OIDC flow (browser login)
+  #   - identity-portal-admin: CONFIDENTIAL client with service account for backend Keycloak Admin API
+
+  # 2.11a identity-portal — PUBLIC client (no secret, PKCE-enabled, like kubernetes)
+  log_step "Creating identity-portal OIDC client (public — PKCE frontend)"
+  local ip_existing
+  ip_existing=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=identity-portal" 2>/dev/null || echo "[]")
+  local ip_existing_id
+  ip_existing_id=$(echo "$ip_existing" | jq -r '.[0].id // empty')
+  if [[ -n "$ip_existing_id" ]]; then
+    log_info "  Client 'identity-portal' already exists (id: ${ip_existing_id}) — updating to public"
+    local ip_client_json
+    ip_client_json=$(kc_api GET "/realms/${KC_REALM}/clients/${ip_existing_id}" 2>/dev/null || echo "{}")
+    if [[ -n "$ip_client_json" && "$ip_client_json" != "{}" ]]; then
+      local ip_updated_json
+      ip_updated_json=$(echo "$ip_client_json" | jq \
+        '.publicClient = true |
+         .clientAuthenticatorType = "client-secret" |
+         .serviceAccountsEnabled = false |
+         .standardFlowEnabled = true |
+         .directAccessGrantsEnabled = false |
+         .redirectUris = ["https://identity.'"${DOMAIN}"'/*"] |
+         .webOrigins = ["+"] |
+         .attributes["post.logout.redirect.uris"] = "+" |
+         .attributes["pkce.code.challenge.method"] = "S256"')
+      echo "$ip_updated_json" | kc_api PUT "/realms/${KC_REALM}/clients/${ip_existing_id}" -d @- 2>/dev/null || \
+        log_warn "Could not update identity-portal to public client"
+    fi
+  else
+    kc_api POST "/realms/${KC_REALM}/clients" \
+      -d "{
+        \"clientId\": \"identity-portal\",
+        \"name\": \"Identity Portal (Frontend)\",
+        \"enabled\": true,
+        \"protocol\": \"openid-connect\",
+        \"publicClient\": true,
+        \"standardFlowEnabled\": true,
+        \"directAccessGrantsEnabled\": false,
+        \"serviceAccountsEnabled\": false,
+        \"redirectUris\": [\"https://identity.${DOMAIN}/*\"],
+        \"webOrigins\": [\"+\"],
+        \"attributes\": {
+          \"post.logout.redirect.uris\": \"+\",
+          \"pkce.code.challenge.method\": \"S256\"
+        }
+      }"
+    log_ok "  Client 'identity-portal' created (public — no secret, PKCE enabled)"
+  fi
+
+  # 2.11b identity-portal-admin — CONFIDENTIAL service account client (backend Admin API)
+  log_step "Creating identity-portal-admin service account client (confidential — backend)"
+  secret=$(kc_create_service_account_client "identity-portal-admin" "Identity Portal Admin (Backend)")
+  jq --arg s "$secret" '.["identity-portal-admin"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
   # Export for deploy-cluster.sh Phase 10 injection
   export IDENTITY_PORTAL_OIDC_SECRET="$secret"
 
-  # Enable service account for identity-portal client (needs realm-admin for user management)
-  log_step "Enabling service account for identity-portal client..."
-  local ip_internal_id
-  ip_internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=identity-portal" | jq -r '.[0].id')
-  if [[ -n "$ip_internal_id" ]]; then
-    # Enable service account
-    local ip_client_json
-    ip_client_json=$(kc_api GET "/realms/${KC_REALM}/clients/${ip_internal_id}" 2>/dev/null || echo "{}")
-    if [[ -n "$ip_client_json" && "$ip_client_json" != "{}" ]]; then
-      local ip_updated_json
-      ip_updated_json=$(echo "$ip_client_json" | jq '.serviceAccountsEnabled = true')
-      echo "$ip_updated_json" | kc_api PUT "/realms/${KC_REALM}/clients/${ip_internal_id}" -d @- 2>/dev/null || \
-        log_warn "Could not enable service account for identity-portal"
-    fi
-
-    # Get service account user ID
+  # Assign realm-management/realm-admin role to identity-portal-admin service account
+  log_step "Assigning realm-admin role to identity-portal-admin service account..."
+  local ipa_internal_id
+  ipa_internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=identity-portal-admin" | jq -r '.[0].id')
+  if [[ -n "$ipa_internal_id" ]]; then
     local sa_user_id
-    sa_user_id=$(kc_api GET "/realms/${KC_REALM}/clients/${ip_internal_id}/service-account-user" 2>/dev/null | jq -r '.id // empty' || echo "")
+    sa_user_id=$(kc_api GET "/realms/${KC_REALM}/clients/${ipa_internal_id}/service-account-user" 2>/dev/null | jq -r '.id // empty' || echo "")
 
     if [[ -n "$sa_user_id" ]]; then
       # Get realm-management client UUID
@@ -557,9 +596,9 @@ phase_2_clients() {
       # Assign realm-management/realm-admin role to service account
       kc_api POST "/realms/${KC_REALM}/users/${sa_user_id}/role-mappings/clients/${rm_client_id}" \
         -d "[${realm_admin_role}]" 2>/dev/null || true
-      log_ok "realm-admin role assigned to identity-portal service account"
+      log_ok "realm-admin role assigned to identity-portal-admin service account"
     else
-      log_warn "Could not get service account user for identity-portal"
+      log_warn "Could not get service account user for identity-portal-admin"
     fi
   fi
 
@@ -573,7 +612,7 @@ phase_2_clients() {
   local groups_scope_id
   groups_scope_id=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
   if [[ -n "$groups_scope_id" ]]; then
-    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher identity-portal gitlab-ci; do
+    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher identity-portal identity-portal-admin gitlab-ci; do
       local cid_internal
       cid_internal=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${cid}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
       if [[ -n "$cid_internal" ]]; then
@@ -874,7 +913,7 @@ phase_4_groups() {
   local clients
   clients=$(kc_api GET "/realms/${KC_REALM}/clients?max=100" 2>/dev/null || echo "[]")
 
-  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher" "identity-portal" "gitlab-ci")
+  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher" "identity-portal" "identity-portal-admin" "gitlab-ci")
   for client_id_name in "${our_clients[@]}"; do
     local internal_id
     internal_id=$(echo "$clients" | jq -r ".[] | select(.clientId==\"${client_id_name}\") | .id" 2>/dev/null || echo "")
@@ -916,10 +955,135 @@ phase_4_groups() {
 }
 
 # =============================================================================
-# PHASE 5: VALIDATION
+# PHASE 5: TEST USERS
 # =============================================================================
-phase_5_validation() {
-  start_phase "PHASE 5: KEYCLOAK VALIDATION"
+phase_5_test_users() {
+  start_phase "PHASE 5: TEST USERS"
+
+  # Shared password for all test users (easy to remember for testing)
+  local TEST_USER_PASS="TestUser2026!"
+
+  # ── Helper: create user if not exists ──────────────────────────────────────
+  _create_test_user() {
+    local username="$1" email="$2" first="$3" last="$4"
+    shift 4
+    local group_names=("$@")
+
+    local existing_id
+    existing_id=$(kc_api GET "/realms/${KC_REALM}/users?username=${username}" 2>/dev/null \
+      | jq -r '.[0].id // empty' || echo "")
+
+    if [[ -n "$existing_id" ]]; then
+      log_info "  User '${username}' already exists — skipping"
+    else
+      kc_api POST "/realms/${KC_REALM}/users" \
+        -d "{
+          \"username\": \"${username}\",
+          \"email\": \"${email}\",
+          \"enabled\": true,
+          \"emailVerified\": true,
+          \"firstName\": \"${first}\",
+          \"lastName\": \"${last}\",
+          \"requiredActions\": [],
+          \"credentials\": [{
+            \"type\": \"password\",
+            \"value\": \"${TEST_USER_PASS}\",
+            \"temporary\": false
+          }]
+        }"
+      log_ok "  Created user: ${username}"
+    fi
+
+    # Fetch user ID (whether new or existing)
+    local user_id
+    user_id=$(kc_api GET "/realms/${KC_REALM}/users?username=${username}" | jq -r '.[0].id')
+
+    # Add to groups
+    for grp in "${group_names[@]}"; do
+      local grp_id
+      grp_id=$(kc_api GET "/realms/${KC_REALM}/groups?search=${grp}" 2>/dev/null \
+        | jq -r '.[0].id // empty' || echo "")
+      if [[ -n "$grp_id" ]]; then
+        kc_api PUT "/realms/${KC_REALM}/users/${user_id}/groups/${grp_id}" 2>/dev/null || true
+        log_info "    → added to ${grp}"
+      else
+        log_warn "    Group '${grp}' not found — skipping"
+      fi
+    done
+  }
+
+  # ── Platform Admins (full access) ──────────────────────────────────────────
+  log_step "Creating platform-admin test users..."
+  _create_test_user "alice.morgan" "alice.morgan@${DOMAIN}" "Alice" "Morgan" \
+    platform-admins harvester-admins rancher-admins
+  _create_test_user "bob.chen" "bob.chen@${DOMAIN}" "Bob" "Chen" \
+    platform-admins
+
+  # ── Infrastructure Engineers ───────────────────────────────────────────────
+  log_step "Creating infra-engineer test users..."
+  _create_test_user "carol.silva" "carol.silva@${DOMAIN}" "Carol" "Silva" \
+    infra-engineers harvester-admins
+  _create_test_user "dave.kumar" "dave.kumar@${DOMAIN}" "Dave" "Kumar" \
+    infra-engineers network-engineers
+
+  # ── Network Engineers ──────────────────────────────────────────────────────
+  log_step "Creating network-engineer test users..."
+  _create_test_user "eve.mueller" "eve.mueller@${DOMAIN}" "Eve" "Mueller" \
+    network-engineers
+
+  # ── Senior Developers (multi-group) ────────────────────────────────────────
+  log_step "Creating senior-developer test users..."
+  _create_test_user "frank.jones" "frank.jones@${DOMAIN}" "Frank" "Jones" \
+    senior-developers developers
+  _create_test_user "grace.park" "grace.park@${DOMAIN}" "Grace" "Park" \
+    senior-developers rancher-admins
+
+  # ── Developers ─────────────────────────────────────────────────────────────
+  log_step "Creating developer test users..."
+  _create_test_user "henry.wilson" "henry.wilson@${DOMAIN}" "Henry" "Wilson" \
+    developers
+  _create_test_user "iris.tanaka" "iris.tanaka@${DOMAIN}" "Iris" "Tanaka" \
+    developers
+  _create_test_user "jack.brown" "jack.brown@${DOMAIN}" "Jack" "Brown" \
+    developers
+
+  # ── Viewers (read-only) ────────────────────────────────────────────────────
+  log_step "Creating viewer test users..."
+  _create_test_user "kate.lee" "kate.lee@${DOMAIN}" "Kate" "Lee" \
+    viewers
+  _create_test_user "leo.garcia" "leo.garcia@${DOMAIN}" "Leo" "Garcia" \
+    viewers developers
+
+  # ── Summary ────────────────────────────────────────────────────────────────
+  echo ""
+  log_ok "Test users created (12 users):"
+  echo "  ┌──────────────────┬──────────────────────────────────────────────────┐"
+  echo "  │ Username         │ Groups                                           │"
+  echo "  ├──────────────────┼──────────────────────────────────────────────────┤"
+  echo "  │ alice.morgan     │ platform-admins, harvester-admins, rancher-admins│"
+  echo "  │ bob.chen         │ platform-admins                                  │"
+  echo "  │ carol.silva      │ infra-engineers, harvester-admins                │"
+  echo "  │ dave.kumar       │ infra-engineers, network-engineers               │"
+  echo "  │ eve.mueller      │ network-engineers                                │"
+  echo "  │ frank.jones      │ senior-developers, developers                    │"
+  echo "  │ grace.park       │ senior-developers, rancher-admins                │"
+  echo "  │ henry.wilson     │ developers                                       │"
+  echo "  │ iris.tanaka      │ developers                                       │"
+  echo "  │ jack.brown       │ developers                                       │"
+  echo "  │ kate.lee         │ viewers                                          │"
+  echo "  │ leo.garcia       │ viewers, developers                              │"
+  echo "  └──────────────────┴──────────────────────────────────────────────────┘"
+  echo "  Password for all test users: ${TEST_USER_PASS}"
+  echo "  (TOTP enrollment required on first login)"
+
+  end_phase "PHASE 5: TEST USERS"
+}
+
+# =============================================================================
+# PHASE 6: VALIDATION
+# =============================================================================
+phase_6_validation() {
+  start_phase "PHASE 6: KEYCLOAK VALIDATION"
 
   echo ""
   echo -e "${BOLD}============================================================${NC}"
@@ -943,12 +1107,16 @@ phase_5_validation() {
   echo "  OIDC Clients Created:"
   echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public)
     prometheus-oidc, alertmanager-oidc, hubble-oidc, traefik-dashboard-oidc, rollouts-oidc, rancher
-    identity-portal, gitlab-ci (service account)"
+    identity-portal (public/PKCE), identity-portal-admin (service account), gitlab-ci (service account)"
   echo ""
   echo "  Client secrets saved to:"
   echo "    ${OIDC_SECRETS_FILE}"
   echo ""
   echo "  Groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, network-engineers, senior-developers, developers, viewers, ci-service-accounts"
+  echo ""
+  echo "  Test Users: 12 users (password: TestUser2026!)"
+  echo "    alice.morgan, bob.chen, carol.silva, dave.kumar, eve.mueller, frank.jones,"
+  echo "    grace.park, henry.wilson, iris.tanaka, jack.brown, kate.lee, leo.garcia"
   echo ""
   echo -e "${YELLOW}  Manual steps remaining:${NC}"
   echo "    1. Configure Kasm OIDC via Admin UI"
@@ -979,6 +1147,20 @@ Keycloak Realm  https://keycloak.${DOMAIN}/admin/${KC_REALM}/console
 
 OIDC Client Secrets:
 $(jq -r 'to_entries[] | "  \(.key): \(.value)"' "$OIDC_SECRETS_FILE" 2>/dev/null || echo "  (see ${OIDC_SECRETS_FILE})")
+
+Test Users (password: TestUser2026!, TOTP enrollment on first login):
+  alice.morgan   — platform-admins, harvester-admins, rancher-admins
+  bob.chen       — platform-admins
+  carol.silva    — infra-engineers, harvester-admins
+  dave.kumar     — infra-engineers, network-engineers
+  eve.mueller    — network-engineers
+  frank.jones    — senior-developers, developers
+  grace.park     — senior-developers, rancher-admins
+  henry.wilson   — developers
+  iris.tanaka    — developers
+  jack.brown     — developers
+  kate.lee       — viewers
+  leo.garcia     — viewers, developers
 EOF
     log_ok "Keycloak credentials appended to ${creds_file}"
   else
@@ -986,7 +1168,7 @@ EOF
   fi
 
   print_total_time
-  end_phase "PHASE 5: VALIDATION"
+  end_phase "PHASE 6: VALIDATION"
 }
 
 # =============================================================================
@@ -1006,7 +1188,8 @@ main() {
   [[ $FROM_PHASE -le 2 ]] && phase_2_clients
   [[ $FROM_PHASE -le 3 ]] && phase_3_bindings
   [[ $FROM_PHASE -le 4 ]] && phase_4_groups
-  [[ $FROM_PHASE -le 5 ]] && phase_5_validation
+  [[ $FROM_PHASE -le 5 ]] && phase_5_test_users
+  [[ $FROM_PHASE -le 6 ]] && phase_6_validation
 }
 
 main "$@"

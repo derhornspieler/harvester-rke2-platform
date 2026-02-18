@@ -2,11 +2,12 @@ package model
 
 // Group represents a Keycloak group.
 type Group struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Path      string   `json:"path"`
-	SubGroups []Group  `json:"sub_groups,omitempty"`
-	Members   []string `json:"members,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Path        string   `json:"path"`
+	SubGroups   []Group  `json:"subGroups,omitempty"`
+	Members     []string `json:"members,omitempty"`
+	MemberCount int      `json:"memberCount,omitempty"`
 }
 
 // CreateGroupRequest is the payload for creating a group.
@@ -21,5 +22,5 @@ type UpdateGroupRequest struct {
 
 // GroupMembershipRequest is the payload for adding/removing a user to/from a group.
 type GroupMembershipRequest struct {
-	UserID string `json:"user_id"`
+	UserID string `json:"userId"`
 }

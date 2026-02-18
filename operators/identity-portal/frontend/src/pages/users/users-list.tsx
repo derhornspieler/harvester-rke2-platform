@@ -148,7 +148,7 @@ export function UsersListPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {user.mfaStatus?.enrolled ? (
+                      {user.mfaEnabled ? (
                         <Badge variant="success" className="text-xs">
                           Enabled
                         </Badge>

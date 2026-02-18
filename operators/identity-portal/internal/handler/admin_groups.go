@@ -120,7 +120,7 @@ func (h *Handler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DeleteGroup handles DELETE /api/v1/admin/groups/{id}
@@ -145,7 +145,7 @@ func (h *Handler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // AddGroupMember handles POST /api/v1/admin/groups/{id}/members
@@ -183,7 +183,7 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "member_added"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // RemoveGroupMember handles DELETE /api/v1/admin/groups/{id}/members/{userId}
@@ -211,5 +211,5 @@ func (h *Handler) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "member_removed"})
+	w.WriteHeader(http.StatusNoContent)
 }

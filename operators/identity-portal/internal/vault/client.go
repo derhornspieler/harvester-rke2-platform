@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,8 +15,17 @@ import (
 	"github.com/derhornspieler/rke2-cluster/operators/identity-portal/internal/metrics"
 )
 
+// ValidatePathSegment ensures a Vault path segment doesn't contain traversal characters.
+func ValidatePathSegment(s string) error {
+	if s == "" || s == "." || s == ".." ||
+		strings.Contains(s, "/") || strings.Contains(s, "\\") {
+		return fmt.Errorf("invalid path segment: %q", s)
+	}
+	return nil
+}
+
 const (
-	k8sSATokenPath      = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	k8sSATokenPath      = "/var/run/secrets/kubernetes.io/serviceaccount/token" //nolint:gosec // Not a credential, it's a file path
 	k8sAuthPath         = "auth/kubernetes/login"
 	tokenRenewThreshold = 60 * time.Second
 )
@@ -35,6 +45,16 @@ func NewClient(cfg *config.Config, logger *zap.Logger) (*Client, error) {
 	vaultCfg := vaultapi.DefaultConfig()
 	vaultCfg.Address = cfg.VaultAddr
 	vaultCfg.Timeout = 30 * time.Second
+
+	// Configure TLS with custom CA certificate for Vault's self-signed cert.
+	if cfg.VaultRootCAPath != "" {
+		tlsCfg := &vaultapi.TLSConfig{
+			CACert: cfg.VaultRootCAPath,
+		}
+		if err := vaultCfg.ConfigureTLS(tlsCfg); err != nil {
+			return nil, fmt.Errorf("configure vault TLS: %w", err)
+		}
+	}
 
 	vc, err := vaultapi.NewClient(vaultCfg)
 	if err != nil {

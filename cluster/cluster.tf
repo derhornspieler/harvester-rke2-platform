@@ -240,6 +240,12 @@ resource "rancher2_cluster_v2" "rke2" {
               entryPoint = { to = "websecure", scheme = "https" }
             }
           }
+          ssh = {
+            port        = 2222
+            expose      = { default = true }
+            exposedPort = 22
+            protocol    = "TCP"
+          }
         }
         volumes = [
           { name = "vault-root-ca", mountPath = "/vault-ca", type = "configMap" },

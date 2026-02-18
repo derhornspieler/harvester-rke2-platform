@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -89,9 +90,18 @@ func (h *Handler) GetSelfProfile(w http.ResponseWriter, r *http.Request) {
 
 // GetPublicConfig handles GET /api/v1/config
 // Returns public configuration needed by the frontend for OIDC login.
+// KeycloakURL is derived from the OIDC issuer URL (external, browser-accessible)
+// rather than the internal cluster service URL.
 func (h *Handler) GetPublicConfig(w http.ResponseWriter, r *http.Request) {
+	// Derive the external Keycloak base URL from the OIDC issuer URL.
+	// OIDC_ISSUER_URL is "https://keycloak.{DOMAIN}/realms/{REALM}" — strip the /realms/* suffix.
+	externalKeycloakURL := h.Config.OIDCIssuerURL
+	if idx := strings.Index(externalKeycloakURL, "/realms/"); idx != -1 {
+		externalKeycloakURL = externalKeycloakURL[:idx]
+	}
+
 	cfg := model.PublicConfig{
-		KeycloakURL: h.Config.KeycloakURL,
+		KeycloakURL: externalKeycloakURL,
 		Realm:       h.Config.KeycloakRealm,
 		ClientID:    h.Config.OIDCClientID,
 		IssuerURL:   h.Config.OIDCIssuerURL,

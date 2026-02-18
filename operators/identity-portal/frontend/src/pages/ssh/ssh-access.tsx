@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import {
   Check,
   Clipboard,
+  KeyRound,
   Loader2,
   Plus,
   Terminal,
@@ -43,6 +44,9 @@ import { toast } from "@/components/ui/toast";
 import { QueryError } from "@/components/error-boundary";
 import { useAuth } from "@/hooks/use-auth";
 import {
+  useSelfSSHPublicKey,
+  useRegisterSSHPublicKey,
+  useDeleteSSHPublicKey,
   useRequestSSHCertificate,
   useSSHRoles,
   useCreateSSHRole,
@@ -52,17 +56,22 @@ import type { SSHCertificateResponse } from "@/lib/types";
 
 export function SSHAccessPage() {
   const { isAdmin } = useAuth();
+  const sshKey = useSelfSSHPublicKey();
+  const registerKey = useRegisterSSHPublicKey();
+  const removeKey = useDeleteSSHPublicKey();
   const requestCert = useRequestSSHCertificate();
   const sshRoles = useSSHRoles();
   const createRole = useCreateSSHRole();
   const deleteRole = useDeleteSSHRole();
 
   const [publicKey, setPublicKey] = useState("");
+  const [registerKeyInput, setRegisterKeyInput] = useState("");
   const [certResult, setCertResult] = useState<SSHCertificateResponse | null>(
     null,
   );
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const registerFileRef = useRef<HTMLInputElement>(null);
 
   // Create role state
   const [createRoleOpen, setCreateRoleOpen] = useState(false);
@@ -91,6 +100,59 @@ export function SSHAccessPage() {
     e.target.value = "";
   };
 
+  const handleRegisterFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target?.result;
+      if (typeof content === "string") {
+        setRegisterKeyInput(content.trim());
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleRegisterKey = async () => {
+    const key = registerKeyInput.trim();
+    if (!key) return;
+
+    if (!key.startsWith("ssh-ed25519") && !key.startsWith("ssh-rsa")) {
+      toast({
+        title: "Unsupported key type",
+        description: "Only ed25519 (recommended) and RSA 4096 keys are accepted",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await registerKey.mutateAsync(key);
+      setRegisterKeyInput("");
+      toast({ title: "SSH public key registered", variant: "success" });
+    } catch (err) {
+      toast({
+        title: "Failed to register key",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRemoveKey = async () => {
+    try {
+      await removeKey.mutateAsync();
+      toast({ title: "SSH public key removed", variant: "success" });
+    } catch (err) {
+      toast({
+        title: "Failed to remove key",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleRequestCert = async () => {
     if (!publicKey.trim()) {
       toast({
@@ -116,7 +178,7 @@ export function SSHAccessPage() {
 
     try {
       const result = await requestCert.mutateAsync({
-        public_key: publicKey.trim(),
+        publicKey: publicKey.trim(),
       });
       setCertResult(result);
       toast({ title: "Certificate signed successfully", variant: "success" });
@@ -130,9 +192,9 @@ export function SSHAccessPage() {
   };
 
   const handleCopyCert = async () => {
-    if (!certResult?.signed_certificate) return;
+    if (!certResult?.signedCertificate) return;
     try {
-      await navigator.clipboard.writeText(certResult.signed_certificate);
+      await navigator.clipboard.writeText(certResult.signedCertificate);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -156,7 +218,6 @@ export function SSHAccessPage() {
         allowedExtensions: "permit-pty,permit-agent-forwarding",
         defaultExtensions: { "permit-pty": "" },
         keyTypeAllowed: "ca",
-        allowedCriticalOptions: "",
       });
       toast({ title: "SSH role created", variant: "success" });
       setCreateRoleOpen(false);
@@ -193,6 +254,98 @@ export function SSHAccessPage() {
           Request SSH certificates and manage SSH signing roles
         </p>
       </div>
+
+      {/* SSH Public Key Registration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <KeyRound className="h-5 w-5" />
+            Registered SSH Public Key
+          </CardTitle>
+          <CardDescription>
+            Register your SSH public key to enable certificate signing. Only
+            ed25519 (recommended) or RSA 4096 keys are accepted.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {sshKey.isLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : sshKey.data?.publicKey ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border p-3 bg-muted/30">
+                <p className="text-xs text-muted-foreground mb-1">
+                  Fingerprint
+                </p>
+                <p className="text-sm font-mono">{sshKey.data.fingerprint}</p>
+                {sshKey.data.registeredAt && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Registered:{" "}
+                    {new Date(sshKey.data.registeredAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <div className="bg-background rounded border p-3 max-h-[80px] overflow-auto">
+                <pre className="text-xs font-mono whitespace-pre-wrap break-all">
+                  {sshKey.data.publicKey}
+                </pre>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleRemoveKey}
+                disabled={removeKey.isPending}
+              >
+                <Trash2 className="mr-2 h-3 w-3" />
+                {removeKey.isPending ? "Removing..." : "Remove Key"}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Textarea
+                value={registerKeyInput}
+                onChange={(e) => setRegisterKeyInput(e.target.value)}
+                placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... user@host"
+                className="font-mono text-xs min-h-[80px]"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={registerFileRef}
+                  onChange={handleRegisterFileUpload}
+                  className="hidden"
+                  accept=".pub"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => registerFileRef.current?.click()}
+                >
+                  <Upload className="mr-2 h-3 w-3" />
+                  Upload .pub file
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleRegisterKey}
+                  disabled={registerKey.isPending || !registerKeyInput.trim()}
+                >
+                  {registerKey.isPending && (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  )}
+                  Register Key
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Only your registered key can be used for certificate signing.
+                Use{" "}
+                <code className="bg-muted px-1 rounded">
+                  ssh-keygen -t ed25519
+                </code>{" "}
+                to generate a key pair.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Certificate Request */}
       <Card>
@@ -272,7 +425,7 @@ export function SSHAccessPage() {
 
               <div className="bg-background rounded border p-3 max-h-[150px] overflow-auto">
                 <pre className="text-xs font-mono whitespace-pre-wrap break-all">
-                  {certResult.signed_certificate}
+                  {certResult.signedCertificate}
                 </pre>
               </div>
 

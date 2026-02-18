@@ -304,6 +304,9 @@ phase_5_gateway() {
 
   log_ok "Gateway deployed — cert-manager will issue TLS certificates"
 
+  log_step "Deploying GitLab SSH TCP route (Traefik IngressRouteTCP)..."
+  kube_apply_subst "${SERVICES_DIR}/gitlab/ingressroutetcp-ssh.yaml"
+
   end_phase "PHASE 5: DEPLOY GATEWAY"
 }
 

@@ -17,7 +17,9 @@ export interface User {
   createdTimestamp: number;
   groups?: Group[];
   roles?: Role[];
-  mfaStatus?: MfaStatus;
+  mfaEnabled?: boolean;
+  requiredActions?: string[];
+  attributes?: Record<string, string>;
 }
 
 export interface UserCreateRequest {
@@ -73,6 +75,8 @@ export interface Role {
 export interface MfaStatus {
   enrolled: boolean;
   type?: string;
+  methods?: string[];
+  configuredAt?: string;
 }
 
 // Session
@@ -138,15 +142,21 @@ export interface SSHRole {
   ttl: string;
   maxTtl: string;
   defaultUser: string;
-  allowedCriticalOptions: string;
+  algorithmSigner?: string;
+}
+
+export interface SSHPublicKeyResponse {
+  publicKey: string;
+  fingerprint: string;
+  registeredAt?: string;
 }
 
 export interface SSHCertificateRequest {
-  public_key: string;
+  publicKey: string;
 }
 
 export interface SSHCertificateResponse {
-  signed_certificate: string;
+  signedCertificate: string;
   principals: string[];
   ttl: string;
 }
@@ -160,6 +170,7 @@ export interface Profile {
   lastName: string;
   groups: string[];
   roles: string[];
+  mfaEnabled?: boolean;
 }
 
 // Auth token claims

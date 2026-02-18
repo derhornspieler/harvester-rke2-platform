@@ -27,6 +27,10 @@ func NewRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) http.
 	selfMux := http.NewServeMux()
 	selfMux.HandleFunc("GET /api/v1/self/profile", h.GetSelfProfile)
 	selfMux.HandleFunc("GET /api/v1/self/mfa/status", h.GetSelfMFAStatus)
+	selfMux.HandleFunc("DELETE /api/v1/self/mfa", h.ResetSelfMFA)
+	selfMux.HandleFunc("GET /api/v1/self/ssh/public-key", h.GetSelfSSHPublicKey)
+	selfMux.HandleFunc("PUT /api/v1/self/ssh/public-key", h.RegisterSelfSSHPublicKey)
+	selfMux.HandleFunc("DELETE /api/v1/self/ssh/public-key", h.DeleteSelfSSHPublicKey)
 	selfMux.HandleFunc("POST /api/v1/self/ssh/certificate", h.RequestSSHCertificate)
 	selfMux.HandleFunc("GET /api/v1/self/ssh/ca", h.GetSSHCA)
 	selfMux.HandleFunc("GET /api/v1/self/kubeconfig", h.GetKubeconfig)
@@ -48,6 +52,11 @@ func NewRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) http.
 	adminMux.HandleFunc("POST /api/v1/admin/users/{id}/roles", h.AssignUserRoles)
 	adminMux.HandleFunc("DELETE /api/v1/admin/users/{id}/roles", h.UnassignUserRoles)
 
+	// User-Group membership (user-centric)
+	adminMux.HandleFunc("GET /api/v1/admin/users/{id}/groups", h.GetUserGroupsList)
+	adminMux.HandleFunc("PUT /api/v1/admin/users/{id}/groups/{groupId}", h.AddUserToGroupByPath)
+	adminMux.HandleFunc("DELETE /api/v1/admin/users/{id}/groups/{groupId}", h.RemoveUserFromGroupByPath)
+
 	// MFA
 	adminMux.HandleFunc("GET /api/v1/admin/users/{id}/mfa", h.GetUserMFAStatus)
 	adminMux.HandleFunc("DELETE /api/v1/admin/users/{id}/mfa", h.ResetUserMFA)
@@ -55,6 +64,7 @@ func NewRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) http.
 	// Sessions
 	adminMux.HandleFunc("GET /api/v1/admin/users/{id}/sessions", h.GetUserSessions)
 	adminMux.HandleFunc("POST /api/v1/admin/users/{id}/logout", h.LogoutUser)
+	adminMux.HandleFunc("DELETE /api/v1/admin/users/{id}/sessions", h.LogoutUser)
 
 	// Groups
 	adminMux.HandleFunc("GET /api/v1/admin/groups", h.ListGroups)
@@ -86,9 +96,14 @@ func NewRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) http.
 	adminMux.HandleFunc("PUT /api/v1/admin/vault/ssh/roles/{name}", h.UpdateSSHRole)
 	adminMux.HandleFunc("DELETE /api/v1/admin/vault/ssh/roles/{name}", h.DeleteSSHRole)
 
+	// Vault SSH CA
+	adminMux.HandleFunc("GET /api/v1/admin/vault/ssh/ca", h.GetAdminSSHCA)
+
 	// Reporting / Dashboard
 	adminMux.HandleFunc("GET /api/v1/admin/dashboard", h.GetDashboardStats)
+	adminMux.HandleFunc("GET /api/v1/admin/stats", h.GetDashboardStats)
 	adminMux.HandleFunc("GET /api/v1/admin/events", h.GetEvents)
+	adminMux.HandleFunc("GET /api/v1/admin/admin-events", h.GetEvents)
 
 	// Chain: OIDC auth -> require admin groups
 	adminHandler := authMiddleware(
@@ -98,12 +113,23 @@ func NewRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) http.
 
 	// --- Apply global middleware (outermost first) ---
 	var root http.Handler = mux
+	root = securityHeaders(root)
 	root = cors(cfg.CORSOrigin)(root)
+	root = middleware.NewRateLimiter(20, 40).Limit(root) // 20 req/s per IP, burst 40
 	root = middleware.Logging(logger)(root)
 	root = middleware.Recovery(logger)(root)
 	root = middleware.RequestID(root)
 
 	return root
+}
+
+// securityHeaders adds standard security headers to all responses.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // cors adds CORS headers for the frontend.

@@ -61,6 +61,18 @@ func queryInt(r *http.Request, name string, defaultVal int) int {
 	return n
 }
 
+// queryIntBounded reads an integer query parameter with bounds enforcement.
+func queryIntBounded(r *http.Request, name string, defaultVal, maxVal int) int {
+	v := queryInt(r, name, defaultVal)
+	if v < 0 {
+		return 0
+	}
+	if v > maxVal {
+		return maxVal
+	}
+	return v
+}
+
 // queryString reads a string query parameter with a default.
 func queryString(r *http.Request, name string, defaultVal string) string {
 	v := r.URL.Query().Get(name)

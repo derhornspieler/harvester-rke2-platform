@@ -1,0 +1,18 @@
+# Library pipeline pattern — lint, test, publish (no container image)
+include:
+  - local: '/base.yml'
+  - local: '/jobs/lint.yml'
+  - local: '/jobs/test.yml'
+  - local: '/jobs/scan.yml'
+
+secret-detection:
+  extends: .scan:gitleaks
+
+yamllint:
+  extends: .lint:yamllint
+
+sast:
+  extends: .scan:semgrep
+
+fs-scan:
+  extends: .scan:trivy-fs

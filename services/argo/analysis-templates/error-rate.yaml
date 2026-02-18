@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate
+  namespace: argo-rollouts
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+      value: default
+    - name: max-error-rate
+      value: "0.02"
+  metrics:
+    - name: error-rate
+      interval: 30s
+      count: 5
+      successCondition: result[0] < asFloat(args.max-error-rate)
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(rate(http_requests_total{service="{{args.service-name}}",namespace="{{args.namespace}}",code=~"5.."}[2m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service-name}}",namespace="{{args.namespace}}"}[2m]))

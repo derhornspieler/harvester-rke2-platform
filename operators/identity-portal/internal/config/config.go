@@ -8,22 +8,22 @@ import (
 
 // Config holds all configuration for the identity-portal service.
 type Config struct {
-	Port                 string
-	OIDCIssuerURL        string
-	OIDCClientID         string
-	KeycloakURL          string
-	KeycloakRealm        string
-	KeycloakClientID     string
-	KeycloakClientSecret string
-	VaultAddr            string
-	VaultSSHMount        string
-	VaultAuthRole        string
-	Domain               string
-	ClusterName          string
-	KubeAPIServer        string
-	AdminGroups          []string
-	VaultRootCAPath      string
-	CORSOrigin           string
+	Port                 string   `json:"port"`
+	OIDCIssuerURL        string   `json:"oidcIssuerUrl"`
+	OIDCClientID         string   `json:"oidcClientId"`
+	KeycloakURL          string   `json:"-"`
+	KeycloakRealm        string   `json:"keycloakRealm"`
+	KeycloakClientID     string   `json:"-"`
+	KeycloakClientSecret string   `json:"-"`
+	VaultAddr            string   `json:"-"`
+	VaultSSHMount        string   `json:"-"`
+	VaultAuthRole        string   `json:"-"`
+	Domain               string   `json:"domain"`
+	ClusterName          string   `json:"clusterName"`
+	KubeAPIServer        string   `json:"-"`
+	AdminGroups          []string `json:"-"`
+	VaultRootCAPath      string   `json:"-"`
+	CORSOrigin           string   `json:"-"`
 }
 
 // Load reads configuration from environment variables, applying defaults
@@ -44,7 +44,7 @@ func Load() (*Config, error) {
 		ClusterName:          os.Getenv("CLUSTER_NAME"),
 		KubeAPIServer:        os.Getenv("KUBE_API_SERVER"),
 		VaultRootCAPath:      envOrDefault("VAULT_ROOT_CA_PATH", "/etc/ssl/certs/vault-root-ca.pem"),
-		CORSOrigin:           envOrDefault("CORS_ORIGIN", "*"),
+		CORSOrigin:           os.Getenv("CORS_ORIGIN"),
 	}
 
 	adminGroupsStr := envOrDefault("ADMIN_GROUPS", "platform-admins,infra-engineers")
@@ -52,6 +52,11 @@ func Load() (*Config, error) {
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
+	}
+
+	// Derive CORS origin from domain if not explicitly set.
+	if cfg.CORSOrigin == "" && cfg.Domain != "" {
+		cfg.CORSOrigin = fmt.Sprintf("https://identity.%s", cfg.Domain)
 	}
 
 	return cfg, nil

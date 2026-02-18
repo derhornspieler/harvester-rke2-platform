@@ -1,0 +1,52 @@
+# Microservice pipeline pattern
+# Include this for a complete build-test-scan-deploy pipeline
+#
+# Required CI/CD variables:
+#   HARBOR_REGISTRY, HARBOR_CI_USER, HARBOR_CI_PASSWORD (group-level)
+#   APP_NAME — ArgoCD application name (project-level)
+#
+# Usage in .gitlab-ci.yml:
+#   include:
+#     - project: 'platform_services/gitlab-ci-templates'
+#       file:
+#         - '/stages.yml'
+#         - '/patterns/microservice.yml'
+
+include:
+  - local: '/base.yml'
+  - local: '/jobs/lint.yml'
+  - local: '/jobs/build.yml'
+  - local: '/jobs/test.yml'
+  - local: '/jobs/scan.yml'
+  - local: '/jobs/deploy.yml'
+  - local: '/jobs/promote.yml'
+
+secret-detection:
+  extends: .scan:gitleaks
+
+hadolint:
+  extends: .lint:hadolint
+
+build:
+  extends: .build:kaniko
+
+image-scan:
+  extends: .scan:trivy-image
+  needs:
+    - build
+
+sbom:
+  extends: .scan:sbom
+  needs:
+    - build
+
+deploy-staging:
+  extends: .deploy:argocd-sync
+  variables:
+    APP_NAME: ${CI_PROJECT_NAME}-staging
+
+promote-production:
+  extends: .promote:tag-image
+  needs:
+    - deploy-staging
+    - image-scan

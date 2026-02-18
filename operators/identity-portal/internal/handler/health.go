@@ -44,7 +44,7 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 
 	for cr := range results {
 		if cr.err != nil {
-			status[cr.name] = cr.err.Error()
+			status[cr.name] = "unavailable"
 			allHealthy = false
 			h.Logger.Warn("readiness check failed",
 				zap.String("component", cr.name),

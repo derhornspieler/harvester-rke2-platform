@@ -882,6 +882,9 @@ generate_or_load_env() {
   DOMAIN_DASHED=$(echo "$DOMAIN" | tr '.' '-')
   DOMAIN_DOT=$(echo "$DOMAIN" | sed 's/\./-dot-/g')
 
+  # Rancher FQDN — used for Kubernetes API server URL in kubeconfig generation
+  : "${RANCHER_FQDN:=rancher.${DOMAIN}}"
+
   # Organization name — derive from domain if not set
   # "example.com" → "Example Org", "tiger.net" → "Tiger"
   if [[ -z "${ORG_NAME:-}" ]]; then
@@ -920,7 +923,7 @@ generate_or_load_env() {
   export IDENTITY_PORTAL_OIDC_SECRET
   export OAUTH2_PROXY_REDIS_PASSWORD
   export GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD BASIC_AUTH_HTPASSWD
-  export DOMAIN DOMAIN_DASHED DOMAIN_DOT TRAEFIK_LB_IP
+  export DOMAIN DOMAIN_DASHED DOMAIN_DOT TRAEFIK_LB_IP RANCHER_FQDN
   export ORG_NAME KC_REALM GIT_REPO_URL
   export HARVESTER_CONTEXT
   export USER_DATA_CP_FILE USER_DATA_WORKER_FILE
@@ -1102,6 +1105,9 @@ _subst_changeme() {
     -e "s|CHANGEME_TRAEFIK_FQDN|traefik.${DOMAIN}|g" \
     -e "s|CHANGEME_TRAEFIK_TLS_SECRET|traefik-${DOMAIN_DASHED}-tls|g" \
     -e "s|CHANGEME_KC_REALM|${KC_REALM}|g" \
+    -e "s|CHANGEME_RANCHER_FQDN|${RANCHER_FQDN:-rancher.${DOMAIN}}|g" \
+    -e "s|CHANGEME_DOMAIN_DASHED|${DOMAIN_DASHED}|g" \
+    -e "s|CHANGEME_DOMAIN|${DOMAIN}|g" \
     -e "s|example-dot-com|${DOMAIN_DOT}|g" \
     -e "s|example-com|${DOMAIN_DASHED}|g" \
     -e "s|example\.ch|${DOMAIN}|g"
@@ -1241,6 +1247,72 @@ distribute_root_ca() {
       -n "$ns" --dry-run=client -o yaml | kubectl apply -f -
     log_ok "  vault-root-ca ConfigMap in ${ns}"
   done
+}
+
+# -----------------------------------------------------------------------------
+# Sync Rancher agent CA checksum (stv-aggregation secret)
+# When the Rancher management cluster's CA changes (k3k migration, cert rotation),
+# the /cacerts endpoint serves a different certificate chain, but the downstream
+# cluster's stv-aggregation secret still has the old CATTLE_CA_CHECKSUM.
+# This causes ALL system-agent-upgrader pods to fail with:
+#   "Configured cacerts checksum does not match given --ca-checksum"
+#
+# This function fetches the current /cacerts, computes its sha256, and patches
+# the stv-aggregation secret if the hash has drifted. It also cleans up any
+# failed system-agent-upgrader pods so the controller retries with the fixed hash.
+# -----------------------------------------------------------------------------
+sync_rancher_agent_ca() {
+  local rancher_url
+  rancher_url=$(get_rancher_url)
+
+  # Fetch the CA chain that /cacerts actually serves
+  local cacerts_pem
+  cacerts_pem=$(curl -sk "${rancher_url}/cacerts" 2>/dev/null || echo "")
+  if [[ -z "$cacerts_pem" || "$cacerts_pem" == "null" ]]; then
+    log_warn "Could not fetch ${rancher_url}/cacerts — skipping agent CA sync"
+    return 0
+  fi
+
+  # Compute the sha256 of what /cacerts returns (this is what install.sh checks)
+  local actual_hash
+  actual_hash=$(echo -n "$cacerts_pem" | sha256sum | awk '{print $1}')
+
+  # Read the current CATTLE_CA_CHECKSUM from the stv-aggregation secret
+  local current_hash
+  current_hash=$(kubectl get secret stv-aggregation -n cattle-system \
+    -o jsonpath='{.data.CATTLE_CA_CHECKSUM}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+
+  if [[ "$current_hash" == "$actual_hash" ]]; then
+    log_ok "Rancher agent CA checksum is current (${actual_hash:0:16}...)"
+    return 0
+  fi
+
+  log_warn "Rancher agent CA checksum drift detected"
+  log_info "  stv-aggregation has: ${current_hash:0:16}..."
+  log_info "  /cacerts serves:     ${actual_hash:0:16}..."
+
+  # Patch the secret with the correct hash and updated ca.crt
+  local encoded_hash encoded_cert
+  encoded_hash=$(echo -n "$actual_hash" | base64 -w0)
+  encoded_cert=$(echo -n "$cacerts_pem" | base64 -w0)
+
+  kubectl patch secret stv-aggregation -n cattle-system --type merge \
+    -p "{\"data\":{\"CATTLE_CA_CHECKSUM\":\"${encoded_hash}\",\"ca.crt\":\"${encoded_cert}\"}}"
+  log_ok "Patched stv-aggregation: CATTLE_CA_CHECKSUM + ca.crt updated"
+
+  # Clean up failed system-agent-upgrader pods so the controller retries immediately
+  local failed_count
+  failed_count=$(kubectl get pods -n cattle-system \
+    -l upgrade.cattle.io/plan=system-agent-upgrader \
+    --field-selector=status.phase=Failed \
+    --no-headers 2>/dev/null | wc -l || echo "0")
+  if [[ "$failed_count" -gt 0 ]]; then
+    log_info "Cleaning up ${failed_count} failed system-agent-upgrader pods..."
+    kubectl delete pods -n cattle-system \
+      -l upgrade.cattle.io/plan=system-agent-upgrader \
+      --field-selector=status.phase=Failed
+    log_ok "Failed pods deleted — system-upgrade-controller will retry"
+  fi
 }
 
 # -----------------------------------------------------------------------------
@@ -1584,4 +1656,142 @@ CAEOF
 
   chmod 600 "$creds_file"
   log_ok "Credentials written to ${creds_file}"
+}
+
+# =============================================================================
+# GitLab API Helpers
+# =============================================================================
+# Generic GitLab REST call — sets GITLAB_HTTP_CODE as side-effect
+GITLAB_HTTP_CODE=""
+gitlab_api() {
+  local method="$1" endpoint="$2"
+  shift 2
+  local response
+  response=$(curl -sk -w "\n%{http_code}" -X "$method" \
+    "${GITLAB_API:-https://gitlab.${DOMAIN}/api/v4}${endpoint}" \
+    -H "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" \
+    "$@")
+  GITLAB_HTTP_CODE=$(echo "$response" | tail -1)
+  echo "$response" | sed '$d'
+}
+
+gitlab_get() { gitlab_api GET "$1"; }
+
+gitlab_post() {
+  local endpoint="$1" data="$2"
+  gitlab_api POST "$endpoint" -H "Content-Type: application/json" -d "$data"
+}
+
+gitlab_put() {
+  local endpoint="$1" data="$2"
+  gitlab_api PUT "$endpoint" -H "Content-Type: application/json" -d "$data"
+}
+
+gitlab_delete() { gitlab_api DELETE "$1"; }
+
+# Look up GitLab project ID by path (e.g., "platform_services/my-project")
+gitlab_project_id() {
+  local project_path="$1"
+  local encoded
+  encoded=$(echo "$project_path" | sed 's|/|%2F|g')
+  gitlab_get "/projects/${encoded}" | jq -r '.id // empty' 2>/dev/null
+}
+
+# Look up GitLab group ID by path
+gitlab_group_id() {
+  local group_path="$1"
+  local encoded
+  encoded=$(echo "$group_path" | sed 's|/|%2F|g')
+  gitlab_get "/groups/${encoded}" | jq -r '.id // empty' 2>/dev/null
+}
+
+# Protect a branch with access levels
+# Usage: gitlab_protect_branch <project_id> <branch> <push_level> <merge_level>
+gitlab_protect_branch() {
+  local project_id="$1" branch="$2" push_level="${3:-40}" merge_level="${4:-40}"
+  # Try to create; if exists (409), update via PUT
+  local resp
+  resp=$(gitlab_post "/projects/${project_id}/protected_branches" \
+    "{\"name\":\"${branch}\",\"push_access_level\":${push_level},\"merge_access_level\":${merge_level},\"allow_force_push\":false}")
+  if [[ "$GITLAB_HTTP_CODE" == "409" ]]; then
+    gitlab_delete "/projects/${project_id}/protected_branches/${branch}" >/dev/null 2>&1
+    gitlab_post "/projects/${project_id}/protected_branches" \
+      "{\"name\":\"${branch}\",\"push_access_level\":${push_level},\"merge_access_level\":${merge_level},\"allow_force_push\":false}" >/dev/null
+  fi
+}
+
+# Add MR approval rule to a project
+# Usage: gitlab_add_approval_rule <project_id> <rule_name> <approvals_required> [group_ids_csv]
+gitlab_add_approval_rule() {
+  local project_id="$1" rule_name="$2" approvals_required="$3" group_ids="${4:-}"
+  local data="{\"name\":\"${rule_name}\",\"approvals_required\":${approvals_required}"
+  if [[ -n "$group_ids" ]]; then
+    data="${data},\"group_ids\":[${group_ids}]"
+  fi
+  data="${data}}"
+
+  # Check if rule already exists
+  local existing
+  existing=$(gitlab_get "/projects/${project_id}/approval_rules" | \
+    jq -r ".[] | select(.name == \"${rule_name}\") | .id" 2>/dev/null | head -1)
+  if [[ -n "$existing" && "$existing" != "null" ]]; then
+    gitlab_put "/projects/${project_id}/approval_rules/${existing}" "$data" >/dev/null
+  else
+    gitlab_post "/projects/${project_id}/approval_rules" "$data" >/dev/null
+  fi
+}
+
+# Set a project-level setting
+gitlab_set_project_setting() {
+  local project_id="$1" key="$2" value="$3"
+  gitlab_put "/projects/${project_id}" "{\"${key}\":${value}}" >/dev/null
+}
+
+# Set or update a group/project CI/CD variable
+gitlab_set_variable() {
+  local scope="$1" scope_id="$2" key="$3" value="$4" masked="${5:-false}" protected="${6:-false}"
+  local data="{\"key\":\"${key}\",\"value\":\"${value}\",\"masked\":${masked},\"protected\":${protected}}"
+  gitlab_post "/${scope}/${scope_id}/variables" "$data" >/dev/null 2>&1 || \
+    gitlab_put "/${scope}/${scope_id}/variables/${key}" "$data" >/dev/null 2>&1 || true
+}
+
+# Sync a Keycloak group to a GitLab group with a specific access level
+# Usage: gitlab_sync_group_membership <gitlab_group_id> <keycloak_group_name> <access_level>
+# This creates a SAML/OIDC group link so Keycloak group membership auto-maps to GitLab roles
+gitlab_create_group_link() {
+  local gitlab_group_id="$1" saml_group="$2" access_level="$3"
+  # Remove existing link if any, then create
+  gitlab_delete "/groups/${gitlab_group_id}/saml_group_links/${saml_group}" >/dev/null 2>&1 || true
+  gitlab_post "/groups/${gitlab_group_id}/saml_group_links" \
+    "{\"saml_group_name\":\"${saml_group}\",\"access_level\":${access_level}}" >/dev/null 2>&1 || \
+  # Fallback: for OIDC group sync, try the newer API
+  gitlab_post "/groups/${gitlab_group_id}/saml_group_links" \
+    "{\"name\":\"${saml_group}\",\"access_level\":${access_level}}" >/dev/null 2>&1 || true
+}
+
+# Create a Harbor robot account and return the secret
+# Usage: create_harbor_robot <robot_name> <project_name> <permissions_json>
+create_harbor_robot() {
+  local robot_name="$1" project_name="$2" access_json="$3"
+
+  local harbor_core_pod
+  harbor_core_pod=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [[ -z "$harbor_core_pod" ]]; then
+    log_warn "Harbor core pod not found, cannot create robot account: ${robot_name}"
+    return 1
+  fi
+
+  local harbor_api="http://harbor-core.harbor.svc.cluster.local/api/v2.0"
+  local admin_pass="${HARBOR_ADMIN_PASSWORD:-}"
+  if [[ -z "$admin_pass" ]]; then
+    admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  fi
+  local auth="admin:${admin_pass}"
+
+  local resp
+  resp=$(kubectl exec -n harbor "$harbor_core_pod" -- \
+    curl -sf -u "$auth" -X POST "${harbor_api}/robots" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"${robot_name}\",\"duration\":-1,\"level\":\"system\",\"permissions\":${access_json}}" 2>/dev/null) || true
+  echo "$resp"
 }

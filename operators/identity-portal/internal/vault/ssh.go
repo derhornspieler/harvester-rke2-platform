@@ -183,6 +183,10 @@ func (c *Client) ListSSHRoles(ctx context.Context) ([]string, error) {
 
 // GetSSHRole reads the configuration for a specific SSH signing role.
 func (c *Client) GetSSHRole(ctx context.Context, roleName string) (*model.SSHRoleConfig, error) {
+	if err := ValidatePathSegment(roleName); err != nil {
+		return nil, fmt.Errorf("invalid SSH role name: %w", err)
+	}
+
 	logical, err := c.Logical(ctx)
 	if err != nil {
 		metrics.VaultErrorsTotal.WithLabelValues("get_ssh_role").Inc()
@@ -237,6 +241,10 @@ func (c *Client) GetSSHRole(ctx context.Context, roleName string) (*model.SSHRol
 
 // CreateSSHRole creates or updates an SSH signing role.
 func (c *Client) CreateSSHRole(ctx context.Context, roleName string, req model.CreateSSHRoleRequest) error {
+	if err := ValidatePathSegment(roleName); err != nil {
+		return fmt.Errorf("invalid SSH role name: %w", err)
+	}
+
 	logical, err := c.Logical(ctx)
 	if err != nil {
 		metrics.VaultErrorsTotal.WithLabelValues("create_ssh_role").Inc()
@@ -279,6 +287,10 @@ func (c *Client) CreateSSHRole(ctx context.Context, roleName string, req model.C
 
 // DeleteSSHRole deletes an SSH signing role.
 func (c *Client) DeleteSSHRole(ctx context.Context, roleName string) error {
+	if err := ValidatePathSegment(roleName); err != nil {
+		return fmt.Errorf("invalid SSH role name: %w", err)
+	}
+
 	logical, err := c.Logical(ctx)
 	if err != nil {
 		metrics.VaultErrorsTotal.WithLabelValues("delete_ssh_role").Inc()

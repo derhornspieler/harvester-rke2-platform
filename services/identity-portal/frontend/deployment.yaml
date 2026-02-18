@@ -15,6 +15,7 @@ spec:
         app: identity-portal
         component: frontend
     spec:
+      serviceAccountName: identity-portal
       nodeSelector:
         workload-type: general
       affinity:
@@ -37,9 +38,10 @@ spec:
         runAsNonRoot: true
         runAsUser: 101
         runAsGroup: 101
+        fsGroup: 101
       containers:
         - name: frontend
-          image: ghcr.io/derhornspieler/rke2-cluster/identity-portal-frontend:v0.1.0
+          image: harbor.CHANGEME_DOMAIN/library/identity-portal-frontend:v0.3.0
           ports:
             - name: http
               containerPort: 8080

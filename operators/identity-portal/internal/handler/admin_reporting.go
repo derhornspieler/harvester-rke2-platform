@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"math"
 	"net/http"
 	"strings"
 
@@ -38,9 +39,7 @@ func (h *Handler) GetDashboardStats(w http.ResponseWriter, r *http.Request) {
 
 	for _, u := range users {
 		if u.Enabled {
-			stats.EnabledUsers++
-		} else {
-			stats.DisabledUsers++
+			stats.ActiveUsers++
 		}
 
 		// Check MFA via credentials.
@@ -55,10 +54,8 @@ func (h *Handler) GetDashboardStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Count groups.
-	groups, err := h.KC.GetGroups(ctx)
-	if err == nil {
-		stats.TotalGroups = len(groups)
+	if stats.TotalUsers > 0 {
+		stats.MFAPercentage = math.Round(float64(stats.MFAEnrolled)/float64(stats.TotalUsers)*1000) / 10
 	}
 
 	// Approximate session count.
@@ -74,8 +71,8 @@ func (h *Handler) GetDashboardStats(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	first := queryInt(r, "first", 0)
-	max := queryInt(r, "max", 100)
+	first := queryIntBounded(r, "first", 0, 10000)
+	max := queryIntBounded(r, "max", 100, 500)
 	userID := queryString(r, "user_id", "")
 	typesStr := queryString(r, "types", "")
 

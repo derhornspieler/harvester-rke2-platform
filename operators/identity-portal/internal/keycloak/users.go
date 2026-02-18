@@ -242,6 +242,77 @@ func (c *Client) GetCredentials(ctx context.Context, userID string) ([]*gocloak.
 	return creds, nil
 }
 
+// GetUserAttribute returns a single attribute value from a user.
+func (c *Client) GetUserAttribute(ctx context.Context, userID, key string) (string, error) {
+	token, err := c.Token(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	u, err := c.gc.GetUserByID(ctx, token, c.cfg.KeycloakRealm, userID)
+	if err != nil {
+		return "", fmt.Errorf("get user for attribute: %w", err)
+	}
+
+	if u.Attributes != nil {
+		if vals, ok := (*u.Attributes)[key]; ok && len(vals) > 0 {
+			return vals[0], nil
+		}
+	}
+	return "", nil
+}
+
+// SetUserAttribute sets a single attribute on a user.
+func (c *Client) SetUserAttribute(ctx context.Context, userID, key, value string) error {
+	token, err := c.Token(ctx)
+	if err != nil {
+		return err
+	}
+
+	u, err := c.gc.GetUserByID(ctx, token, c.cfg.KeycloakRealm, userID)
+	if err != nil {
+		return fmt.Errorf("get user for attribute update: %w", err)
+	}
+
+	attrs := map[string][]string{}
+	if u.Attributes != nil {
+		attrs = *u.Attributes
+	}
+	attrs[key] = []string{value}
+	u.Attributes = &attrs
+
+	if err := c.gc.UpdateUser(ctx, token, c.cfg.KeycloakRealm, *u); err != nil {
+		return fmt.Errorf("set user attribute: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteUserAttribute removes a single attribute from a user.
+func (c *Client) DeleteUserAttribute(ctx context.Context, userID, key string) error {
+	token, err := c.Token(ctx)
+	if err != nil {
+		return err
+	}
+
+	u, err := c.gc.GetUserByID(ctx, token, c.cfg.KeycloakRealm, userID)
+	if err != nil {
+		return fmt.Errorf("get user for attribute delete: %w", err)
+	}
+
+	if u.Attributes != nil {
+		attrs := *u.Attributes
+		delete(attrs, key)
+		u.Attributes = &attrs
+	}
+
+	if err := c.gc.UpdateUser(ctx, token, c.cfg.KeycloakRealm, *u); err != nil {
+		return fmt.Errorf("delete user attribute: %w", err)
+	}
+
+	return nil
+}
+
 // mapUser converts a GoCloak user to our model.
 func mapUser(u *gocloak.User) model.User {
 	user := model.User{

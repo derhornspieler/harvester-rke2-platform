@@ -1,0 +1,171 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cicd-dora-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  cicd-dora.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "title": "Deployment Frequency (per day)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(increase(argocd_app_sync_total{phase=\"Succeeded\"}[1d]))",
+              "legendFormat": "Successful Deployments"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }
+          }
+        },
+        {
+          "title": "Lead Time for Changes",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "expr": "avg(ci_lead_time_seconds) / 3600",
+              "legendFormat": "Avg Lead Time (hours)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "h", "color": { "mode": "palette-classic" } }
+          }
+        },
+        {
+          "title": "Change Failure Rate",
+          "type": "gauge",
+          "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+          "targets": [
+            {
+              "expr": "sum(rate(argocd_app_rollback_total[7d])) / sum(rate(argocd_app_sync_total{phase=\"Succeeded\"}[7d]))",
+              "legendFormat": "Failure Rate"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 0.05 },
+                  { "color": "red", "value": 0.15 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "title": "Mean Time to Recovery",
+          "type": "stat",
+          "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+          "targets": [
+            {
+              "expr": "avg(argocd_app_reconcile_duration_seconds{phase=\"Succeeded\"}) / 60",
+              "legendFormat": "MTTR (min)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "m" }
+          }
+        },
+        {
+          "title": "Pipeline Duration (p50 / p95 / p99)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(gitlab_ci_pipeline_duration_seconds_bucket[1h])) by (le))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(gitlab_ci_pipeline_duration_seconds_bucket[1h])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(gitlab_ci_pipeline_duration_seconds_bucket[1h])) by (le))",
+              "legendFormat": "p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+          }
+        },
+        {
+          "title": "Pipeline Success Rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "targets": [
+            {
+              "expr": "sum(rate(gitlab_ci_pipeline_status_total{status=\"success\"}[1h])) / sum(rate(gitlab_ci_pipeline_status_total[1h]))",
+              "legendFormat": "Success Rate"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+          }
+        },
+        {
+          "title": "Vulnerability Trend",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "targets": [
+            {
+              "expr": "sum(trivy_image_vulnerabilities{severity=\"Critical\"})",
+              "legendFormat": "Critical"
+            },
+            {
+              "expr": "sum(trivy_image_vulnerabilities{severity=\"High\"})",
+              "legendFormat": "High"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }
+          }
+        },
+        {
+          "title": "Rollback Count (24h)",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+          "targets": [
+            {
+              "expr": "sum(increase(argocd_app_rollback_total[24h]))",
+              "legendFormat": "Rollbacks"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 2 },
+                  { "color": "red", "value": 5 }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["cicd", "dora", "platform"],
+      "templating": { "list": [] },
+      "time": { "from": "now-7d", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "CI/CD — DORA Metrics",
+      "uid": "cicd-dora-metrics"
+    }

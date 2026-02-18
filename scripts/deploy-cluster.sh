@@ -37,7 +37,11 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: $0 [--skip-tf] [--from PHASE_NUMBER]"
       echo "  --skip-tf    Skip Terraform (assume cluster already exists)"
-      echo "  --from N     Resume from phase N (0=terraform, 1=foundation, 2=vault, 3=monitoring, 4=harbor, 5=argocd+dhi, 6=keycloak, 7=services, 8=dns, 9=validation, 10=keycloak-setup, 11=gitlab)"
+      echo "  --from N     Resume from phase N (0=terraform, 1=foundation, 2=vault,"
+      echo "               3=monitoring, 4=harbor, 5=argocd+dhi, 6=keycloak, 7=services,"
+      echo "               8=dns, 9=validation, 10=keycloak-setup, 11=gitlab,"
+      echo "               12=gitlab-hardening+sop-wiki, 13=vault-cicd, 14=ci-templates,"
+      echo "               15=argocd-delivery, 16=security, 17=observability, 18=demo-apps)"
       exit 0
       ;;
     *) die "Unknown argument: $1" ;;
@@ -195,6 +199,11 @@ phase_1_foundation() {
 
   # Label all worker nodes (Rancher does NOT propagate workload-type labels from machine pool config)
   label_unlabeled_nodes
+
+  # Sync Rancher agent CA checksum (prevents system-agent-upgrader failures after
+  # Rancher management cluster CA changes — k3k migration, cert rotation, etc.)
+  log_step "Syncing Rancher agent CA checksum..."
+  sync_rancher_agent_ca
 
   # 1.1 Wait for Traefik system chart + apply HelmChartConfig
   log_step "Waiting for Traefik system chart to be deployed..."
@@ -1060,6 +1069,12 @@ configure_harbor_projects() {
 phase_5_argocd() {
   start_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
 
+  # Pin Argo chart versions for reproducible deploys
+  local ARGO_CD_CHART_VERSION="${ARGO_CD_CHART_VERSION:-7.8.13}"
+  local ARGO_ROLLOUTS_CHART_VERSION="${ARGO_ROLLOUTS_CHART_VERSION:-2.40.6}"
+  local ARGO_WORKFLOWS_CHART_VERSION="${ARGO_WORKFLOWS_CHART_VERSION:-0.47.4}"
+  local ARGO_EVENTS_CHART_VERSION="${ARGO_EVENTS_CHART_VERSION:-2.4.20}"
+
   # 5.1 ArgoCD
   log_step "Installing ArgoCD HA..."
   ensure_namespace argocd
@@ -1068,7 +1083,7 @@ phase_5_argocd() {
   _subst_changeme < "${SERVICES_DIR}/argo/argocd/argocd-values.yaml" > "$argocd_values_tmp"
   local _chart; _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-cd" "HELM_OCI_ARGOCD")
   helm_install_if_needed argocd "$_chart" argocd \
-    -f "$argocd_values_tmp" --timeout 10m
+    -f "$argocd_values_tmp" --version "${ARGO_CD_CHART_VERSION}" --timeout 10m
   rm -f "$argocd_values_tmp"
 
   wait_for_deployment argocd argocd-server 300s
@@ -1093,7 +1108,7 @@ phase_5_argocd() {
   _subst_changeme < "${SERVICES_DIR}/argo/argo-rollouts/argo-rollouts-values.yaml" > "$rollouts_values_tmp"
   local _chart; _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-rollouts" "HELM_OCI_ARGO_ROLLOUTS")
   helm_install_if_needed argo-rollouts "$_chart" argo-rollouts \
-    -f "$rollouts_values_tmp" --timeout 5m
+    -f "$rollouts_values_tmp" --version "${ARGO_ROLLOUTS_CHART_VERSION}" --timeout 5m
   rm -f "$rollouts_values_tmp"
 
   log_ok "Argo Rollouts deployed"
@@ -1111,7 +1126,7 @@ phase_5_argocd() {
   local workflows_values_tmp; workflows_values_tmp=$(mktemp)
   _subst_changeme < "${SERVICES_DIR}/argo/argo-workflows/argo-workflows-values.yaml" > "$workflows_values_tmp"
   helm_install_if_needed argo-workflows "$_chart" argocd \
-    -f "$workflows_values_tmp" --timeout 5m
+    -f "$workflows_values_tmp" --version "${ARGO_WORKFLOWS_CHART_VERSION}" --timeout 5m
   rm -f "$workflows_values_tmp"
   wait_for_deployment argocd argo-workflows-server 120s
   log_ok "Argo Workflows deployed"
@@ -1120,7 +1135,7 @@ phase_5_argocd() {
   log_step "Installing Argo Events..."
   _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-events" "HELM_OCI_ARGO_EVENTS")
   helm_install_if_needed argo-events "$_chart" argocd \
-    --set crds.install=true --timeout 5m
+    --version "${ARGO_EVENTS_CHART_VERSION}" --set crds.install=true --timeout 5m
   log_ok "Argo Events deployed"
 
   # HTTPS connectivity checks
@@ -1392,8 +1407,8 @@ EOF
   # ── Identity Portal ────────────────────────────────────────────────────
   log_step "Deploying Identity Portal"
   kube_apply_k_subst "${SERVICES_DIR}/identity-portal"
-  wait_for_deployment identity-portal identity-portal-backend 120
-  wait_for_deployment identity-portal identity-portal-frontend 120
+  wait_for_deployment identity-portal identity-portal-backend 120s
+  wait_for_deployment identity-portal identity-portal-frontend 120s
   log_ok "Identity Portal deployed"
 
   end_phase "PHASE 7: REMAINING SERVICES"
@@ -1461,7 +1476,7 @@ phase_9_validation() {
   # Nodes
   log_step "Checking nodes..."
   local not_ready
-  not_ready=$(kubectl get nodes --no-headers | grep -cv "Ready" || true)
+  not_ready=$(kubectl get nodes --no-headers | awk '$2 != "Ready" {count++} END {print count+0}')
   if [[ "$not_ready" -gt 0 ]]; then
     log_error "${not_ready} node(s) not Ready"
     errors=$((errors + 1))
@@ -1666,7 +1681,6 @@ phase_9_validation() {
     log_ok "All checks passed!"
   fi
 
-  print_total_time
   end_phase "PHASE 9: VALIDATION"
 }
 
@@ -1736,14 +1750,26 @@ phase_10_keycloak_setup() {
     log_warn "oidc-client-secrets.json not found — oauth2-proxy auth will not work"
   fi
 
-  # Inject identity-portal OIDC secret
-  log_step "Injecting Identity Portal OIDC secret"
+  # Inject identity-portal-admin OIDC secret (confidential backend client)
+  # The identity-portal uses two Keycloak clients:
+  #   - identity-portal:       PUBLIC client for frontend PKCE OIDC flow (no secret)
+  #   - identity-portal-admin: CONFIDENTIAL service account client for backend Admin API
+  # Read the secret from oidc-client-secrets.json (setup-keycloak.sh runs as a child process
+  # so its exported env vars are not available here).
+  local IDENTITY_PORTAL_OIDC_SECRET
+  IDENTITY_PORTAL_OIDC_SECRET=$(jq -r '.["identity-portal-admin"] // empty' "$oidc_secrets_file")
+  if [[ -z "$IDENTITY_PORTAL_OIDC_SECRET" ]]; then
+    log_warn "identity-portal-admin secret not found in oidc-client-secrets.json — skipping"
+    end_phase "PHASE 10: KEYCLOAK OIDC SETUP"
+    return
+  fi
+  log_step "Injecting Identity Portal Admin OIDC secret"
   kubectl -n identity-portal create secret generic identity-portal-secret \
     --from-literal=KEYCLOAK_CLIENT_SECRET="${IDENTITY_PORTAL_OIDC_SECRET}" \
     --dry-run=client -o yaml | kubectl apply -f -
   kubectl -n identity-portal rollout restart deployment/identity-portal-backend
-  wait_for_deployment identity-portal identity-portal-backend 120
-  log_ok "Identity Portal OIDC secret injected"
+  wait_for_deployment identity-portal identity-portal-backend 120s
+  log_ok "Identity Portal Admin OIDC secret injected (identity-portal-admin client)"
 
   end_phase "PHASE 10: KEYCLOAK OIDC SETUP"
 }
@@ -1758,6 +1784,1203 @@ phase_11_gitlab() {
   "${SCRIPT_DIR}/setup-gitlab.sh"
 
   end_phase "PHASE 11: GITLAB"
+}
+
+# =============================================================================
+# PHASE 12: GITLAB HARDENING (SSH, Registry Disable, Protected Branches)
+# =============================================================================
+phase_12_gitlab_hardening() {
+  start_phase "PHASE 12: GITLAB HARDENING"
+
+  # 12.1 Disable GitLab container registry (Harbor is the platform registry)
+  log_step "Disabling GitLab container registry (Harbor is the platform registry)..."
+  log_info "Registry disabled in values-rke2-prod.yaml; registry-web listener removed from gateway.yaml"
+
+  # Re-apply gateway without registry listener
+  kube_apply_subst "${SERVICES_DIR}/gitlab/gateway.yaml"
+  log_ok "GitLab gateway updated (registry listener removed)"
+
+  # Helm upgrade GitLab to apply registry=false
+  # Use the same local chart path that setup-gitlab.sh used for the initial install
+  log_step "Upgrading GitLab Helm release to disable built-in registry..."
+  if [[ -d "${GITLAB_CHART_PATH}" ]]; then
+    local processed_values
+    processed_values=$(mktemp /tmp/gitlab-values-XXXXXX.yaml)
+    _subst_changeme < "${SERVICES_DIR}/gitlab/values-rke2-prod.yaml" > "$processed_values"
+    helm upgrade gitlab "${GITLAB_CHART_PATH}" -n gitlab \
+      -f "$processed_values" \
+      --reuse-values --set registry.enabled=false --wait --timeout 10m 2>/dev/null || \
+      log_warn "GitLab Helm upgrade returned non-zero (may already be up to date)"
+    rm -f "$processed_values"
+    log_ok "GitLab registry disabled"
+  else
+    log_warn "GITLAB_CHART_PATH (${GITLAB_CHART_PATH}) not found — skipping registry disable Helm upgrade"
+  fi
+
+  # 12.2 Verify SSH access via Traefik IngressRouteTCP
+  log_step "Verifying GitLab SSH route (IngressRouteTCP via Traefik)..."
+  if kubectl -n gitlab get ingressroutetcp gitlab-ssh &>/dev/null; then
+    log_ok "GitLab SSH IngressRouteTCP already deployed"
+  else
+    log_info "Deploying GitLab SSH IngressRouteTCP..."
+    kube_apply_subst "${SERVICES_DIR}/gitlab/ingressroutetcp-ssh.yaml"
+    log_ok "GitLab SSH IngressRouteTCP deployed"
+  fi
+
+  # 12.3 Load GitLab API token
+  local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
+    if [[ -f "$token_file" ]]; then
+      GITLAB_API_TOKEN=$(cat "$token_file")
+    else
+      log_warn "No GITLAB_API_TOKEN set and no .gitlab-api-token file — skipping API-based hardening"
+      end_phase "PHASE 12: GITLAB HARDENING"
+      return 0
+    fi
+  fi
+
+  # 12.4 Look up platform_services group ID
+  log_step "Looking up GitLab platform_services group..."
+  local PS_GROUP_ID
+  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
+    log_warn "platform_services group not found — create it first with setup-gitlab-services.sh"
+    PS_GROUP_ID=""
+  else
+    log_ok "platform_services group ID: ${PS_GROUP_ID}"
+  fi
+
+  # 12.5 Configure protected branches on all platform_services projects
+  log_step "Configuring protected branches..."
+  if [[ -n "$PS_GROUP_ID" ]]; then
+    local projects_json
+    projects_json=$(gitlab_get "/groups/${PS_GROUP_ID}/projects?per_page=100&include_subgroups=true")
+    local project_ids
+    project_ids=$(echo "$projects_json" | jq -r '.[].id' 2>/dev/null)
+
+    for pid in $project_ids; do
+      local pname
+      pname=$(echo "$projects_json" | jq -r ".[] | select(.id == ${pid}) | .path" 2>/dev/null)
+      log_info "  Protecting main branch on ${pname} (ID: ${pid})..."
+
+      # Protect main: Maintainer push, Maintainer merge
+      gitlab_protect_branch "$pid" "main" 40 40
+
+      # Project settings: require pipeline success, require discussions resolved, no author approval
+      gitlab_set_project_setting "$pid" "only_allow_merge_if_pipeline_succeeds" "true"
+      gitlab_set_project_setting "$pid" "only_allow_merge_if_all_discussions_are_resolved" "true"
+      gitlab_set_project_setting "$pid" "merge_requests_author_approval" "false"
+
+      log_ok "  ${pname}: protected branch + merge settings configured"
+    done
+  fi
+
+  # 12.6 Configure merge request approval rules
+  log_step "Configuring MR approval rules..."
+  if [[ -n "$PS_GROUP_ID" ]]; then
+    for pid in $project_ids; do
+      local pname
+      pname=$(echo "$projects_json" | jq -r ".[] | select(.id == ${pid}) | .path" 2>/dev/null)
+      # Senior Review Required: 2 approvals
+      gitlab_add_approval_rule "$pid" "Senior Review Required" 2
+      log_ok "  ${pname}: approval rule 'Senior Review Required' (2 approvals)"
+    done
+  fi
+
+  # 12.7 Sync Keycloak groups to GitLab group roles via SAML/OIDC group links
+  log_step "Syncing Keycloak groups to GitLab group membership..."
+  if [[ -n "$PS_GROUP_ID" ]]; then
+    local -A kc_to_gitlab_level=(
+      [platform-admins]=50    # Owner
+      [infra-engineers]=40    # Maintainer
+      [senior-developers]=40  # Maintainer
+      [developers]=30         # Developer
+      [viewers]=20            # Reporter
+    )
+    for kc_group in "${!kc_to_gitlab_level[@]}"; do
+      local level="${kc_to_gitlab_level[$kc_group]}"
+      gitlab_create_group_link "$PS_GROUP_ID" "$kc_group" "$level"
+      log_ok "  ${kc_group} -> access_level=${level}"
+    done
+  fi
+
+  end_phase "PHASE 12: GITLAB HARDENING"
+}
+
+# =============================================================================
+# PHASE 12b: ENGINEERING SOPs WIKI
+# =============================================================================
+phase_12b_sop_wiki() {
+  local docs_dir="${REPO_ROOT}/docs/engineering"
+  if [[ ! -d "$docs_dir" ]]; then
+    log_info "No docs/engineering directory — skipping SOP wiki"
+    return 0
+  fi
+
+  start_phase "PHASE 12b: SOP WIKI"
+
+  # 12b.1 Load GitLab API token (same pattern as phase_12/14)
+  local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
+    [[ -f "$token_file" ]] && GITLAB_API_TOKEN=$(cat "$token_file")
+  fi
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    log_warn "No GITLAB_API_TOKEN — skipping SOP wiki"
+    end_phase "PHASE 12b: SOP WIKI"
+    return 0
+  fi
+
+  # 12b.2 Look up platform_services group
+  log_step "Looking up platform_services group..."
+  local PS_GROUP_ID
+  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
+    log_warn "platform_services group not found — run setup-gitlab-services.sh first"
+    end_phase "PHASE 12b: SOP WIKI"
+    return 0
+  fi
+
+  # 12b.3 Create sop-wiki project if it doesn't exist
+  log_step "Creating sop-wiki project..."
+  local wiki_project_id
+  wiki_project_id=$(gitlab_project_id "platform_services/sop-wiki")
+
+  if [[ -z "$wiki_project_id" || "$wiki_project_id" == "null" ]]; then
+    local resp
+    resp=$(gitlab_post "/projects" \
+      "{\"name\":\"sop-wiki\",\"path\":\"sop-wiki\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"internal\",\"wiki_enabled\":true,\"initialize_with_readme\":true}")
+    wiki_project_id=$(echo "$resp" | jq -r '.id // empty' 2>/dev/null)
+    if [[ -z "$wiki_project_id" ]]; then
+      log_error "Failed to create sop-wiki project"
+      end_phase "PHASE 12b: SOP WIKI"
+      return 0
+    fi
+    log_ok "Created sop-wiki project (ID: ${wiki_project_id})"
+    sleep 2
+  else
+    log_ok "sop-wiki project already exists (ID: ${wiki_project_id})"
+  fi
+
+  # 12b.4 Seed the wiki repo (creates .wiki.git on first API call)
+  log_step "Seeding wiki repository..."
+  gitlab_post "/projects/${wiki_project_id}/wikis" \
+    '{"title":"Home","content":"# Engineering SOPs\nInitializing...","format":"markdown"}' >/dev/null 2>&1 || true
+  log_ok "Wiki repo initialized"
+
+  # 12b.5 Clone wiki repo and populate
+  log_step "Cloning wiki repo and populating pages..."
+  local tmp_dir
+  tmp_dir=$(mktemp -d "/tmp/sop-wiki-XXXXXX")
+
+  export GIT_SSL_NO_VERIFY=true
+  local wiki_url="https://oauth2:${GITLAB_API_TOKEN}@gitlab.${DOMAIN}/platform_services/sop-wiki.wiki.git"
+
+  if ! git clone "$wiki_url" "${tmp_dir}/repo" 2>/dev/null; then
+    mkdir -p "${tmp_dir}/repo"
+    git -C "${tmp_dir}/repo" init -b main
+    git -C "${tmp_dir}/repo" remote add origin "$wiki_url"
+  fi
+
+  local work_dir="${tmp_dir}/repo"
+  # Clear existing wiki content (except .git)
+  find "${work_dir}" -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+
+  # 12b.6 Copy single-page docs (all except troubleshooting-sop.md)
+  log_step "Copying engineering docs to wiki..."
+  for doc in "${docs_dir}"/*.md; do
+    local basename
+    basename=$(basename "$doc")
+    [[ "$basename" == "troubleshooting-sop.md" ]] && continue
+    cp "$doc" "${work_dir}/${basename}"
+  done
+
+  # 12b.7 Split troubleshooting-sop.md into sub-pages by ## headers
+  log_step "Splitting troubleshooting SOP into sub-pages..."
+  local ts_src="${docs_dir}/troubleshooting-sop.md"
+  local section_num="" section_title="" section_slug="" section_file=""
+  local in_intro=true
+  local index_links=""
+
+  # First pass: extract intro (everything before first ## N.) as the index page
+  awk '/^## [0-9]+\./{exit} {print}' "$ts_src" > "${work_dir}/troubleshooting-sop.md"
+
+  # Append sub-page links to the index
+  index_links=$'\n---\n\n## Sections\n\n'
+  while IFS= read -r header; do
+    # Extract section number and title from "## N. Title"
+    section_num=$(echo "$header" | sed -E 's/^## ([0-9]+)\..*/\1/')
+    section_title=$(echo "$header" | sed -E 's/^## [0-9]+\. //')
+    # Zero-pad the number for sort order
+    local padded
+    padded=$(printf "%02d" "$section_num")
+    section_slug=$(echo "$section_title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-//; s/-$//')
+    index_links+="- [${section_num}. ${section_title}](troubleshooting-${padded}-${section_slug})"$'\n'
+  done < <(grep -E '^## [0-9]+\.' "$ts_src")
+
+  # Handle the "Related Documentation" section — keep it in the index
+  local related_section
+  related_section=$(awk '/^## Related Documentation/,0' "$ts_src")
+  if [[ -n "$related_section" ]]; then
+    index_links+=$'\n---\n\n'"${related_section}"
+  fi
+
+  echo "$index_links" >> "${work_dir}/troubleshooting-sop.md"
+  log_ok "Troubleshooting index page generated"
+
+  # Second pass: split each numbered section into its own page
+  awk '
+    /^## [0-9]+\./ {
+      if (outfile) close(outfile)
+      # Extract section number
+      match($0, /^## ([0-9]+)\./, arr)
+      num = sprintf("%02d", arr[1])
+      # Extract title after "## N. "
+      title = $0
+      sub(/^## [0-9]+\. /, "", title)
+      # Build slug: lowercase, non-alnum to hyphens, trim
+      slug = tolower(title)
+      gsub(/[^a-z0-9]+/, "-", slug)
+      gsub(/^-|-$/, "", slug)
+      outfile = WORKDIR "/troubleshooting-" num "-" slug ".md"
+      # Write breadcrumb nav
+      print "> **[← Back to Troubleshooting Index](troubleshooting-sop)**\n" > outfile
+      print $0 >> outfile
+      next
+    }
+    /^## Related Documentation/ { outfile = ""; next }
+    outfile { print >> outfile }
+  ' WORKDIR="${work_dir}" "$ts_src"
+
+  local sub_count
+  sub_count=$(ls "${work_dir}"/troubleshooting-[0-9]*.md 2>/dev/null | wc -l)
+  log_ok "Split troubleshooting SOP into ${sub_count} sub-pages"
+
+  # 12b.8 Generate Home.md landing page
+  log_step "Generating Home.md and _sidebar.md..."
+  cat > "${work_dir}/Home.md" << 'HOMEEOF'
+# Engineering SOPs
+
+Welcome to the platform engineering Standard Operating Procedures wiki. These documents cover architecture, operations, troubleshooting, and security for the RKE2 cluster platform.
+
+## Quick Links
+
+| Document | Description |
+|----------|-------------|
+| [System Architecture](system-architecture) | Cluster architecture, network topology, component overview |
+| [Security Architecture](security-architecture) | PKI, OIDC, Vault, network policies |
+| [Deployment Automation](deployment-automation) | Deploy script phases, automation details |
+| [Terraform Infrastructure](terraform-infrastructure) | IaC for Harvester/Rancher provisioning |
+| [Services Reference](services-reference) | All platform services configuration |
+| [Monitoring & Observability](monitoring-observability) | Prometheus, Grafana, Loki, alerting |
+| [Golden Image CI/CD](golden-image-cicd) | DHI builder, hardened base images |
+| [Custom Operators](custom-operators) | Identity Portal, platform operators |
+| [Flow Charts](flow-charts) | Deployment and operational flow diagrams |
+| **[Troubleshooting SOP](troubleshooting-sop)** | **On-call runbooks, DR procedures, Day-2 ops** |
+HOMEEOF
+  log_ok "Home.md generated"
+
+  # 12b.9 Generate _sidebar.md navigation
+  cat > "${work_dir}/_sidebar.md" << 'SIDEBAREOF'
+**[Home](Home)**
+
+---
+
+**Architecture**
+- [System Architecture](system-architecture)
+- [Security Architecture](security-architecture)
+- [Flow Charts](flow-charts)
+
+**Operations**
+- [Deployment Automation](deployment-automation)
+- [Terraform Infrastructure](terraform-infrastructure)
+- [Services Reference](services-reference)
+- [Monitoring & Observability](monitoring-observability)
+
+**CI/CD**
+- [Golden Image CI/CD](golden-image-cicd)
+- [Custom Operators](custom-operators)
+
+**Troubleshooting**
+- [Troubleshooting Index](troubleshooting-sop)
+SIDEBAREOF
+
+  # Append troubleshooting sub-pages to sidebar
+  while IFS= read -r header; do
+    section_num=$(echo "$header" | sed -E 's/^## ([0-9]+)\..*/\1/')
+    section_title=$(echo "$header" | sed -E 's/^## [0-9]+\. //')
+    local padded
+    padded=$(printf "%02d" "$section_num")
+    section_slug=$(echo "$section_title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-//; s/-$//')
+    echo "  - [${section_num}. ${section_title}](troubleshooting-${padded}-${section_slug})" >> "${work_dir}/_sidebar.md"
+  done < <(grep -E '^## [0-9]+\.' "$ts_src")
+
+  log_ok "_sidebar.md generated"
+
+  # 12b.10 Fix cross-references: strip .md extension from internal links
+  log_step "Fixing cross-references for wiki format..."
+  find "${work_dir}" -name '*.md' -not -path '*/.git/*' | while read -r f; do
+    # Replace [text](something.md) -> [text](something) and [text](something.md#anchor) -> [text](something#anchor)
+    # Only for relative links (not http:// or ../)
+    sed -i -E 's/\]\(([a-zA-Z0-9_-]+)\.md(#[^)]+)?\)/](\1\2)/g' "$f"
+  done
+  log_ok "Cross-references fixed"
+
+  # 12b.11 Commit and push
+  log_step "Committing and pushing wiki..."
+  git -C "${work_dir}" config user.name "${GIT_AUTHOR_NAME:-deploy-bot}"
+  git -C "${work_dir}" config user.email "${GIT_AUTHOR_EMAIL:-deploy@${DOMAIN}}"
+  git -C "${work_dir}" add -A
+
+  if ! git -C "${work_dir}" diff --cached --quiet 2>/dev/null; then
+    git -C "${work_dir}" commit -m "Update engineering SOPs from platform deploy"
+    git -C "${work_dir}" push -u origin main 2>/dev/null || \
+      { git -C "${work_dir}" branch -M main && git -C "${work_dir}" push -u origin main; } 2>/dev/null || true
+    log_ok "Wiki pushed to sop-wiki"
+  else
+    log_info "Wiki already up to date — no changes"
+  fi
+  rm -rf "${tmp_dir}"
+
+  end_phase "PHASE 12b: SOP WIKI"
+}
+
+# =============================================================================
+# PHASE 13: VAULT CI/CD INTEGRATION
+# =============================================================================
+phase_13_vault_cicd() {
+  start_phase "PHASE 13: VAULT CI/CD INTEGRATION"
+
+  # Load Vault root token
+  local VAULT_ROOT_TOKEN
+  if [[ -f "${CLUSTER_DIR}/vault-init.json" ]]; then
+    VAULT_ROOT_TOKEN=$(jq -r '.root_token' "${CLUSTER_DIR}/vault-init.json")
+  else
+    log_warn "vault-init.json not found — skipping Vault CI/CD setup"
+    end_phase "PHASE 13: VAULT CI/CD"
+    return 0
+  fi
+
+  # 13.1 Enable JWT auth method for GitLab CI
+  log_step "Enabling JWT auth method for GitLab CI..."
+  vault_exec "$VAULT_ROOT_TOKEN" auth enable -path=jwt/gitlab jwt 2>/dev/null || \
+    log_info "JWT auth already enabled at jwt/gitlab"
+
+  vault_exec "$VAULT_ROOT_TOKEN" write auth/jwt/gitlab/config \
+    jwks_url="https://gitlab.${DOMAIN}/-/jwks" \
+    bound_issuer="https://gitlab.${DOMAIN}" 2>/dev/null || true
+  log_ok "JWT auth configured for GitLab (JWKS endpoint)"
+
+  # 13.2 Create CI/CD Vault policies
+  log_step "Creating CI/CD Vault policies..."
+
+  echo 'path "kv/data/ci/*" { capabilities = ["read","list"] }
+path "kv/data/services/*/ci" { capabilities = ["read","list"] }' | \
+    vault_exec_stdin "$VAULT_ROOT_TOKEN" policy write ci-read-secrets -
+  log_ok "Policy ci-read-secrets created"
+
+  echo 'path "transit/sign/ci-signing-key" { capabilities = ["update"] }' | \
+    vault_exec_stdin "$VAULT_ROOT_TOKEN" policy write ci-sign-images -
+  log_ok "Policy ci-sign-images created"
+
+  # 13.3 Create CI/CD Vault roles
+  log_step "Creating CI/CD Vault roles..."
+  vault_exec "$VAULT_ROOT_TOKEN" write auth/jwt/gitlab/role/gitlab-ci \
+    role_type="jwt" \
+    policies="ci-read-secrets" \
+    token_explicit_max_ttl=3600 \
+    user_claim="user_email" \
+    bound_claims_type="glob" \
+    bound_claims="{\"project_path\":\"platform_services/*\",\"ref\":\"main\"}" 2>/dev/null || true
+  log_ok "Role gitlab-ci created (bound to platform_services/*, ref=main)"
+
+  vault_exec "$VAULT_ROOT_TOKEN" write auth/jwt/gitlab/role/gitlab-ci-sign \
+    role_type="jwt" \
+    policies="ci-sign-images" \
+    token_explicit_max_ttl=1800 \
+    user_claim="user_email" \
+    bound_claims_type="glob" \
+    bound_claims="{\"project_path\":\"platform_services/*\",\"ref_protected\":\"true\"}" 2>/dev/null || true
+  log_ok "Role gitlab-ci-sign created (bound to protected branches)"
+
+  # 13.4 Store CI credentials in Vault KV
+  log_step "Enabling Vault KV v2 secrets engine..."
+  vault_exec "$VAULT_ROOT_TOKEN" secrets enable -path=kv kv-v2 2>/dev/null || \
+    log_info "KV v2 engine already enabled at kv/"
+  log_ok "KV v2 secrets engine enabled at kv/"
+
+  log_step "Storing CI credentials in Vault KV..."
+  vault_exec "$VAULT_ROOT_TOKEN" kv put kv/ci/harbor-push \
+    username="ci-push" \
+    password="placeholder-will-be-updated-by-phase-14" 2>/dev/null || true
+  log_ok "kv/ci/harbor-push placeholder stored"
+
+  if [[ -n "${GITLAB_API_TOKEN:-}" ]]; then
+    vault_exec "$VAULT_ROOT_TOKEN" kv put kv/ci/gitlab-api \
+      token="${GITLAB_API_TOKEN}" 2>/dev/null || true
+    log_ok "kv/ci/gitlab-api stored"
+  fi
+
+  # 13.5 Enable Kubernetes auth for ESO
+  log_step "Enabling Kubernetes auth for External Secrets Operator..."
+  vault_exec "$VAULT_ROOT_TOKEN" auth enable kubernetes 2>/dev/null || \
+    log_info "Kubernetes auth already enabled"
+
+  vault_exec "$VAULT_ROOT_TOKEN" write auth/kubernetes/config \
+    kubernetes_host="https://kubernetes.default.svc.cluster.local:443" 2>/dev/null || true
+
+  echo 'path "kv/data/ci/*" { capabilities = ["read","list"] }
+path "kv/data/services/*" { capabilities = ["read","list"] }' | \
+    vault_exec_stdin "$VAULT_ROOT_TOKEN" policy write external-secrets -
+  log_ok "Policy external-secrets created"
+
+  vault_exec "$VAULT_ROOT_TOKEN" write auth/kubernetes/role/external-secrets \
+    bound_service_account_names="external-secrets" \
+    bound_service_account_namespaces="external-secrets" \
+    policies="external-secrets" \
+    ttl=1h 2>/dev/null || true
+  log_ok "Kubernetes auth role external-secrets created"
+
+  # 13.6 Deploy External Secrets Operator
+  log_step "Deploying External Secrets Operator..."
+  ensure_namespace "external-secrets"
+  helm_repo_add external-secrets https://charts.external-secrets.io
+
+  local eso_chart
+  eso_chart=$(resolve_helm_chart "external-secrets/external-secrets" "HELM_OCI_EXTERNAL_SECRETS")
+
+  helm_install_if_needed external-secrets "$eso_chart" external-secrets \
+    --set installCRDs=true \
+    --set serviceAccount.name=external-secrets \
+    --wait --timeout 5m
+
+  log_ok "External Secrets Operator deployed"
+
+  # 13.7 Create ClusterSecretStore
+  log_step "Creating ClusterSecretStore..."
+  wait_for_deployment external-secrets external-secrets 120s
+  sleep 5  # Wait for CRDs to register
+  kube_apply -f "${SERVICES_DIR}/external-secrets/cluster-secret-store.yaml"
+  log_ok "ClusterSecretStore vault-backend created"
+
+  # 13.8 Create example ExternalSecret (harbor-ci-push)
+  log_step "Creating example ExternalSecret..."
+  ensure_namespace "gitlab-runners"
+  kube_apply -f "${SERVICES_DIR}/external-secrets/external-secret-harbor-push.yaml"
+  log_ok "ExternalSecret harbor-ci-push created in gitlab-runners namespace"
+
+  end_phase "PHASE 13: VAULT CI/CD"
+}
+
+# =============================================================================
+# PHASE 14: CI PIPELINE TEMPLATES & HARBOR POLICIES
+# =============================================================================
+phase_14_ci_templates() {
+  start_phase "PHASE 14: CI TEMPLATES & HARBOR POLICIES"
+
+  # Load GitLab API token
+  local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
+    [[ -f "$token_file" ]] && GITLAB_API_TOKEN=$(cat "$token_file")
+  fi
+
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    log_warn "No GITLAB_API_TOKEN — skipping CI template push"
+    end_phase "PHASE 14: CI TEMPLATES"
+    return 0
+  fi
+
+  # 14.1 Look up platform_services group
+  local PS_GROUP_ID
+  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
+    log_warn "platform_services group not found — run setup-gitlab-services.sh first"
+    end_phase "PHASE 14: CI TEMPLATES"
+    return 0
+  fi
+
+  # 14.2 Create gitlab-ci-templates project
+  log_step "Creating gitlab-ci-templates project..."
+  local tmpl_project_id
+  tmpl_project_id=$(gitlab_project_id "platform_services/gitlab-ci-templates")
+
+  if [[ -z "$tmpl_project_id" || "$tmpl_project_id" == "null" ]]; then
+    local resp
+    resp=$(gitlab_post "/projects" \
+      "{\"name\":\"gitlab-ci-templates\",\"path\":\"gitlab-ci-templates\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"internal\",\"initialize_with_readme\":false}")
+    tmpl_project_id=$(echo "$resp" | jq -r '.id // empty' 2>/dev/null)
+    if [[ -z "$tmpl_project_id" ]]; then
+      log_error "Failed to create gitlab-ci-templates project"
+      end_phase "PHASE 14: CI TEMPLATES"
+      return 0
+    fi
+    log_ok "Created gitlab-ci-templates project (ID: ${tmpl_project_id})"
+    sleep 2
+  else
+    log_ok "gitlab-ci-templates project already exists (ID: ${tmpl_project_id})"
+  fi
+
+  # 14.3 Push template library
+  log_step "Pushing CI template library to GitLab..."
+  local templates_dir="${SERVICES_DIR}/gitlab-ci-templates"
+  if [[ -d "$templates_dir" ]]; then
+    local tmp_dir
+    tmp_dir=$(mktemp -d "/tmp/ci-templates-XXXXXX")
+
+    export GIT_SSL_NO_VERIFY=true
+    local repo_url="https://oauth2:${GITLAB_API_TOKEN}@gitlab.${DOMAIN}/platform_services/gitlab-ci-templates.git"
+
+    if ! git clone "$repo_url" "${tmp_dir}/repo" 2>/dev/null; then
+      mkdir -p "${tmp_dir}/repo"
+      git -C "${tmp_dir}/repo" init -b main
+      git -C "${tmp_dir}/repo" remote add origin "$repo_url"
+    fi
+
+    local work_dir="${tmp_dir}/repo"
+    find "${work_dir}" -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+    cp -a "${templates_dir}"/. "${work_dir}/"
+
+    git -C "${work_dir}" config user.name "${GIT_AUTHOR_NAME:-deploy-bot}"
+    git -C "${work_dir}" config user.email "${GIT_AUTHOR_EMAIL:-deploy@${DOMAIN}}"
+    git -C "${work_dir}" add -A
+
+    if ! git -C "${work_dir}" diff --cached --quiet 2>/dev/null; then
+      git -C "${work_dir}" commit -m "Update CI/CD templates from platform deploy"
+      git -C "${work_dir}" push -u origin main 2>/dev/null || \
+        git -C "${work_dir}" push -u origin main --force 2>/dev/null || true
+      log_ok "CI templates pushed to gitlab-ci-templates"
+    else
+      log_info "CI templates already up to date"
+    fi
+    rm -rf "${tmp_dir}"
+  else
+    log_warn "CI templates directory not found at ${templates_dir}"
+  fi
+
+  # 14.4 Configure Harbor CI/CD projects and robot accounts
+  log_step "Creating Harbor CI/CD projects..."
+  create_harbor_project "platform-services" "false"
+  create_harbor_project "ci-cache" "false"
+  log_ok "Harbor projects created (platform-services, ci-cache)"
+
+  # Create Harbor robot accounts
+  log_step "Creating Harbor robot accounts..."
+  local ci_push_resp
+  ci_push_resp=$(create_harbor_robot "ci-push" "platform-services" \
+    '[{"kind":"project","namespace":"platform-services","access":[{"resource":"repository","action":"push"},{"resource":"repository","action":"pull"}]},{"kind":"project","namespace":"ci-cache","access":[{"resource":"repository","action":"push"},{"resource":"repository","action":"pull"}]}]')
+  local ci_push_secret
+  ci_push_secret=$(echo "$ci_push_resp" | jq -r '.secret // empty' 2>/dev/null)
+  local ci_push_name
+  ci_push_name=$(echo "$ci_push_resp" | jq -r '.name // "robot$ci-push"' 2>/dev/null)
+
+  if [[ -n "$ci_push_secret" ]]; then
+    log_ok "Harbor robot ci-push created"
+    # Update Vault with real credentials
+    if [[ -f "${CLUSTER_DIR}/vault-init.json" ]]; then
+      local VAULT_ROOT_TOKEN
+      VAULT_ROOT_TOKEN=$(jq -r '.root_token' "${CLUSTER_DIR}/vault-init.json")
+      vault_exec "$VAULT_ROOT_TOKEN" kv put kv/ci/harbor-push \
+        username="${ci_push_name}" password="${ci_push_secret}" 2>/dev/null || true
+      log_ok "Vault kv/ci/harbor-push updated with real credentials"
+    fi
+  else
+    log_warn "Could not create Harbor robot ci-push (may already exist)"
+  fi
+
+  local argocd_pull_resp
+  argocd_pull_resp=$(create_harbor_robot "argocd-pull" "platform-services" \
+    '[{"kind":"project","namespace":"platform-services","access":[{"resource":"repository","action":"pull"}]}]')
+  if echo "$argocd_pull_resp" | jq -e '.secret' &>/dev/null; then
+    log_ok "Harbor robot argocd-pull created"
+  else
+    log_warn "Could not create Harbor robot argocd-pull (may already exist)"
+  fi
+
+  # 14.5 Set GitLab group-level CI/CD variables
+  log_step "Setting GitLab group-level CI/CD variables..."
+  gitlab_set_variable "groups" "$PS_GROUP_ID" "HARBOR_REGISTRY" "harbor.${DOMAIN}" "false" "false"
+  gitlab_set_variable "groups" "$PS_GROUP_ID" "HARBOR_CI_USER" "${ci_push_name:-robot\$ci-push}" "false" "false"
+  if [[ -n "$ci_push_secret" ]]; then
+    gitlab_set_variable "groups" "$PS_GROUP_ID" "HARBOR_CI_PASSWORD" "$ci_push_secret" "true" "false"
+  fi
+  gitlab_set_variable "groups" "$PS_GROUP_ID" "VAULT_ADDR" "https://vault.${DOMAIN}" "false" "false"
+  gitlab_set_variable "groups" "$PS_GROUP_ID" "VAULT_ROLE" "gitlab-ci" "false" "false"
+  gitlab_set_variable "groups" "$PS_GROUP_ID" "DOMAIN" "${DOMAIN}" "false" "false"
+  gitlab_set_variable "groups" "$PS_GROUP_ID" "ARGOCD_SERVER" "argo.${DOMAIN}" "false" "false"
+  log_ok "Group-level CI/CD variables set"
+
+  end_phase "PHASE 14: CI TEMPLATES"
+}
+
+# =============================================================================
+# PHASE 15: ARGOCD RBAC & PROGRESSIVE DELIVERY
+# =============================================================================
+phase_15_argocd_delivery() {
+  start_phase "PHASE 15: ARGOCD RBAC & PROGRESSIVE DELIVERY"
+
+  # 15.1 Update ArgoCD RBAC
+  log_step "Updating ArgoCD RBAC with CI/CD roles..."
+  local rbac_csv
+  rbac_csv=$(cat <<'RBAC_EOF'
+p, role:admin, applications, *, */*, allow
+p, role:admin, clusters, *, *, allow
+p, role:admin, repositories, *, *, allow
+p, role:admin, logs, *, *, allow
+p, role:admin, exec, *, */*, allow
+p, role:infra-ops, applications, get, */*, allow
+p, role:infra-ops, applications, sync, */*, allow
+p, role:infra-ops, applications, action/*, */*, allow
+p, role:infra-ops, logs, get, *, allow
+p, role:senior-dev, applications, get, staging/*, allow
+p, role:senior-dev, applications, sync, staging/*, allow
+p, role:senior-dev, applications, get, ephemeral/*, allow
+p, role:senior-dev, applications, sync, ephemeral/*, allow
+p, role:senior-dev, logs, get, *, allow
+p, role:ci-sync, applications, get, */*, allow
+p, role:ci-sync, applications, sync, */*, allow
+p, role:readonly, applications, get, */*, allow
+p, role:readonly, logs, get, *, allow
+g, platform-admins, role:admin
+g, infra-engineers, role:infra-ops
+g, senior-developers, role:senior-dev
+g, ci-service-accounts, role:ci-sync
+g, developers, role:readonly
+g, viewers, role:readonly
+RBAC_EOF
+)
+  kubectl -n argocd get configmap argocd-rbac-cm -o json 2>/dev/null | \
+    jq --arg csv "$rbac_csv" '.data["policy.csv"] = $csv' | \
+    kubectl apply -f - 2>/dev/null || \
+    kubectl -n argocd create configmap argocd-rbac-cm \
+      --from-literal="policy.csv=${rbac_csv}" --dry-run=client -o yaml | kubectl apply -f -
+  log_ok "ArgoCD RBAC updated with infra-ops, senior-dev, ci-sync roles"
+
+  # 15.2 Create ArgoCD AppProjects
+  log_step "Creating ArgoCD AppProjects for environment isolation..."
+
+  kubectl apply -f - <<'PROJ_EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: production
+  namespace: argocd
+spec:
+  description: "Production workloads — platform-admins only"
+  sourceRepos:
+    - "git@gitlab.*:platform_services/*"
+    - "https://gitlab.*:platform_services/*"
+  destinations:
+    - namespace: "demo-apps"
+      server: https://kubernetes.default.svc
+    - namespace: "production-*"
+      server: https://kubernetes.default.svc
+  roles:
+    - name: admin
+      description: "Full production access"
+      groups:
+        - platform-admins
+      policies:
+        - "p, proj:production:admin, applications, *, production/*, allow"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: staging
+  namespace: argocd
+spec:
+  description: "Staging workloads — infra-engineers and senior-developers"
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: "staging-*"
+      server: https://kubernetes.default.svc
+  roles:
+    - name: deployer
+      description: "Staging deploy access"
+      groups:
+        - infra-engineers
+        - senior-developers
+      policies:
+        - "p, proj:staging:deployer, applications, *, staging/*, allow"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ephemeral
+  namespace: argocd
+spec:
+  description: "Ephemeral MR environments — developers can sync"
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: "ephemeral-*"
+      server: https://kubernetes.default.svc
+  roles:
+    - name: developer
+      description: "Ephemeral env access"
+      groups:
+        - developers
+        - senior-developers
+        - infra-engineers
+      policies:
+        - "p, proj:ephemeral:developer, applications, *, ephemeral/*, allow"
+PROJ_EOF
+  log_ok "AppProjects created: production, staging, ephemeral"
+
+  # 15.3 Deploy Prometheus AnalysisTemplates for Argo Rollouts
+  log_step "Deploying AnalysisTemplates for progressive delivery..."
+  local analysis_dir="${SERVICES_DIR}/argo/analysis-templates"
+  if [[ -d "$analysis_dir" ]]; then
+    for f in "${analysis_dir}"/*.yaml; do
+      kube_apply -f "$f"
+    done
+    log_ok "AnalysisTemplates deployed (success-rate, latency-check, error-rate)"
+  else
+    log_warn "AnalysisTemplates directory not found at ${analysis_dir}"
+  fi
+
+  # 15.4 Deploy ephemeral namespace cleaner CronJob
+  log_step "Deploying ephemeral namespace cleaner CronJob..."
+  kubectl apply -f - <<'CLEANER_EOF'
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ephemeral-ns-cleaner
+  namespace: argocd
+spec:
+  schedule: "*/30 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: argocd-server
+          containers:
+            - name: cleaner
+              image: bitnami/kubectl:latest
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  # Delete ephemeral namespaces older than 4 hours
+                  now=$(date +%s)
+                  kubectl get namespaces -l ephemeral-ttl -o json | \
+                    jq -r '.items[] | select((.metadata.creationTimestamp | fromdateiso8601) < ('$now' - 14400)) | .metadata.name' | \
+                    while read -r ns; do
+                      echo "Deleting expired ephemeral namespace: $ns"
+                      kubectl delete namespace "$ns" --wait=false
+                    done
+          restartPolicy: Never
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+CLEANER_EOF
+  log_ok "Ephemeral namespace cleaner CronJob deployed"
+
+  # 15.5 Create ArgoCD ApplicationSet for ephemeral MR environments
+  # First, create the argocd-gitlab-token secret referenced by the ApplicationSet
+  log_step "Creating argocd-gitlab-token secret for ApplicationSet..."
+  if [[ -n "${GITLAB_API_TOKEN:-}" ]]; then
+    kubectl create secret generic argocd-gitlab-token \
+      --namespace=argocd \
+      --from-literal=token="${GITLAB_API_TOKEN}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    log_ok "argocd-gitlab-token secret created in argocd namespace"
+  else
+    log_warn "No GITLAB_API_TOKEN — argocd-gitlab-token secret not created (ApplicationSet SCM polling will fail)"
+  fi
+
+  log_step "Creating ApplicationSet for ephemeral MR environments..."
+  kubectl apply -f - <<APPSET_EOF
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ephemeral-mr-envs
+  namespace: argocd
+spec:
+  generators:
+    - pullRequest:
+        gitlab:
+          project: "platform_services"
+          api: "https://gitlab.${DOMAIN}"
+          tokenRef:
+            secretName: argocd-gitlab-token
+            key: token
+        requeueAfterSeconds: 60
+  template:
+    metadata:
+      name: "ephemeral-{{branch_slug}}"
+    spec:
+      project: ephemeral
+      source:
+        repoURL: "{{clone_url}}"
+        targetRevision: "{{head_sha}}"
+        path: deploy/overlays/rke2-prod
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "ephemeral-{{number}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+APPSET_EOF
+  log_ok "ApplicationSet ephemeral-mr-envs created"
+
+  end_phase "PHASE 15: ARGOCD DELIVERY"
+}
+
+# =============================================================================
+# PHASE 16: SECURITY SCANNING & SBOM
+# =============================================================================
+phase_16_security() {
+  start_phase "PHASE 16: SECURITY SCANNING"
+
+  if [[ "${DEPLOY_CICD_SECURITY_RUNNERS:-true}" != "true" ]]; then
+    log_info "DEPLOY_CICD_SECURITY_RUNNERS=false — skipping security runner deployment"
+    end_phase "PHASE 16: SECURITY"
+    return 0
+  fi
+
+  # 16.1 Deploy dedicated security runner pool
+  log_step "Deploying dedicated security runner pool..."
+  local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
+    [[ -f "$token_file" ]] && GITLAB_API_TOKEN=$(cat "$token_file")
+  fi
+
+  local sec_runner_token=""
+  if [[ -n "${GITLAB_API_TOKEN:-}" ]]; then
+    log_step "Creating security runner via GitLab API..."
+    local sec_response
+    sec_response=$(gitlab_post "/user/runners" \
+      '{"runner_type":"instance_type","description":"security-scanner-runner","tag_list":"security,trivy,semgrep,gitleaks","run_untagged":false}')
+    sec_runner_token=$(echo "$sec_response" | jq -r '.token // empty' 2>/dev/null)
+    if [[ -n "$sec_runner_token" ]]; then
+      log_ok "Security runner created (token: ${sec_runner_token:0:8}...)"
+    else
+      log_warn "Failed to create security runner — may already exist"
+    fi
+  fi
+
+  if [[ -n "$sec_runner_token" ]]; then
+    # Deploy security runner Helm chart
+    ensure_namespace "gitlab-runners"
+    helm_repo_add gitlab https://charts.gitlab.io
+    local runner_chart
+    runner_chart=$(resolve_helm_chart "gitlab/gitlab-runner" "HELM_OCI_GITLAB_RUNNER")
+
+    local sec_values="${SERVICES_DIR}/gitlab-runners/security-runner-values.yaml"
+    if [[ ! -f "$sec_values" ]]; then
+      # Create security runner values inline
+      cat > "$sec_values" <<'SECVAL_EOF'
+replicas: 1
+gitlabUrl: ""
+runnerToken: ""
+rbac:
+  create: true
+  clusterWideAccess: false
+runners:
+  config: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "gitlab-runners"
+        image = "alpine:3.21"
+        cpu_request = "200m"
+        memory_request = "512Mi"
+        memory_limit = "2Gi"
+        service_cpu_request = "100m"
+        service_memory_request = "256Mi"
+  tags: "security,trivy,semgrep,gitleaks"
+  runUntagged: false
+  locked: false
+  secret: gitlab-runner-certs
+certsSecretName: gitlab-runner-certs
+SECVAL_EOF
+    fi
+
+    helm_install_if_needed gitlab-runner-security "$runner_chart" gitlab-runners \
+      -f "$sec_values" \
+      --set runnerToken="${sec_runner_token}" \
+      --set gitlabUrl="https://gitlab.${DOMAIN}"
+    log_ok "Security runner deployed"
+  else
+    log_warn "No security runner token — skipping Helm install"
+  fi
+
+  # 16.2 Push updated security templates to gitlab-ci-templates project
+  log_step "Security scan templates are included in the CI template library (Phase 14)"
+  log_info "Templates: gitleaks, semgrep, trivy-fs, trivy-image, sbom, license"
+  log_ok "Security templates available via shared CI library"
+
+  # 16.3 Configure Harbor vulnerability scanning
+  log_step "Configuring Harbor auto-scan on push..."
+  local harbor_core_pod
+  harbor_core_pod=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [[ -n "$harbor_core_pod" ]]; then
+    local harbor_api="http://harbor-core.harbor.svc.cluster.local/api/v2.0"
+    local admin_pass="${HARBOR_ADMIN_PASSWORD:-}"
+    [[ -z "$admin_pass" ]] && admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+
+    # Enable auto-scan for platform-services project
+    kubectl exec -n harbor "$harbor_core_pod" -- \
+      curl -sf -u "admin:${admin_pass}" -X PUT \
+      "${harbor_api}/projects/platform-services" \
+      -H "Content-Type: application/json" \
+      -d '{"metadata":{"auto_scan":"true","severity":"critical"}}' 2>/dev/null || true
+    log_ok "Harbor auto-scan enabled for platform-services project"
+  else
+    log_warn "Harbor core pod not found — skipping auto-scan configuration"
+  fi
+
+  end_phase "PHASE 16: SECURITY"
+}
+
+# =============================================================================
+# PHASE 17: DORA METRICS & CI/CD OBSERVABILITY
+# =============================================================================
+phase_17_observability() {
+  start_phase "PHASE 17: DORA METRICS & OBSERVABILITY"
+
+  # 17.1 Import DORA Grafana dashboard
+  log_step "Deploying DORA metrics Grafana dashboard..."
+  local dashboard_file="${SERVICES_DIR}/monitoring-stack/grafana/dashboards/cicd-dora.json"
+  if [[ -f "$dashboard_file" ]]; then
+    kube_apply -f "$dashboard_file"
+    log_ok "DORA dashboard ConfigMap deployed (auto-discovered by Grafana sidecar)"
+  else
+    log_warn "DORA dashboard file not found at ${dashboard_file}"
+  fi
+
+  # 17.2 Deploy CI/CD alerting rules
+  log_step "Deploying CI/CD alerting rules..."
+  local alerts_file="${SERVICES_DIR}/monitoring-stack/prometheus/rules/cicd-alerts.yaml"
+  if [[ -f "$alerts_file" ]]; then
+    kube_apply -f "$alerts_file"
+    log_ok "CI/CD PrometheusRule deployed"
+  else
+    log_warn "CI/CD alerts file not found at ${alerts_file}"
+  fi
+
+  # 17.3 Print CI/CD infrastructure summary
+  log_step "CI/CD Infrastructure Summary"
+  echo ""
+  echo -e "${BOLD}============================================================${NC}"
+  echo -e "${BOLD}  CI/CD INFRASTRUCTURE SUMMARY${NC}"
+  echo -e "${BOLD}============================================================${NC}"
+  echo ""
+  echo "  Services:"
+  echo "    GitLab:         https://gitlab.${DOMAIN}"
+  echo "    Harbor:         https://harbor.${DOMAIN}"
+  echo "    ArgoCD:         https://argo.${DOMAIN}"
+  echo "    Vault:          https://vault.${DOMAIN}"
+  echo "    Grafana:        https://grafana.${DOMAIN}"
+  echo "    Rollouts:       https://rollouts.${DOMAIN}"
+  echo "    Hubble:         https://hubble.${DOMAIN}"
+  echo ""
+  echo "  CI/CD Components:"
+  echo "    CI Templates:   https://gitlab.${DOMAIN}/platform_services/gitlab-ci-templates"
+  echo "    DORA Dashboard: https://grafana.${DOMAIN}/d/cicd-dora-metrics"
+  echo "    Harbor Registry: harbor.${DOMAIN}/platform-services/*"
+  echo ""
+  echo "  Progressive Delivery:"
+  echo "    Canary Analysis: success-rate, latency-check, error-rate (AnalysisTemplates)"
+  echo "    AppProjects:     production, staging, ephemeral"
+  echo "    Ephemeral Envs:  Auto-created per MR (ApplicationSet)"
+  echo ""
+  echo "  Security:"
+  echo "    Pipeline Scans:  gitleaks, semgrep, trivy-fs, trivy-image, sbom"
+  echo "    Harbor Auto-Scan: Enabled (critical severity threshold)"
+  echo "    Vault JWT Auth:  GitLab CI -> Vault (no secrets in CI/CD variables)"
+  echo ""
+  echo "  Approval Gates:"
+  echo "    Protected Branches: main (Maintainer push/merge)"
+  echo "    MR Approval:        Senior Review Required (2 approvals)"
+  echo "    Group Roles:        platform-admins=Owner, infra/senior=Maintainer,"
+  echo "                        developers=Developer, viewers=Reporter"
+  echo ""
+
+  end_phase "PHASE 17: OBSERVABILITY"
+}
+
+# =============================================================================
+# PHASE 18: DEMO APPLICATIONS — "NETOPS ARCADE"
+# =============================================================================
+phase_18_demo_apps() {
+  start_phase "PHASE 18: DEMO APPS — NETOPS ARCADE"
+
+  if [[ "${DEPLOY_DEMO_APPS:-true}" != "true" ]]; then
+    log_info "DEPLOY_DEMO_APPS=false — skipping demo app deployment"
+    end_phase "PHASE 18: DEMO APPS"
+    return 0
+  fi
+
+  local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
+    [[ -f "$token_file" ]] && GITLAB_API_TOKEN=$(cat "$token_file")
+  fi
+
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    log_warn "No GITLAB_API_TOKEN — skipping demo app push to GitLab"
+    end_phase "PHASE 18: DEMO APPS"
+    return 0
+  fi
+
+  # 18.1 Look up platform_services group
+  local PS_GROUP_ID
+  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
+    log_warn "platform_services group not found — skipping demo apps"
+    end_phase "PHASE 18: DEMO APPS"
+    return 0
+  fi
+
+  # 18.2 Create demo-apps namespace
+  log_step "Creating demo-apps namespace..."
+  ensure_namespace "demo-apps"
+
+  # 18.3 Create Harbor project for demo apps
+  log_step "Creating Harbor project for demo apps..."
+  create_harbor_project "platform-services" "false"
+
+  # 18.4 Push demo apps to GitLab
+  local demo_dir="${SCRIPTS_DIR}/samples/demo-apps"
+  if [[ ! -d "$demo_dir" ]]; then
+    log_warn "Demo apps directory not found at ${demo_dir}"
+    end_phase "PHASE 18: DEMO APPS"
+    return 0
+  fi
+
+  export GIT_SSL_NO_VERIFY=true
+  for app_dir in "${demo_dir}"/*/; do
+    local app_name
+    app_name=$(basename "$app_dir")
+    local project_name="${app_name}"
+
+    log_step "Pushing demo app: ${app_name}..."
+
+    # Create project if needed
+    local existing_id
+    existing_id=$(gitlab_project_id "platform_services/${project_name}")
+
+    if [[ -z "$existing_id" || "$existing_id" == "null" ]]; then
+      local resp
+      resp=$(gitlab_post "/projects" \
+        "{\"name\":\"${project_name}\",\"path\":\"${project_name}\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"private\",\"initialize_with_readme\":false}")
+      existing_id=$(echo "$resp" | jq -r '.id // empty' 2>/dev/null)
+      if [[ -z "$existing_id" ]]; then
+        log_warn "Failed to create project ${project_name} — skipping"
+        continue
+      fi
+      log_ok "Created project: platform_services/${project_name} (ID: ${existing_id})"
+      sleep 2
+    else
+      log_info "Project already exists: platform_services/${project_name}"
+    fi
+
+    # Clone/init and push
+    local tmp_dir
+    tmp_dir=$(mktemp -d "/tmp/demo-${app_name}-XXXXXX")
+    local repo_url="https://oauth2:${GITLAB_API_TOKEN}@gitlab.${DOMAIN}/platform_services/${project_name}.git"
+
+    if ! git clone "$repo_url" "${tmp_dir}/repo" 2>/dev/null; then
+      mkdir -p "${tmp_dir}/repo"
+      git -C "${tmp_dir}/repo" init -b main
+      git -C "${tmp_dir}/repo" remote add origin "$repo_url"
+    fi
+
+    local work_dir="${tmp_dir}/repo"
+    # Remove existing files (except .git)
+    find "${work_dir}" -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+
+    # Copy app files, skip deploy/ dirs that have CHANGEME tokens we want to keep
+    cp -a "${app_dir}"/. "${work_dir}/"
+
+    # Substitute domain tokens in YAML files
+    find "${work_dir}" \( -name '*.yaml' -o -name '*.yml' \) -not -path '*/.git/*' \
+      | while read -r f; do
+          sed -i "s|CHANGEME_DOMAIN|${DOMAIN}|g" "$f"
+        done
+
+    git -C "${work_dir}" config user.name "${GIT_AUTHOR_NAME:-deploy-bot}"
+    git -C "${work_dir}" config user.email "${GIT_AUTHOR_EMAIL:-deploy@${DOMAIN}}"
+    git -C "${work_dir}" add -A
+
+    if ! git -C "${work_dir}" diff --cached --quiet 2>/dev/null; then
+      git -C "${work_dir}" commit -m "Deploy ${app_name} demo app"
+      git -C "${work_dir}" push -u origin main 2>/dev/null || \
+        { git -C "${work_dir}" branch -M main && git -C "${work_dir}" push -u origin main; } 2>/dev/null || true
+      log_ok "Pushed ${app_name} to platform_services/${project_name}"
+    else
+      log_info "No changes to push for ${app_name}"
+    fi
+    rm -rf "${tmp_dir}"
+  done
+
+  # 18.5 Deploy traffic generator CronJob
+  log_step "Deploying traffic generator for demo network..."
+  kubectl apply -f - <<TRAFFIC_EOF
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: packet-generator
+  namespace: demo-apps
+spec:
+  schedule: "* * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: sender
+              image: curlimages/curl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  for i in \$(seq 1 20); do
+                    curl -sf -X POST http://router-west:8080/relay \
+                      -H "Content-Type: application/json" \
+                      -d "{\"id\":\"pkt-\$(date +%s)-\${i}\",\"payload\":\"trace-route-test\",\"hops\":[],\"ttl\":8}" \
+                      || true
+                    sleep 2
+                  done
+          restartPolicy: Never
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+TRAFFIC_EOF
+  log_ok "Traffic generator CronJob deployed"
+
+  # 18.6 Print demo app summary
+  echo ""
+  echo -e "${BOLD}  DEMO APPS — NETOPS ARCADE${NC}"
+  echo ""
+  echo "  Topology: router-west ──▸ router-core ──▸ router-east"
+  echo "                                  │"
+  echo "                                  └──▸ router-north (standby)"
+  echo ""
+  echo "  netops-dashboard: Live NOC visualization (blue-green deploy)"
+  echo "  packet-relay:     4 router instances (canary deploy w/ AnalysisTemplates)"
+  echo ""
+  echo "  Demo Scenarios:"
+  echo "    1. IP Change (BAD):  Edit routing-config.yaml, set NEXT_HOPS=http://10.0.0.99:8080"
+  echo "                         Push → canary deploys → packets drop → auto-rollback"
+  echo "    2. IP Change (GOOD): Edit routing-config.yaml, set NEXT_HOPS=http://router-north:8080"
+  echo "                         Push → canary deploys → packets flow → promote to 100%"
+  echo "                         Dashboard shows topology transition: east→north"
+  echo "    3. Security Block:   Push netops-dashboard with vulnerable npm dep"
+  echo "                         Pipeline blocks at trivy scan stage"
+  echo "    4. Approval Gate:    Create MR requiring senior-developer approval"
+  echo "    5. Blue-Green:       Push netops-dashboard v2 (new UI) → preview URL → promote"
+  echo ""
+  echo "  Key file to edit: deploy/overlays/rke2-prod/routing-config.yaml"
+  echo "    in the packet-relay GitLab project (platform_services/packet-relay)"
+  echo ""
+
+  end_phase "PHASE 18: DEMO APPS"
 }
 
 # =============================================================================
@@ -1800,6 +3023,16 @@ main() {
   [[ $FROM_PHASE -le 9 ]] && phase_9_validation
   [[ $FROM_PHASE -le 10 ]] && phase_10_keycloak_setup
   [[ $FROM_PHASE -le 11 ]] && phase_11_gitlab
+  [[ $FROM_PHASE -le 12 ]] && phase_12_gitlab_hardening
+  [[ $FROM_PHASE -le 12 ]] && phase_12b_sop_wiki
+  [[ $FROM_PHASE -le 13 ]] && phase_13_vault_cicd
+  [[ $FROM_PHASE -le 14 ]] && phase_14_ci_templates
+  [[ $FROM_PHASE -le 15 ]] && phase_15_argocd_delivery
+  [[ $FROM_PHASE -le 16 ]] && phase_16_security
+  [[ $FROM_PHASE -le 17 ]] && phase_17_observability
+  [[ $FROM_PHASE -le 18 ]] && phase_18_demo_apps
+
+  print_total_time
 }
 
 main "$@"

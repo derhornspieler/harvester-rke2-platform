@@ -1,0 +1,17 @@
+# Production promotion templates
+
+.promote:tag-image:
+  stage: deploy-production
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  variables:
+    PROMOTE_TAG: ""
+  script:
+    - crane auth login "${HARBOR_REGISTRY}" -u "${HARBOR_CI_USER}" -p "${HARBOR_CI_PASSWORD}"
+    - crane tag "${IMAGE_FULL}" "${PROMOTE_TAG:-v${CI_PIPELINE_IID}}"
+    - crane tag "${IMAGE_FULL}" "production"
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual

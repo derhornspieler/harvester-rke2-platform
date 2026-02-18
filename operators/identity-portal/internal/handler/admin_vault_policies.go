@@ -13,12 +13,17 @@ import (
 func (h *Handler) ListVaultPolicies(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	policies, err := h.Vault.ListPolicies(ctx)
+	names, err := h.Vault.ListPolicies(ctx)
 	if err != nil {
 		h.Logger.Error("failed to list vault policies", zap.Error(err),
 			zap.String("request_id", middleware.GetRequestID(ctx)))
 		writeError(w, http.StatusInternalServerError, "VAULT_ERROR", "failed to list vault policies")
 		return
+	}
+
+	policies := make([]model.VaultPolicy, 0, len(names))
+	for _, name := range names {
+		policies = append(policies, model.VaultPolicy{Name: name})
 	}
 
 	writeJSON(w, http.StatusOK, policies)
@@ -112,7 +117,7 @@ func (h *Handler) UpdateVaultPolicy(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DeleteVaultPolicy handles DELETE /api/v1/admin/vault/policies/{name}
@@ -137,5 +142,5 @@ func (h *Handler) DeleteVaultPolicy(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	w.WriteHeader(http.StatusNoContent)
 }

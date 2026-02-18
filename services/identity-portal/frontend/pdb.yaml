@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: identity-portal-frontend
+  namespace: identity-portal
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: identity-portal
+      component: frontend

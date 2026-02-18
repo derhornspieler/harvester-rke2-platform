@@ -1,0 +1,21 @@
+# Base CI/CD Template — shared by all platform pipelines
+# Include: project: 'platform_services/gitlab-ci-templates', file: '/base.yml'
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  HARBOR_REGISTRY: harbor.${DOMAIN}
+  IMAGE_NAME: ${HARBOR_REGISTRY}/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}
+  IMAGE_TAG: ${CI_COMMIT_SHORT_SHA}
+  IMAGE_FULL: ${IMAGE_NAME}:${IMAGE_TAG}
+  VAULT_ADDR: https://vault.${DOMAIN}
+
+default:
+  tags:
+    - kubernetes
+
+.vault_jwt_auth: &vault_jwt_auth
+  before_script:
+    - |
+      export VAULT_TOKEN=$(vault write -field=token auth/jwt/gitlab/login \
+        role="${VAULT_ROLE:-gitlab-ci}" \
+        jwt="${CI_JOB_JWT_V2}")

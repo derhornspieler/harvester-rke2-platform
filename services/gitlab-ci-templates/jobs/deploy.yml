@@ -1,0 +1,39 @@
+# Deployment templates — ArgoCD sync-based
+
+.deploy:argocd-sync:
+  stage: deploy-staging
+  image:
+    name: argoproj/argocd:v2.14.0
+    entrypoint: [""]
+  variables:
+    ARGOCD_SERVER: argo.${DOMAIN}
+    APP_NAME: ""
+  script:
+    - |
+      argocd login "${ARGOCD_SERVER}" \
+        --grpc-web --insecure \
+        --username "${ARGOCD_USERNAME:-ci-bot}" \
+        --password "${ARGOCD_PASSWORD}"
+    - argocd app set "${APP_NAME}" --parameter image.tag="${IMAGE_TAG}"
+    - argocd app sync "${APP_NAME}" --prune --force
+    - argocd app wait "${APP_NAME}" --timeout 300
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+.deploy:kustomize-update:
+  stage: deploy-staging
+  image: bitnami/git:latest
+  variables:
+    DEPLOY_REPO: ""
+    DEPLOY_BRANCH: main
+    OVERLAY: overlays/rke2-prod
+  script:
+    - |
+      git clone "https://oauth2:${CI_JOB_TOKEN}@gitlab.${DOMAIN}/${DEPLOY_REPO}.git" deploy-repo
+      cd deploy-repo/${OVERLAY}
+      kustomize edit set image "${IMAGE_NAME}=${IMAGE_FULL}"
+      git config user.name "CI Pipeline"
+      git config user.email "ci@${DOMAIN}"
+      git add .
+      git commit -m "chore: update ${CI_PROJECT_NAME} to ${IMAGE_TAG}" || true
+      git push origin "${DEPLOY_BRANCH}"

@@ -6,6 +6,8 @@ type Role struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Composite   bool   `json:"composite"`
+	ClientRole  bool   `json:"clientRole"`
+	ContainerID string `json:"containerId,omitempty"`
 }
 
 // CreateRoleRequest is the payload for creating a realm role.
@@ -21,5 +23,5 @@ type UpdateRoleRequest struct {
 
 // RoleAssignmentRequest is the payload for assigning/unassigning roles.
 type RoleAssignmentRequest struct {
-	RoleNames []string `json:"role_names"`
+	RoleNames []string `json:"roles"`
 }

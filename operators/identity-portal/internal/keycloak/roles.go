@@ -165,6 +165,47 @@ func (c *Client) UnassignRealmRolesFromUser(ctx context.Context, userID string, 
 	return nil
 }
 
+// GetUserRealmRolesDetailed returns realm roles for a user with full details.
+func (c *Client) GetUserRealmRolesDetailed(ctx context.Context, userID string) ([]model.Role, error) {
+	token, err := c.Token(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	roles, err := c.gc.GetRealmRolesByUserID(ctx, token, c.cfg.KeycloakRealm, userID)
+	if err != nil {
+		metrics.KeycloakErrorsTotal.WithLabelValues("get_user_roles").Inc()
+		return nil, fmt.Errorf("get user realm roles: %w", err)
+	}
+
+	metrics.KeycloakRequestsTotal.WithLabelValues("get_user_roles", "success").Inc()
+
+	result := make([]model.Role, 0, len(roles))
+	for _, r := range roles {
+		role := model.Role{}
+		if r.ID != nil {
+			role.ID = *r.ID
+		}
+		if r.Name != nil {
+			role.Name = *r.Name
+		}
+		if r.Description != nil {
+			role.Description = *r.Description
+		}
+		if r.Composite != nil {
+			role.Composite = *r.Composite
+		}
+		if r.ClientRole != nil {
+			role.ClientRole = *r.ClientRole
+		}
+		if r.ContainerID != nil {
+			role.ContainerID = *r.ContainerID
+		}
+		result = append(result, role)
+	}
+	return result, nil
+}
+
 func mapRole(r *gocloak.Role) model.Role {
 	role := model.Role{
 		Composite: derefBool(r.Composite),
@@ -177,6 +218,12 @@ func mapRole(r *gocloak.Role) model.Role {
 	}
 	if r.Description != nil {
 		role.Description = *r.Description
+	}
+	if r.ClientRole != nil {
+		role.ClientRole = *r.ClientRole
+	}
+	if r.ContainerID != nil {
+		role.ContainerID = *r.ContainerID
 	}
 	return role
 }

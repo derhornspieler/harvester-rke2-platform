@@ -45,7 +45,7 @@ func (h *Handler) GetKubeconfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-yaml")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-kubeconfig.yaml", h.Config.ClusterName))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(kubeconfig))
+	_, _ = w.Write([]byte(kubeconfig)) //nolint:gosec // Not HTML output; YAML file download with Content-Disposition: attachment
 
 	metrics.KubeconfigsGeneratedTotal.Inc()
 

@@ -27,8 +27,8 @@ func (c *Client) GetEvents(ctx context.Context, eventTypes []string, userID stri
 		return nil, err
 	}
 
-	first32 := int32(first)
-	max32 := int32(max)
+	first32 := int32(first) //nolint:gosec // pagination values are small, no overflow risk
+	max32 := int32(max)     //nolint:gosec // pagination values are small, no overflow risk
 	params := gocloak.GetEventsParams{
 		First: &first32,
 		Max:   &max32,

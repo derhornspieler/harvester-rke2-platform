@@ -37,7 +37,7 @@ interface MobileNavItem {
 }
 
 const mobileNavItems: MobileNavItem[] = [
-  { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Users", href: "/users", icon: Users, adminOnly: true },
   { label: "Groups", href: "/groups", icon: UsersRound, adminOnly: true },
   { label: "Roles", href: "/roles", icon: Shield, adminOnly: true },
@@ -68,7 +68,7 @@ export function Header() {
   );
 
   const isActive = (href: string) => {
-    if (href === "/") return location.pathname === "/";
+    if (href === "/dashboard") return location.pathname === "/dashboard";
     return location.pathname.startsWith(href);
   };
 

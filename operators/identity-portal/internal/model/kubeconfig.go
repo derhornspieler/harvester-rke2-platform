@@ -12,9 +12,10 @@ type KubeconfigParams struct {
 
 // PublicConfig is the response for the /api/v1/config endpoint,
 // providing the frontend with the information it needs to perform OIDC login.
+// JSON field names use camelCase to match the frontend AppConfig interface.
 type PublicConfig struct {
-	KeycloakURL string `json:"keycloak_url"`
+	KeycloakURL string `json:"keycloakUrl"`
 	Realm       string `json:"realm"`
-	ClientID    string `json:"client_id"`
-	IssuerURL   string `json:"issuer_url"`
+	ClientID    string `json:"clientId"`
+	IssuerURL   string `json:"issuerUrl"`
 }

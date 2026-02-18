@@ -1,0 +1,64 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cicd-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: cicd.rules
+      rules:
+        - alert: PipelineSuccessRateLow
+          expr: |
+            (
+              sum(rate(gitlab_ci_pipeline_status_total{status="success"}[30m]))
+              /
+              sum(rate(gitlab_ci_pipeline_status_total[30m]))
+            ) < 0.90
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CI pipeline success rate below 90%"
+            description: "Pipeline success rate is {{ $value | humanizePercentage }} over the last 30 minutes."
+
+        - alert: PipelineDurationHigh
+          expr: |
+            histogram_quantile(0.95, sum(rate(gitlab_ci_pipeline_duration_seconds_bucket[1h])) by (le)) > 900
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "CI pipeline p95 duration exceeds 15 minutes"
+            description: "p95 pipeline duration is {{ $value | humanizeDuration }}."
+
+        - alert: DeploymentRollbackFrequent
+          expr: |
+            sum(increase(argocd_app_rollback_total[24h])) > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "More than 3 deployment rollbacks in 24 hours"
+            description: "{{ $value }} rollbacks detected in the last 24h."
+
+        - alert: CriticalVulnerabilityDetected
+          expr: |
+            sum(trivy_image_vulnerabilities{severity="Critical"}) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Critical CVE detected in container image"
+            description: "{{ $value }} critical vulnerabilities found."
+
+        - alert: LeadTimeRegression
+          expr: |
+            avg(ci_lead_time_seconds) > 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Median lead time for changes exceeds 24 hours"
+            description: "Current average lead time: {{ $value | humanizeDuration }}."

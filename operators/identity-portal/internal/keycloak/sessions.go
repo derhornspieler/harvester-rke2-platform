@@ -104,10 +104,10 @@ func mapSession(s *gocloak.UserSessionRepresentation) SessionInfo {
 		info.IPAddress = *s.IPAddress
 	}
 	if s.Start != nil {
-		info.Start = int64(*s.Start)
+		info.Start = *s.Start
 	}
 	if s.LastAccess != nil {
-		info.LastAccess = int64(*s.LastAccess)
+		info.LastAccess = *s.LastAccess
 	}
 	return info
 }

@@ -44,7 +44,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: backend
-          image: ghcr.io/derhornspieler/rke2-cluster/identity-portal-backend:v0.1.0
+          image: harbor.CHANGEME_DOMAIN/library/identity-portal-backend:v0.3.0
           ports:
             - name: http
               containerPort: 8080

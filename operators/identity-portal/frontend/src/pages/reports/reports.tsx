@@ -44,8 +44,8 @@ export function ReportsPage() {
 
   // Compute MFA stats from users
   const users = allUsers.data?.users ?? [];
-  const usersWithMfa = users.filter((u) => u.mfaStatus?.enrolled);
-  const usersWithoutMfa = users.filter((u) => !u.mfaStatus?.enrolled);
+  const usersWithMfa = users.filter((u) => u.mfaEnabled);
+  const usersWithoutMfa = users.filter((u) => !u.mfaEnabled);
 
   return (
     <div className="space-y-6">
@@ -288,7 +288,7 @@ export function ReportsPage() {
                           </TableCell>
                           <TableCell>
                             <Badge variant="success">
-                              {user.mfaStatus?.type ?? "OTP"}
+                              {"OTP"}
                             </Badge>
                           </TableCell>
                         </TableRow>

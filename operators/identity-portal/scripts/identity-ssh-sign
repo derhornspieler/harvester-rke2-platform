@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# identity-ssh-sign — CLI tool for signing SSH public keys via Identity Portal
+#
+# Usage:
+#   identity-ssh-sign [OPTIONS]
+#
+# Options:
+#   -k, --key FILE       Path to SSH public key (default: ~/.ssh/id_ed25519.pub)
+#   -o, --output FILE    Path to save signed cert (default: <key>-cert.pub)
+#   -s, --server URL     Identity Portal URL (default: IDENTITY_PORTAL_URL env var)
+#   -h, --help           Show this help message
+#
+# Prerequisites:
+#   - jq (for JSON parsing)
+#   - curl (for API calls)
+#   - A valid SSH public key registered in Identity Portal
+#   - A browser for OIDC authentication (or a valid token in IDENTITY_PORTAL_TOKEN)
+#
+# The script authenticates via OIDC (opens browser), then sends the registered
+# SSH public key to the Identity Portal API for signing by Vault.
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
+log_ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
+usage() {
+  cat <<'EOF'
+identity-ssh-sign — Sign your SSH public key via Identity Portal
+
+Usage:
+  identity-ssh-sign [OPTIONS]
+
+Options:
+  -k, --key FILE       Path to SSH public key (default: ~/.ssh/id_ed25519.pub)
+  -o, --output FILE    Path to save signed cert (default: <key>-cert.pub)
+  -s, --server URL     Identity Portal URL (or set IDENTITY_PORTAL_URL)
+  -t, --token TOKEN    Bearer token (or set IDENTITY_PORTAL_TOKEN)
+  -h, --help           Show this help message
+
+Examples:
+  # Sign default ed25519 key (opens browser for login)
+  identity-ssh-sign -s https://identity.example.com
+
+  # Sign specific key with pre-obtained token
+  identity-ssh-sign -k ~/.ssh/id_rsa.pub -t "eyJhbG..."
+
+  # Use environment variables
+  export IDENTITY_PORTAL_URL=https://identity.example.com
+  export IDENTITY_PORTAL_TOKEN="eyJhbG..."
+  identity-ssh-sign
+EOF
+  exit 0
+}
+
+# Parse arguments
+KEY_FILE="${HOME}/.ssh/id_ed25519.pub"
+OUTPUT_FILE=""
+SERVER_URL="${IDENTITY_PORTAL_URL:-}"
+TOKEN="${IDENTITY_PORTAL_TOKEN:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -k|--key)    KEY_FILE="$2"; shift 2 ;;
+    -o|--output) OUTPUT_FILE="$2"; shift 2 ;;
+    -s|--server) SERVER_URL="$2"; shift 2 ;;
+    -t|--token)  TOKEN="$2"; shift 2 ;;
+    -h|--help)   usage ;;
+    *)           log_error "Unknown option: $1"; usage ;;
+  esac
+done
+
+# Validate dependencies
+for cmd in curl jq; do
+  if ! command -v "$cmd" &>/dev/null; then
+    log_error "Required command '$cmd' not found. Please install it."
+    exit 1
+  fi
+done
+
+# Validate server URL
+if [[ -z "$SERVER_URL" ]]; then
+  log_error "Server URL required. Use -s/--server or set IDENTITY_PORTAL_URL"
+  exit 1
+fi
+SERVER_URL="${SERVER_URL%/}" # Strip trailing slash
+
+# Validate key file
+if [[ ! -f "$KEY_FILE" ]]; then
+  log_error "SSH public key not found: $KEY_FILE"
+  log_info "Generate one with: ssh-keygen -t ed25519"
+  exit 1
+fi
+
+PUBLIC_KEY=$(cat "$KEY_FILE")
+
+# Validate key format
+KEY_TYPE=$(echo "$PUBLIC_KEY" | awk '{print $1}')
+case "$KEY_TYPE" in
+  ssh-ed25519)
+    log_info "Key type: ed25519"
+    ;;
+  ssh-rsa)
+    log_warn "Key type: RSA (legacy) — ed25519 is recommended"
+    ;;
+  *)
+    log_error "Unsupported key type: $KEY_TYPE"
+    log_info "Only ed25519 (recommended) and RSA 4096+ are accepted"
+    exit 1
+    ;;
+esac
+
+# Set output file
+if [[ -z "$OUTPUT_FILE" ]]; then
+  OUTPUT_FILE="${KEY_FILE%.pub}-cert.pub"
+fi
+
+# Authenticate if no token provided
+if [[ -z "$TOKEN" ]]; then
+  log_info "No token provided — fetching OIDC config for browser login..."
+
+  # Get OIDC config from the portal
+  CONFIG=$(curl -sf "${SERVER_URL}/api/v1/config" 2>/dev/null || echo "")
+  if [[ -z "$CONFIG" ]]; then
+    log_error "Failed to reach ${SERVER_URL}/api/v1/config"
+    exit 1
+  fi
+
+  KC_URL=$(echo "$CONFIG" | jq -r '.keycloakUrl')
+  KC_REALM=$(echo "$CONFIG" | jq -r '.realm')
+  KC_CLIENT=$(echo "$CONFIG" | jq -r '.clientId')
+
+  if [[ -z "$KC_URL" || "$KC_URL" == "null" ]]; then
+    log_error "Could not determine Keycloak URL from portal config"
+    exit 1
+  fi
+
+  # Use OIDC device authorization flow if available, otherwise use direct grant prompt
+  TOKEN_ENDPOINT="${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/token"
+
+  log_info "Keycloak: ${KC_URL}/realms/${KC_REALM}"
+  echo ""
+  echo -e "${YELLOW}Authentication required.${NC}"
+  echo "Enter your Keycloak credentials:"
+  echo ""
+  read -r -p "  Username: " KC_USER
+  read -r -s -p "  Password: " KC_PASS
+  echo ""
+  echo ""
+
+  # Request token via direct grant (resource owner password)
+  TOKEN_RESPONSE=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+    -d "grant_type=password" \
+    -d "client_id=${KC_CLIENT}" \
+    -d "username=${KC_USER}" \
+    -d "password=${KC_PASS}" \
+    -d "scope=openid" 2>/dev/null || echo "")
+
+  if [[ -z "$TOKEN_RESPONSE" ]]; then
+    log_error "Authentication failed — could not reach Keycloak"
+    exit 1
+  fi
+
+  TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token // empty')
+  if [[ -z "$TOKEN" ]]; then
+    ERROR_MSG=$(echo "$TOKEN_RESPONSE" | jq -r '.error_description // .error // "unknown error"')
+    log_error "Authentication failed: $ERROR_MSG"
+    exit 1
+  fi
+
+  log_ok "Authenticated successfully"
+fi
+
+# Step 1: Check if the key is registered
+log_info "Checking registered SSH key..."
+REG_RESPONSE=$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+  "${SERVER_URL}/api/v1/self/ssh/public-key" 2>/dev/null || echo "")
+
+REGISTERED_KEY=$(echo "$REG_RESPONSE" | jq -r '.publicKey // empty')
+
+if [[ -z "$REGISTERED_KEY" ]]; then
+  log_warn "No SSH public key registered in Identity Portal"
+  echo ""
+  read -r -p "Register your key now? [Y/n] " REGISTER_CHOICE
+  if [[ "${REGISTER_CHOICE:-Y}" =~ ^[Yy]$ ]]; then
+    REG_RESULT=$(curl -sf -X PUT \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$(jq -n --arg key "$PUBLIC_KEY" '{publicKey: $key}')" \
+      "${SERVER_URL}/api/v1/self/ssh/public-key" 2>/dev/null || echo "")
+
+    if echo "$REG_RESULT" | jq -e '.fingerprint' &>/dev/null; then
+      FINGERPRINT=$(echo "$REG_RESULT" | jq -r '.fingerprint')
+      log_ok "Key registered: $FINGERPRINT"
+    else
+      ERROR_MSG=$(echo "$REG_RESULT" | jq -r '.message // "registration failed"')
+      log_error "Failed to register key: $ERROR_MSG"
+      exit 1
+    fi
+  else
+    log_error "Key must be registered before signing. Register it in the Identity Portal UI."
+    exit 1
+  fi
+else
+  FINGERPRINT=$(echo "$REG_RESPONSE" | jq -r '.fingerprint // "unknown"')
+  log_ok "Registered key: $FINGERPRINT"
+fi
+
+# Step 2: Request certificate signing
+log_info "Requesting certificate from Vault..."
+SIGN_RESPONSE=$(curl -sf -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg key "$PUBLIC_KEY" '{publicKey: $key}')" \
+  "${SERVER_URL}/api/v1/self/ssh/certificate" 2>/dev/null || echo "")
+
+SIGNED_CERT=$(echo "$SIGN_RESPONSE" | jq -r '.signedCertificate // empty')
+if [[ -z "$SIGNED_CERT" ]]; then
+  ERROR_MSG=$(echo "$SIGN_RESPONSE" | jq -r '.message // "signing failed"')
+  log_error "Certificate signing failed: $ERROR_MSG"
+  exit 1
+fi
+
+# Step 3: Save certificate
+echo "$SIGNED_CERT" > "$OUTPUT_FILE"
+chmod 600 "$OUTPUT_FILE"
+
+PRINCIPALS=$(echo "$SIGN_RESPONSE" | jq -r '.principals | join(", ")')
+TTL=$(echo "$SIGN_RESPONSE" | jq -r '.ttl')
+
+echo ""
+log_ok "Certificate signed and saved!"
+echo ""
+echo "  Certificate: $OUTPUT_FILE"
+echo "  Principals:  $PRINCIPALS"
+echo "  TTL:         $TTL"
+echo ""
+echo "Usage:"
+echo "  ssh -i ${KEY_FILE%.pub} user@host"
+echo ""
+echo "The certificate is automatically used when the private key is specified."

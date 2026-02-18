@@ -65,8 +65,17 @@ done
 # -----------------------------------------------------------------------------
 GITLAB_URL="https://gitlab.${DOMAIN}"
 GITLAB_API="${GITLAB_URL}/api/v4"
+GITLAB_HTTP_CODE=""
 REPO_PREFIX="svc-${KC_REALM}"
 CLUSTER_NAME=$(get_cluster_name)
+
+# Load GitLab API token (env var → .env → file → prompt in Phase 1)
+if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+  local_token_file="${SCRIPTS_DIR}/.gitlab-api-token"
+  if [[ -f "$local_token_file" ]]; then
+    GITLAB_API_TOKEN=$(cat "$local_token_file")
+  fi
+fi
 
 # Deploy key paths (separate from GitHub key)
 DEPLOY_KEY_DIR="${SCRIPTS_DIR}/.deploy-keys"
@@ -252,11 +261,10 @@ phase_2_create_group() {
     create_response=$(gitlab_post "/groups" \
       '{"name":"Platform Services","path":"platform_services","visibility":"private"}')
 
-    if [[ "$GITLAB_HTTP_CODE" -lt 200 || "$GITLAB_HTTP_CODE" -ge 300 ]]; then
-      die "Failed to create Platform Services group (HTTP ${GITLAB_HTTP_CODE}): $(echo "$create_response" | jq -r '.message // .' 2>/dev/null)"
+    GROUP_ID=$(echo "$create_response" | jq -r '.id // empty' 2>/dev/null)
+    if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" ]]; then
+      die "Failed to create Platform Services group: $(echo "$create_response" | jq -r '.message // .' 2>/dev/null)"
     fi
-
-    GROUP_ID=$(echo "$create_response" | jq -r '.id')
     log_ok "Platform Services group created (ID: ${GROUP_ID})"
   fi
 
@@ -382,15 +390,14 @@ create_gitlab_service_repo() {
         create_response=$(gitlab_post "/projects" \
           "{\"name\":\"${repo_name}\",\"path\":\"${repo_name}\",\"namespace_id\":${GROUP_ID},\"visibility\":\"private\",\"initialize_with_readme\":false}")
 
-        if [[ "$GITLAB_HTTP_CODE" -lt 200 || "$GITLAB_HTTP_CODE" -ge 300 ]]; then
-          log_error "Failed to create project ${repo_name} (HTTP ${GITLAB_HTTP_CODE})"
+        local project_id
+        project_id=$(echo "$create_response" | jq -r '.id // empty' 2>/dev/null)
+        if [[ -z "$project_id" || "$project_id" == "null" ]]; then
+          log_error "Failed to create project ${repo_name}"
           log_error "$(echo "$create_response" | jq -r '.message // .' 2>/dev/null)"
           echo "$repo_url"
           return 1
         fi
-
-        local project_id
-        project_id=$(echo "$create_response" | jq -r '.id')
         log_ok "Created project: platform_services/${repo_name} (ID: ${project_id})"
 
         # Add deploy key to project (read-only)
@@ -927,6 +934,8 @@ phase_8_runners() {
   fi
 
   # 8.5 Create shared (instance) runner via GitLab API (new auth token flow — GitLab 16+)
+  # Note: gitlab_post inside $() runs in a subshell, so GITLAB_HTTP_CODE is lost.
+  # We check for .token in the response body instead.
   log_step "Creating shared runner via GitLab API..."
   if [[ -n "${GITLAB_RUNNER_SHARED_TOKEN}" ]]; then
     log_info "GITLAB_RUNNER_SHARED_TOKEN already set — skipping API creation"
@@ -935,15 +944,11 @@ phase_8_runners() {
     shared_response=$(gitlab_post "/user/runners" \
       '{"runner_type":"instance_type","description":"shared-k8s-runner","tag_list":"shared,kubernetes,compute","run_untagged":true}')
 
-    if [[ "$GITLAB_HTTP_CODE" -ge 200 && "$GITLAB_HTTP_CODE" -lt 300 ]]; then
-      GITLAB_RUNNER_SHARED_TOKEN=$(echo "$shared_response" | jq -r '.token // empty')
-      if [[ -n "$GITLAB_RUNNER_SHARED_TOKEN" ]]; then
-        log_ok "Shared runner created (token: ${GITLAB_RUNNER_SHARED_TOKEN:0:8}...)"
-      else
-        log_warn "Shared runner created but no token returned"
-      fi
+    GITLAB_RUNNER_SHARED_TOKEN=$(echo "$shared_response" | jq -r '.token // empty' 2>/dev/null)
+    if [[ -n "$GITLAB_RUNNER_SHARED_TOKEN" ]]; then
+      log_ok "Shared runner created (token: ${GITLAB_RUNNER_SHARED_TOKEN:0:8}...)"
     else
-      log_warn "Failed to create shared runner (HTTP ${GITLAB_HTTP_CODE}). Create manually in GitLab Admin > CI/CD > Runners."
+      log_warn "Failed to create shared runner. Create manually in GitLab Admin > CI/CD > Runners."
       log_warn "Response: $(echo "$shared_response" | jq -r '.message // .' 2>/dev/null)"
     fi
   fi
@@ -958,15 +963,11 @@ phase_8_runners() {
       group_response=$(gitlab_post "/user/runners" \
         "{\"runner_type\":\"group_type\",\"group_id\":${GROUP_ID},\"description\":\"platform-services-k8s-runner\",\"tag_list\":\"group,kubernetes,platform-services\",\"run_untagged\":true}")
 
-      if [[ "$GITLAB_HTTP_CODE" -ge 200 && "$GITLAB_HTTP_CODE" -lt 300 ]]; then
-        GITLAB_RUNNER_GROUP_TOKEN=$(echo "$group_response" | jq -r '.token // empty')
-        if [[ -n "$GITLAB_RUNNER_GROUP_TOKEN" ]]; then
-          log_ok "Group runner created (token: ${GITLAB_RUNNER_GROUP_TOKEN:0:8}...)"
-        else
-          log_warn "Group runner created but no token returned"
-        fi
+      GITLAB_RUNNER_GROUP_TOKEN=$(echo "$group_response" | jq -r '.token // empty' 2>/dev/null)
+      if [[ -n "$GITLAB_RUNNER_GROUP_TOKEN" ]]; then
+        log_ok "Group runner created (token: ${GITLAB_RUNNER_GROUP_TOKEN:0:8}...)"
       else
-        log_warn "Failed to create group runner (HTTP ${GITLAB_HTTP_CODE}). Create manually in GitLab group > Build > Runners."
+        log_warn "Failed to create group runner. Create manually in GitLab group > Build > Runners."
         log_warn "Response: $(echo "$group_response" | jq -r '.message // .' 2>/dev/null)"
       fi
     else
@@ -1005,11 +1006,20 @@ phase_8_runners() {
     log_warn "No group runner token — skipping Helm install for group runner"
   fi
 
-  # 8.10 Save tokens back to .env
+  # 8.10 Save tokens back to .env (append/update without re-sourcing to avoid clobbering GITLAB_API_TOKEN)
   log_step "Saving runner tokens to .env..."
-  export GITLAB_RUNNER_SHARED_TOKEN GITLAB_RUNNER_GROUP_TOKEN
-  # Re-source to update .env file with new tokens
-  generate_or_load_env
+  if grep -q '^GITLAB_RUNNER_SHARED_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^GITLAB_RUNNER_SHARED_TOKEN=.*|GITLAB_RUNNER_SHARED_TOKEN=\"${GITLAB_RUNNER_SHARED_TOKEN}\"|" "$ENV_FILE"
+    sed -i "s|^GITLAB_RUNNER_GROUP_TOKEN=.*|GITLAB_RUNNER_GROUP_TOKEN=\"${GITLAB_RUNNER_GROUP_TOKEN}\"|" "$ENV_FILE"
+  else
+    cat >> "$ENV_FILE" <<RUNNEREOF
+
+# GitLab Runner tokens (populated by setup-gitlab-services.sh Phase 8)
+GITLAB_RUNNER_SHARED_TOKEN="${GITLAB_RUNNER_SHARED_TOKEN}"
+GITLAB_RUNNER_GROUP_TOKEN="${GITLAB_RUNNER_GROUP_TOKEN}"
+RUNNEREOF
+  fi
+  log_ok "Runner tokens saved to ${ENV_FILE}"
 
   # 8.11 Verify runner pods
   log_step "Verifying runner pods..."
@@ -1084,13 +1094,14 @@ phase_9_example_apps() {
   # 9.5 Create GitLab projects and push example apps
   log_step "Creating example app projects..."
 
-  export GIT_SSH_COMMAND="ssh -i ${DEPLOY_KEY_PRIVATE} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+  # Use HTTPS push with API token (SSH may not be externally accessible)
+  export GIT_SSL_NO_VERIFY=true
 
   for app_dir in "${examples_dir}"/*/; do
     local app_name
     app_name=$(basename "$app_dir")
     local project_name="${app_name}"
-    local repo_url="git@gitlab.${DOMAIN}:platform_services/${project_name}.git"
+    local repo_url="https://oauth2:${GITLAB_API_TOKEN}@gitlab.${DOMAIN}/platform_services/${project_name}.git"
 
     log_info "--- ${app_name} ---"
 
@@ -1108,8 +1119,8 @@ phase_9_example_apps() {
       create_response=$(gitlab_post "/projects" \
         "{\"name\":\"${project_name}\",\"path\":\"${project_name}\",\"namespace_id\":${GROUP_ID},\"visibility\":\"private\",\"initialize_with_readme\":false}")
 
-      if [[ "$GITLAB_HTTP_CODE" -ge 200 && "$GITLAB_HTTP_CODE" -lt 300 ]]; then
-        project_id=$(echo "$create_response" | jq -r '.id')
+      project_id=$(echo "$create_response" | jq -r '.id // empty' 2>/dev/null)
+      if [[ -n "$project_id" && "$project_id" != "null" ]]; then
         log_ok "Created project: platform_services/${project_name} (ID: ${project_id})"
 
         # Add deploy key (read-only)
@@ -1121,7 +1132,8 @@ phase_9_example_apps() {
         fi
         sleep 1
       else
-        log_warn "Failed to create project ${project_name} (HTTP ${GITLAB_HTTP_CODE})"
+        log_warn "Failed to create project ${project_name}"
+        log_warn "Response: $(echo "$create_response" | jq -r '.message // .' 2>/dev/null)"
         continue
       fi
     fi

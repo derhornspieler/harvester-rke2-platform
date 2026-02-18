@@ -51,5 +51,5 @@ func (h *Handler) LogoutUser(w http.ResponseWriter, r *http.Request) {
 		zap.String("admin", middleware.GetClaims(ctx).PreferredUsername),
 	)
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
+	w.WriteHeader(http.StatusNoContent)
 }

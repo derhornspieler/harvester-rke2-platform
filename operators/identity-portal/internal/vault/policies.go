@@ -27,6 +27,9 @@ func (c *Client) ListPolicies(ctx context.Context) ([]string, error) {
 
 // GetPolicy returns a single Vault policy by name.
 func (c *Client) GetPolicy(ctx context.Context, name string) (*model.VaultPolicy, error) {
+	if err := ValidatePathSegment(name); err != nil {
+		return nil, fmt.Errorf("invalid policy name: %w", err)
+	}
 	if err := c.ensureAuthenticated(ctx); err != nil {
 		metrics.VaultErrorsTotal.WithLabelValues("get_policy").Inc()
 		return nil, fmt.Errorf("vault auth for get policy: %w", err)
@@ -47,6 +50,9 @@ func (c *Client) GetPolicy(ctx context.Context, name string) (*model.VaultPolicy
 
 // PutPolicy creates or updates a Vault ACL policy.
 func (c *Client) PutPolicy(ctx context.Context, name, policy string) error {
+	if err := ValidatePathSegment(name); err != nil {
+		return fmt.Errorf("invalid policy name: %w", err)
+	}
 	if err := c.ensureAuthenticated(ctx); err != nil {
 		metrics.VaultErrorsTotal.WithLabelValues("put_policy").Inc()
 		return fmt.Errorf("vault auth for put policy: %w", err)
@@ -63,6 +69,9 @@ func (c *Client) PutPolicy(ctx context.Context, name, policy string) error {
 
 // DeletePolicy removes a Vault ACL policy.
 func (c *Client) DeletePolicy(ctx context.Context, name string) error {
+	if err := ValidatePathSegment(name); err != nil {
+		return fmt.Errorf("invalid policy name: %w", err)
+	}
 	if err := c.ensureAuthenticated(ctx); err != nil {
 		metrics.VaultErrorsTotal.WithLabelValues("delete_policy").Inc()
 		return fmt.Errorf("vault auth for delete policy: %w", err)

@@ -25,7 +25,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   {
     label: "Dashboard",
-    href: "/",
+    href: "/dashboard",
     icon: LayoutDashboard,
   },
   {
@@ -83,7 +83,7 @@ export function Sidebar() {
   const { isAdmin } = useAuth();
 
   const isActive = (href: string) => {
-    if (href === "/") return location.pathname === "/";
+    if (href === "/dashboard") return location.pathname === "/dashboard";
     return location.pathname.startsWith(href);
   };
 
@@ -94,7 +94,7 @@ export function Sidebar() {
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:border-r bg-sidebar">
       <div className="flex h-14 items-center border-b px-6">
-        <Link to="/" className="flex items-center gap-2">
+        <Link to="/dashboard" className="flex items-center gap-2">
           <KeyRound className="h-6 w-6 text-sidebar-primary" />
           <span className="font-semibold text-sidebar-foreground">
             Identity Portal

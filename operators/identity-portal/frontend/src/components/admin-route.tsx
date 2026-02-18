@@ -22,7 +22,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
             your administrator if you believe this is an error.
           </p>
           <Button asChild variant="outline">
-            <Link to="/">Return to Dashboard</Link>
+            <Link to="/dashboard">Return to Dashboard</Link>
           </Button>
         </div>
       </div>

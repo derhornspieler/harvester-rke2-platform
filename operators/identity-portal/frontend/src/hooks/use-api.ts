@@ -13,6 +13,7 @@ import type {
   Session,
   SSHCertificateRequest,
   SSHCertificateResponse,
+  SSHPublicKeyResponse,
   SSHRole,
   User,
   UserCreateRequest,
@@ -34,6 +35,45 @@ export function useMfaStatus() {
   return useQuery({
     queryKey: ["self", "mfa"],
     queryFn: () => apiGet<MfaStatus>("/self/mfa/status"),
+  });
+}
+
+export function useResetSelfMfa() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete("/self/mfa"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["self", "mfa"] });
+      qc.invalidateQueries({ queryKey: ["self", "profile"] });
+    },
+  });
+}
+
+export function useSelfSSHPublicKey() {
+  return useQuery({
+    queryKey: ["self", "ssh", "public-key"],
+    queryFn: () => apiGet<SSHPublicKeyResponse>("/self/ssh/public-key"),
+  });
+}
+
+export function useRegisterSSHPublicKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (publicKey: string) =>
+      apiPut<SSHPublicKeyResponse>("/self/ssh/public-key", { publicKey }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["self", "ssh", "public-key"] });
+    },
+  });
+}
+
+export function useDeleteSSHPublicKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete("/self/ssh/public-key"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["self", "ssh", "public-key"] });
+    },
   });
 }
 
@@ -105,7 +145,7 @@ export function useCreateUser() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: UserCreateRequest) =>
-      apiPost<User>("/admin/users", data),
+      apiPost<{ id: string }>("/admin/users", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       qc.invalidateQueries({ queryKey: ["admin", "stats"] });

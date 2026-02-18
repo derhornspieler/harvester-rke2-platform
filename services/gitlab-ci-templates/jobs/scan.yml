@@ -1,0 +1,73 @@
+# Security scanning templates
+
+.scan:gitleaks:
+  stage: pre-check
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  script:
+    - gitleaks detect --source . --verbose --redact
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+  allow_failure: false
+
+.scan:semgrep:
+  stage: scan
+  image: semgrep/semgrep:latest
+  variables:
+    SEMGREP_RULES: "auto"
+  script:
+    - semgrep ci --json --output=semgrep-results.json || true
+    - semgrep ci
+  artifacts:
+    paths:
+      - semgrep-results.json
+    when: always
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+  allow_failure: true
+
+.scan:trivy-fs:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy fs --severity HIGH,CRITICAL --exit-code 1 --format table .
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+
+.scan:trivy-image:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  variables:
+    TRIVY_USERNAME: ${HARBOR_CI_USER}
+    TRIVY_PASSWORD: ${HARBOR_CI_PASSWORD}
+  script:
+    - trivy image --severity HIGH,CRITICAL --exit-code 1 --format table --insecure "${IMAGE_FULL}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+
+.scan:sbom:
+  stage: scan
+  image:
+    name: anchore/syft:latest
+    entrypoint: [""]
+  script:
+    - syft "${IMAGE_FULL}" -o spdx-json=sbom.spdx.json
+  artifacts:
+    paths:
+      - sbom.spdx.json
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+
+.scan:license:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy fs --scanners license --severity HIGH,CRITICAL --exit-code 1 .
+  allow_failure: true

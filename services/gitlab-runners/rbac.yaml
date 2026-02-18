@@ -15,10 +15,10 @@ metadata:
   labels:
     app.kubernetes.io/name: gitlab-runners
 rules:
-  # Pods — runner creates job pods in its namespace
+  # Pods — runner creates/manages job pods
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["create", "get", "list", "watch", "delete"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
   # Pod logs — runner reads build logs
   - apiGroups: [""]
     resources: ["pods/log"]
@@ -27,18 +27,30 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
-  # Secrets — runner mounts secrets for CI variables
+  # Pod attach — runner uses attach strategy for script execution
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["create"]
+  # Secrets — runner creates/updates secrets for CI variables + ownerReferences
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
   # ConfigMaps — runner uses configmaps for scripts
   - apiGroups: [""]
     resources: ["configmaps"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
   # PVCs — runner creates PVCs for build caches
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "create", "delete"]
+  # Events — runner reads pod events for status
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  # ServiceAccounts — runner gets SA for job pods
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
