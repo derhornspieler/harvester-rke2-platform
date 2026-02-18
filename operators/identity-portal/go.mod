@@ -8,7 +8,6 @@ require (
 	github.com/hashicorp/vault/api v1.16.0
 	github.com/prometheus/client_golang v1.23.2
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.39.0
 )
 
 require (
@@ -38,6 +37,8 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/segmentio/ksuid v1.0.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	golang.org/x/crypto v0.44.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect

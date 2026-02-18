@@ -30,21 +30,21 @@ type Config struct {
 // where appropriate, and validates that all required values are present.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Port:            envOrDefault("PORT", "8080"),
-		OIDCIssuerURL:   os.Getenv("OIDC_ISSUER_URL"),
-		OIDCClientID:    os.Getenv("OIDC_CLIENT_ID"),
-		KeycloakURL:     envOrDefault("KEYCLOAK_URL", "http://keycloak.keycloak.svc.cluster.local:8080"),
-		KeycloakRealm:   envOrDefault("KEYCLOAK_REALM", "master"),
-		KeycloakClientID: envOrDefault("KEYCLOAK_CLIENT_ID", "identity-portal"),
+		Port:                 envOrDefault("PORT", "8080"),
+		OIDCIssuerURL:        os.Getenv("OIDC_ISSUER_URL"),
+		OIDCClientID:         os.Getenv("OIDC_CLIENT_ID"),
+		KeycloakURL:          envOrDefault("KEYCLOAK_URL", "http://keycloak.keycloak.svc.cluster.local:8080"),
+		KeycloakRealm:        envOrDefault("KEYCLOAK_REALM", "master"),
+		KeycloakClientID:     envOrDefault("KEYCLOAK_CLIENT_ID", "identity-portal"),
 		KeycloakClientSecret: os.Getenv("KEYCLOAK_CLIENT_SECRET"),
-		VaultAddr:       os.Getenv("VAULT_ADDR"),
-		VaultSSHMount:   envOrDefault("VAULT_SSH_MOUNT", "ssh-client-signer"),
-		VaultAuthRole:   envOrDefault("VAULT_AUTH_ROLE", "identity-portal"),
-		Domain:          os.Getenv("DOMAIN"),
-		ClusterName:     os.Getenv("CLUSTER_NAME"),
-		KubeAPIServer:   os.Getenv("KUBE_API_SERVER"),
-		VaultRootCAPath: envOrDefault("VAULT_ROOT_CA_PATH", "/etc/ssl/certs/vault-root-ca.pem"),
-		CORSOrigin:      envOrDefault("CORS_ORIGIN", "*"),
+		VaultAddr:            os.Getenv("VAULT_ADDR"),
+		VaultSSHMount:        envOrDefault("VAULT_SSH_MOUNT", "ssh-client-signer"),
+		VaultAuthRole:        envOrDefault("VAULT_AUTH_ROLE", "identity-portal"),
+		Domain:               os.Getenv("DOMAIN"),
+		ClusterName:          os.Getenv("CLUSTER_NAME"),
+		KubeAPIServer:        os.Getenv("KUBE_API_SERVER"),
+		VaultRootCAPath:      envOrDefault("VAULT_ROOT_CA_PATH", "/etc/ssl/certs/vault-root-ca.pem"),
+		CORSOrigin:           envOrDefault("CORS_ORIGIN", "*"),
 	}
 
 	adminGroupsStr := envOrDefault("ADMIN_GROUPS", "platform-admins,infra-engineers")

@@ -50,9 +50,9 @@ type UserProfile struct {
 
 // MFAStatus represents the MFA enrollment status for a user.
 type MFAStatus struct {
-	Enabled     bool     `json:"enabled"`
-	Methods     []string `json:"methods,omitempty"`
-	ConfiguredAt string  `json:"configured_at,omitempty"`
+	Enabled      bool     `json:"enabled"`
+	Methods      []string `json:"methods,omitempty"`
+	ConfiguredAt string   `json:"configured_at,omitempty"`
 }
 
 // ResetPasswordRequest is the payload for an admin password reset.
@@ -63,10 +63,10 @@ type ResetPasswordRequest struct {
 
 // DashboardStats holds aggregate stats for the admin dashboard.
 type DashboardStats struct {
-	TotalUsers      int `json:"total_users"`
-	EnabledUsers    int `json:"enabled_users"`
-	DisabledUsers   int `json:"disabled_users"`
-	MFAEnrolled     int `json:"mfa_enrolled"`
-	ActiveSessions  int `json:"active_sessions"`
-	TotalGroups     int `json:"total_groups"`
+	TotalUsers     int `json:"total_users"`
+	EnabledUsers   int `json:"enabled_users"`
+	DisabledUsers  int `json:"disabled_users"`
+	MFAEnrolled    int `json:"mfa_enrolled"`
+	ActiveSessions int `json:"active_sessions"`
+	TotalGroups    int `json:"total_groups"`
 }

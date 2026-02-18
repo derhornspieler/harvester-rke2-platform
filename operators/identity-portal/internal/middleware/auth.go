@@ -16,7 +16,7 @@ type claimsKey struct{}
 // Claims holds the verified OIDC token claims extracted by the auth middleware.
 type Claims struct {
 	Subject           string   `json:"sub"`
-	PreferredUsername  string   `json:"preferred_username"`
+	PreferredUsername string   `json:"preferred_username"`
 	Email             string   `json:"email"`
 	EmailVerified     bool     `json:"email_verified"`
 	Groups            []string `json:"groups"`

@@ -245,7 +245,7 @@ func (c *Client) GetCredentials(ctx context.Context, userID string) ([]*gocloak.
 // mapUser converts a GoCloak user to our model.
 func mapUser(u *gocloak.User) model.User {
 	user := model.User{
-		Enabled: derefBool(u.Enabled),
+		Enabled:       derefBool(u.Enabled),
 		EmailVerified: derefBool(u.EmailVerified),
 	}
 	if u.ID != nil {

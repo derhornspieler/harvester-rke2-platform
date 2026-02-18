@@ -815,6 +815,7 @@ generate_or_load_env() {
   : "${HELM_OCI_ARGOCD:=}"
   : "${HELM_OCI_ARGO_ROLLOUTS:=}"
   : "${HELM_OCI_KASM:=}"
+  : "${HELM_OCI_GITLAB_RUNNER:=}"
 
   # Generate any missing values
   : "${KEYCLOAK_BOOTSTRAP_CLIENT_SECRET:=$(gen_password 32)}"
@@ -845,6 +846,10 @@ generate_or_load_env() {
 
   # GitLab API token (api scope) — leave empty to be prompted at runtime
   : "${GITLAB_API_TOKEN:=}"
+
+  # GitLab Runner tokens (populated at runtime by setup-gitlab-services.sh Phase 8)
+  : "${GITLAB_RUNNER_SHARED_TOKEN:=}"
+  : "${GITLAB_RUNNER_GROUP_TOKEN:=}"
 
   # Identity Portal OIDC client secret
   : "${IDENTITY_PORTAL_OIDC_SECRET:=$(gen_password 32)}"
@@ -911,6 +916,7 @@ generate_or_load_env() {
   export GITLAB_ROOT_PASSWORD GITLAB_PRAEFECT_DB_PASSWORD GITLAB_REDIS_PASSWORD
   export GITLAB_GITALY_TOKEN GITLAB_PRAEFECT_TOKEN GITLAB_CHART_PATH
   export GITLAB_API_TOKEN
+  export GITLAB_RUNNER_SHARED_TOKEN GITLAB_RUNNER_GROUP_TOKEN
   export IDENTITY_PORTAL_OIDC_SECRET
   export OAUTH2_PROXY_REDIS_PASSWORD
   export GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD BASIC_AUTH_HTPASSWD
@@ -922,6 +928,7 @@ generate_or_load_env() {
   export HELM_OCI_CERT_MANAGER HELM_OCI_CNPG HELM_OCI_CLUSTER_AUTOSCALER
   export HELM_OCI_REDIS_OPERATOR HELM_OCI_MARIADB_OPERATOR HELM_OCI_VAULT
   export HELM_OCI_HARBOR HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_KASM
+  export HELM_OCI_GITLAB_RUNNER
 
   # Bridge cloud-init overrides to Terraform via TF_VAR_ env vars
   [[ -n "$USER_DATA_CP_FILE" ]] && export TF_VAR_user_data_cp_file="$USER_DATA_CP_FILE"
@@ -1002,6 +1009,13 @@ GITLAB_CHART_PATH="${GITLAB_CHART_PATH}"
 
 # GitLab API token (api scope) — leave empty to be prompted at runtime
 GITLAB_API_TOKEN="${GITLAB_API_TOKEN}"
+
+# GitLab Runner tokens (populated at runtime by setup-gitlab-services.sh Phase 8)
+GITLAB_RUNNER_SHARED_TOKEN="${GITLAB_RUNNER_SHARED_TOKEN}"
+GITLAB_RUNNER_GROUP_TOKEN="${GITLAB_RUNNER_GROUP_TOKEN}"
+
+# GitLab Runner Helm chart OCI override (airgapped)
+HELM_OCI_GITLAB_RUNNER="${HELM_OCI_GITLAB_RUNNER}"
 
 # Root domain for all service FQDNs (e.g., vault.DOMAIN, harbor.DOMAIN)
 DOMAIN="${DOMAIN}"
@@ -1219,7 +1233,7 @@ distribute_root_ca() {
 
   log_info "Distributing Root CA ConfigMap to service namespaces..."
 
-  local namespaces=(kube-system monitoring argocd argo-rollouts harbor mattermost gitlab keycloak identity-portal)
+  local namespaces=(kube-system monitoring argocd argo-rollouts harbor mattermost gitlab keycloak identity-portal gitlab-runners)
   for ns in "${namespaces[@]}"; do
     ensure_namespace "$ns"
     kubectl create configmap vault-root-ca \

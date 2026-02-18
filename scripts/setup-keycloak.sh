@@ -190,6 +190,57 @@ kc_create_client() {
   echo "$secret"
 }
 
+# Create a service account OIDC client (machine-to-machine, no browser login)
+# Returns the generated client secret on stdout.
+kc_create_service_account_client() {
+  local client_id="$1"
+  local name="${2:-$client_id}"
+
+  log_info "Creating service account client: ${client_id}" >&2
+
+  # Check if client already exists
+  local existing
+  existing=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" 2>/dev/null || echo "[]")
+  local existing_id
+  existing_id=$(echo "$existing" | jq -r '.[0].id // empty')
+
+  if [[ -n "$existing_id" ]]; then
+    log_info "  Service account client '${client_id}' already exists (id: ${existing_id})" >&2
+    local secret
+    secret=$(kc_api GET "/realms/${KC_REALM}/clients/${existing_id}/client-secret" 2>/dev/null | jq -r '.value // empty')
+    echo "$secret"
+    return 0
+  fi
+
+  # Create client with service account enabled (client_credentials grant)
+  kc_api POST "/realms/${KC_REALM}/clients" \
+    -d "{
+      \"clientId\": \"${client_id}\",
+      \"name\": \"${name}\",
+      \"enabled\": true,
+      \"protocol\": \"openid-connect\",
+      \"publicClient\": false,
+      \"clientAuthenticatorType\": \"client-secret\",
+      \"standardFlowEnabled\": false,
+      \"directAccessGrantsEnabled\": true,
+      \"serviceAccountsEnabled\": true,
+      \"redirectUris\": [],
+      \"webOrigins\": []
+    }"
+
+  # Get the internal UUID
+  local internal_id
+  internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" | jq -r '.[0].id')
+
+  # Generate and retrieve client secret
+  kc_api POST "/realms/${KC_REALM}/clients/${internal_id}/client-secret" >/dev/null
+  local secret
+  secret=$(kc_api GET "/realms/${KC_REALM}/clients/${internal_id}/client-secret" | jq -r '.value')
+
+  log_ok "  Service account client '${client_id}' created (secret: ${secret:0:8}...)" >&2
+  echo "$secret"
+}
+
 # =============================================================================
 # PHASE 1: REALM + ADMIN SETUP
 # =============================================================================
@@ -512,12 +563,17 @@ phase_2_clients() {
     fi
   fi
 
+  # 2.12 GitLab CI service account (machine-to-machine OIDC for CI pipelines)
+  log_step "Creating gitlab-ci service account client"
+  secret=$(kc_create_service_account_client "gitlab-ci" "GitLab CI Service Account")
+  jq --arg s "$secret" '.["gitlab-ci"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+
   # Add "groups" as optional client scope to clients that request scope=groups
   log_step "Adding 'groups' scope to relevant clients..."
   local groups_scope_id
   groups_scope_id=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
   if [[ -n "$groups_scope_id" ]]; then
-    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher identity-portal; do
+    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher identity-portal gitlab-ci; do
       local cid_internal
       cid_internal=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${cid}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
       if [[ -n "$cid_internal" ]]; then

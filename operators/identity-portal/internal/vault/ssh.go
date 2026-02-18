@@ -20,11 +20,11 @@ type SSHRoleMapping struct {
 // DefaultGroupRoleMappings returns the standard group-to-SSH-role mappings.
 func DefaultGroupRoleMappings() map[string]SSHRoleMapping {
 	return map[string]SSHRoleMapping{
-		"platform-admins":    {VaultRole: "admin-role", TTL: "24h"},
-		"infra-engineers":    {VaultRole: "infra-role", TTL: "8h"},
-		"network-engineers":  {VaultRole: "infra-role", TTL: "8h"},
-		"developers":         {VaultRole: "developer-role", TTL: "4h"},
-		"senior-developers":  {VaultRole: "developer-role", TTL: "4h"},
+		"platform-admins":   {VaultRole: "admin-role", TTL: "24h"},
+		"infra-engineers":   {VaultRole: "infra-role", TTL: "8h"},
+		"network-engineers": {VaultRole: "infra-role", TTL: "8h"},
+		"developers":        {VaultRole: "developer-role", TTL: "4h"},
+		"senior-developers": {VaultRole: "developer-role", TTL: "4h"},
 	}
 }
 

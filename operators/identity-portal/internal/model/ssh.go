@@ -7,7 +7,7 @@ type SSHCertRequest struct {
 
 // SSHCertResponse is the response containing the signed SSH certificate.
 type SSHCertResponse struct {
-	SignedCertificate string `json:"signed_certificate"`
+	SignedCertificate string   `json:"signed_certificate"`
 	Principals        []string `json:"principals"`
 	ValidAfter        int64    `json:"valid_after"`
 	ValidBefore       int64    `json:"valid_before"`
@@ -21,15 +21,15 @@ type SSHCAResponse struct {
 
 // SSHRoleConfig represents a Vault SSH signing role configuration.
 type SSHRoleConfig struct {
-	Name              string   `json:"name"`
-	DefaultUser       string   `json:"default_user,omitempty"`
-	AllowedUsers      string   `json:"allowed_users,omitempty"`
-	AllowedExtensions string   `json:"allowed_extensions,omitempty"`
+	Name              string            `json:"name"`
+	DefaultUser       string            `json:"default_user,omitempty"`
+	AllowedUsers      string            `json:"allowed_users,omitempty"`
+	AllowedExtensions string            `json:"allowed_extensions,omitempty"`
 	DefaultExtensions map[string]string `json:"default_extensions,omitempty"`
-	TTL               string   `json:"ttl,omitempty"`
-	MaxTTL            string   `json:"max_ttl,omitempty"`
-	KeyType           string   `json:"key_type,omitempty"`
-	AlgorithmSigner   string   `json:"algorithm_signer,omitempty"`
+	TTL               string            `json:"ttl,omitempty"`
+	MaxTTL            string            `json:"max_ttl,omitempty"`
+	KeyType           string            `json:"key_type,omitempty"`
+	AlgorithmSigner   string            `json:"algorithm_signer,omitempty"`
 }
 
 // CreateSSHRoleRequest is the payload for creating/updating an SSH signing role.

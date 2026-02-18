@@ -11,13 +11,13 @@ import (
 
 // SessionInfo represents an active user session.
 type SessionInfo struct {
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
-	Username  string `json:"username"`
-	IPAddress string `json:"ip_address"`
-	Start     int64  `json:"start"`
-	LastAccess int64 `json:"last_access"`
-	ClientID  string `json:"client_id"`
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
+	IPAddress  string `json:"ip_address"`
+	Start      int64  `json:"start"`
+	LastAccess int64  `json:"last_access"`
+	ClientID   string `json:"client_id"`
 }
 
 // GetUserSessions returns active sessions for a given user.

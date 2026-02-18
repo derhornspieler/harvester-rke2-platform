@@ -15,12 +15,12 @@ import (
 
 // Client wraps GoCloak and manages service-account token lifecycle.
 type Client struct {
-	gc           *gocloak.GoCloak
-	cfg          *config.Config
-	logger       *zap.Logger
-	mu           sync.RWMutex
-	token        *gocloak.JWT
-	tokenExpiry  time.Time
+	gc          *gocloak.GoCloak
+	cfg         *config.Config
+	logger      *zap.Logger
+	mu          sync.RWMutex
+	token       *gocloak.JWT
+	tokenExpiry time.Time
 }
 
 // NewClient creates a new Keycloak client and performs an initial login.

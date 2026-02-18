@@ -27,12 +27,14 @@ func (c *Client) GetEvents(ctx context.Context, eventTypes []string, userID stri
 		return nil, err
 	}
 
+	first32 := int32(first)
+	max32 := int32(max)
 	params := gocloak.GetEventsParams{
-		First: gocloak.IntP(first),
-		Max:   gocloak.IntP(max),
+		First: &first32,
+		Max:   &max32,
 	}
 	if len(eventTypes) > 0 {
-		params.Type = &eventTypes
+		params.Type = eventTypes
 	}
 	if userID != "" {
 		params.UserID = gocloak.StringP(userID)
@@ -55,9 +57,7 @@ func (c *Client) GetEvents(ctx context.Context, eventTypes []string, userID stri
 
 func mapEvent(e *gocloak.EventRepresentation) EventInfo {
 	info := EventInfo{}
-	if e.Time != nil {
-		info.Time = *e.Time
-	}
+	info.Time = e.Time
 	if e.Type != nil {
 		info.Type = *e.Type
 	}

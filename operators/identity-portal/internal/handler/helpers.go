@@ -16,10 +16,10 @@ import (
 
 // Handler holds shared dependencies injected into all route handlers.
 type Handler struct {
-	Config   *config.Config
-	KC       *keycloak.Client
-	Vault    *vault.Client
-	Logger   *zap.Logger
+	Config *config.Config
+	KC     *keycloak.Client
+	Vault  *vault.Client
+	Logger *zap.Logger
 }
 
 // NewHandler creates a Handler with all dependencies.
