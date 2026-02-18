@@ -1,0 +1,24 @@
+# Vendored from: https://github.com/docker-hardened-images/catalog
+# Image: nginx (Alpine mainline)
+# Source: image/nginx/alpine/mainline.yaml
+apiVersion: dhi.io/v1
+kind: HardenedImage
+metadata:
+  name: nginx-alpine-mainline
+spec:
+  base: alpine:3.20
+  packages:
+    - nginx=1.27.0-r0
+    - tzdata
+  user:
+    name: nginx
+    uid: 101
+    gid: 101
+  expose:
+    - 80
+    - 443
+  entrypoint: ["/usr/sbin/nginx", "-g", "daemon off;"]
+  hardening:
+    removeShells: true
+    readOnlyRootfs: true
+    noNewPrivileges: true

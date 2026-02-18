@@ -1077,3 +1077,63 @@ data:
             annotations:
               summary: "Argo Rollouts is down"
               description: "Argo Rollouts controller has been unreachable for more than 5 minutes."
+
+      - name: identity-portal-alerts
+        rules:
+          - alert: IdentityPortalDown
+            expr: up{job="kubernetes-service-endpoints", namespace="identity-portal"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Identity Portal backend is down"
+              description: "Identity Portal backend has been unreachable for 2 minutes."
+
+          - alert: IdentityPortalHighErrorRate
+            expr: |
+              rate(identity_portal_http_requests_total{status=~"5.."}[5m])
+              / rate(identity_portal_http_requests_total[5m]) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Identity Portal error rate > 5%"
+              description: "{{ $value | humanizePercentage }} of requests returning 5xx errors."
+
+          - alert: IdentityPortalSSHSigningFailure
+            expr: rate(identity_portal_ssh_cert_errors_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Identity Portal SSH certificate signing failures"
+              description: "SSH certificate signing has been failing for 5 minutes."
+
+          - alert: IdentityPortalKeycloakUnreachable
+            expr: rate(identity_portal_keycloak_errors_total[1m]) > 5
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Identity Portal cannot reach Keycloak"
+              description: "High rate of Keycloak API errors from Identity Portal."
+
+          - alert: IdentityPortalVaultUnreachable
+            expr: rate(identity_portal_vault_errors_total[1m]) > 5
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Identity Portal cannot reach Vault"
+              description: "High rate of Vault API errors from Identity Portal."
+
+          - alert: IdentityPortalLowMFAEnrollment
+            expr: |
+              identity_portal_mfa_enrolled_users_total
+              / identity_portal_active_users_total < 0.8
+            for: 24h
+            labels:
+              severity: info
+            annotations:
+              summary: "MFA enrollment below 80%"
+              description: "Only {{ $value | humanizePercentage }} of users have MFA configured."

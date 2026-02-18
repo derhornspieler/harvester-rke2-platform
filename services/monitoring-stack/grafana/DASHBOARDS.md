@@ -427,6 +427,28 @@ Complete per-panel metric reference for all 24 Grafana dashboards in the RKE2 mo
 
 ---
 
+### DHI Builder Overview
+
+| | |
+|---|---|
+| **UID** | `dhi-builder-overview` |
+| **ConfigMap** | `grafana-dashboard-dhi-builder` |
+| **Tags** | `dhi`, `builder`, `buildkit`, `harbor` |
+| **Description** | DHI Builder pipeline overview — build status, durations, Harbor images |
+
+| Panel | Metric(s) | Unit | What It Shows |
+|-------|-----------|------|---------------|
+| Active Builds | `argo_workflows_count{status="Running",label_app="dhi-builder"}` | count | Currently running DHI build workflows |
+| Build Success Rate | `argo_workflows_count{status="Succeeded"}` / total | percent | Percentage of successful builds (24h) |
+| Build Duration | `argo_workflows_duration_seconds{label_app="dhi-builder"}` | seconds | Per-image build time trend |
+| Images in Harbor | `harbor_project_repo_count{project="dhi"}` | count | Number of images in dhi/ project |
+| Manifest vs Harbor | custom query | table | Desired vs actual image inventory |
+| BuildKit Cache Usage | `kubelet_volume_stats_used_bytes{namespace="dhi-builder"}` / capacity | percent | Build cache PVC utilization |
+| Recent Build Logs | `{namespace="dhi-builder"}` (Loki) | logs | Last 50 workflow pod log lines |
+| Build History | `argo_workflows_count{label_app="dhi-builder"}` by status | table | Recent workflow runs with status |
+
+---
+
 ### Mattermost Overview
 
 | | |

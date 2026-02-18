@@ -1,0 +1,48 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: identity-portal
+  namespace: identity-portal
+spec:
+  parentRefs:
+    - name: identity-portal
+      namespace: identity-portal
+      sectionName: https
+  hostnames:
+    - "identity.CHANGEME_DOMAIN"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      backendRefs:
+        - name: identity-portal-backend
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /healthz
+      backendRefs:
+        - name: identity-portal-backend
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /readyz
+      backendRefs:
+        - name: identity-portal-backend
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /metrics
+      backendRefs:
+        - name: identity-portal-backend
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: identity-portal-frontend
+          port: 8080

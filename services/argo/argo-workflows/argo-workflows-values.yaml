@@ -1,0 +1,38 @@
+# Argo Workflows Helm Values
+# Domain tokens are replaced at deploy time by _subst_changeme()
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector:
+    workload-type: general
+  metricsConfig:
+    enabled: true
+
+server:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  nodeSelector:
+    workload-type: general
+  extraArgs:
+    - --auth-mode=server
+
+workflow:
+  serviceAccount:
+    create: true
+    name: argo-workflow
+
+  rbac:
+    create: true

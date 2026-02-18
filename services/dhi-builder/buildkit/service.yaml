@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: dhi-builder
+  labels:
+    app: buildkitd
+    app.kubernetes.io/name: dhi-builder
+spec:
+  type: ClusterIP
+  selector:
+    app: buildkitd
+  ports:
+    - name: grpc
+      port: 1234
+      targetPort: 1234
+      protocol: TCP

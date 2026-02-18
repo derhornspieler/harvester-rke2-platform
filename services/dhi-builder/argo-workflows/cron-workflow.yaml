@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: dhi-daily-scan
+  namespace: dhi-builder
+  labels:
+    app.kubernetes.io/name: dhi-builder
+spec:
+  schedule: "0 2 * * *"
+  timezone: "UTC"
+  concurrencyPolicy: Replace
+  workflowSpec:
+    workflowTemplateRef:
+      name: dhi-build-pipeline
+    serviceAccountName: dhi-builder-sa
+    arguments:
+      parameters:
+        - name: manifest-configmap
+          value: dhi-image-manifest

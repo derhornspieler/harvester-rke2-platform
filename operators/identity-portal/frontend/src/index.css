@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: oklch(1 0 0);
+  --color-foreground: oklch(0.145 0.017 285.823);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.145 0.017 285.823);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.145 0.017 285.823);
+  --color-primary: oklch(0.488 0.135 264.376);
+  --color-primary-foreground: oklch(0.985 0.002 247.858);
+  --color-secondary: oklch(0.965 0.004 264.542);
+  --color-secondary-foreground: oklch(0.208 0.042 265.755);
+  --color-muted: oklch(0.965 0.004 264.542);
+  --color-muted-foreground: oklch(0.555 0.02 252.801);
+  --color-accent: oklch(0.965 0.004 264.542);
+  --color-accent-foreground: oklch(0.208 0.042 265.755);
+  --color-destructive: oklch(0.577 0.245 27.325);
+  --color-destructive-foreground: oklch(0.985 0.002 247.858);
+  --color-border: oklch(0.916 0.007 264.542);
+  --color-input: oklch(0.916 0.007 264.542);
+  --color-ring: oklch(0.488 0.135 264.376);
+  --color-chart-1: oklch(0.488 0.135 264.376);
+  --color-chart-2: oklch(0.696 0.17 162.48);
+  --color-chart-3: oklch(0.769 0.188 70.08);
+  --color-chart-4: oklch(0.627 0.265 303.9);
+  --color-chart-5: oklch(0.645 0.246 16.439);
+  --color-sidebar: oklch(0.985 0.002 247.858);
+  --color-sidebar-foreground: oklch(0.145 0.017 285.823);
+  --color-sidebar-primary: oklch(0.488 0.135 264.376);
+  --color-sidebar-primary-foreground: oklch(0.985 0.002 247.858);
+  --color-sidebar-accent: oklch(0.965 0.004 264.542);
+  --color-sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --color-sidebar-border: oklch(0.916 0.007 264.542);
+  --color-sidebar-ring: oklch(0.488 0.135 264.376);
+  --radius: 0.625rem;
+  --color-success: oklch(0.627 0.194 149.214);
+  --color-success-foreground: oklch(0.985 0.002 247.858);
+  --color-warning: oklch(0.769 0.188 70.08);
+  --color-warning-foreground: oklch(0.208 0.042 265.755);
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      sans-serif,
+      "Apple Color Emoji",
+      "Segoe UI Emoji",
+      "Segoe UI Symbol",
+      "Noto Color Emoji";
+  }
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+  @media (width >= 1400px) {
+    max-width: 1400px;
+  }
+}

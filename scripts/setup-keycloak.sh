@@ -467,12 +467,57 @@ phase_2_clients() {
     "https://rancher.${DOMAIN}/verify-auth" "Rancher")
   jq --arg s "$secret" '.rancher = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
 
+  # 2.11 Identity Portal
+  log_step "Creating identity-portal OIDC client"
+  secret=$(kc_create_client "identity-portal" \
+    "https://identity.${DOMAIN}/*" "Identity Portal")
+  jq --arg s "$secret" '.["identity-portal"] = $s' "$OIDC_SECRETS_FILE" > /tmp/oidc.tmp && mv /tmp/oidc.tmp "$OIDC_SECRETS_FILE"
+  # Export for deploy-cluster.sh Phase 10 injection
+  export IDENTITY_PORTAL_OIDC_SECRET="$secret"
+
+  # Enable service account for identity-portal client (needs realm-admin for user management)
+  log_step "Enabling service account for identity-portal client..."
+  local ip_internal_id
+  ip_internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=identity-portal" | jq -r '.[0].id')
+  if [[ -n "$ip_internal_id" ]]; then
+    # Enable service account
+    local ip_client_json
+    ip_client_json=$(kc_api GET "/realms/${KC_REALM}/clients/${ip_internal_id}" 2>/dev/null || echo "{}")
+    if [[ -n "$ip_client_json" && "$ip_client_json" != "{}" ]]; then
+      local ip_updated_json
+      ip_updated_json=$(echo "$ip_client_json" | jq '.serviceAccountsEnabled = true')
+      echo "$ip_updated_json" | kc_api PUT "/realms/${KC_REALM}/clients/${ip_internal_id}" -d @- 2>/dev/null || \
+        log_warn "Could not enable service account for identity-portal"
+    fi
+
+    # Get service account user ID
+    local sa_user_id
+    sa_user_id=$(kc_api GET "/realms/${KC_REALM}/clients/${ip_internal_id}/service-account-user" 2>/dev/null | jq -r '.id // empty' || echo "")
+
+    if [[ -n "$sa_user_id" ]]; then
+      # Get realm-management client UUID
+      local rm_client_id
+      rm_client_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=realm-management" | jq -r '.[0].id')
+
+      # Get realm-admin role
+      local realm_admin_role
+      realm_admin_role=$(kc_api GET "/realms/${KC_REALM}/clients/${rm_client_id}/roles/realm-admin")
+
+      # Assign realm-management/realm-admin role to service account
+      kc_api POST "/realms/${KC_REALM}/users/${sa_user_id}/role-mappings/clients/${rm_client_id}" \
+        -d "[${realm_admin_role}]" 2>/dev/null || true
+      log_ok "realm-admin role assigned to identity-portal service account"
+    else
+      log_warn "Could not get service account user for identity-portal"
+    fi
+  fi
+
   # Add "groups" as optional client scope to clients that request scope=groups
   log_step "Adding 'groups' scope to relevant clients..."
   local groups_scope_id
   groups_scope_id=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
   if [[ -n "$groups_scope_id" ]]; then
-    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher; do
+    for cid in argocd kubernetes grafana harbor vault prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc rollouts-oidc rancher identity-portal; do
       local cid_internal
       cid_internal=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${cid}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
       if [[ -n "$cid_internal" ]]; then
@@ -753,7 +798,7 @@ phase_4_groups() {
   local clients
   clients=$(kc_api GET "/realms/${KC_REALM}/clients?max=100" 2>/dev/null || echo "[]")
 
-  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher")
+  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher" "identity-portal")
   for client_id_name in "${our_clients[@]}"; do
     local internal_id
     internal_id=$(echo "$clients" | jq -r ".[] | select(.clientId==\"${client_id_name}\") | .id" 2>/dev/null || echo "")
@@ -821,7 +866,8 @@ phase_5_validation() {
   echo ""
   echo "  OIDC Clients Created:"
   echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public)
-    prometheus-oidc, alertmanager-oidc, hubble-oidc, traefik-dashboard-oidc, rollouts-oidc, rancher"
+    prometheus-oidc, alertmanager-oidc, hubble-oidc, traefik-dashboard-oidc, rollouts-oidc, rancher
+    identity-portal"
   echo ""
   echo "  Client secrets saved to:"
   echo "    ${OIDC_SECRETS_FILE}"

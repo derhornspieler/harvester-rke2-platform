@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-portal-frontend
+  namespace: identity-portal
+spec:
+  type: ClusterIP
+  selector:
+    app: identity-portal
+    component: frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

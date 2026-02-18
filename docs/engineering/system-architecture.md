@@ -407,6 +407,7 @@ graph TD
 | `rollouts.<DOMAIN>` | argo-rollouts | Gateway + HTTPRoute | rollouts-dashboard:3100 | oauth2-proxy ForwardAuth | extensionRef |
 | `mattermost.<DOMAIN>` | mattermost | Gateway + HTTPRoute | mattermost:8065 | Keycloak OIDC (native) | None |
 | `kasm.<DOMAIN>` | kasm | IngressRoute | kasm-proxy:8443 | Keycloak OIDC (manual) | serversTransport (insecureSkipVerify) |
+| `identity.<DOMAIN>` | identity-portal | Gateway + HTTPRoute | identity-portal-frontend:8080, identity-portal-backend:8443 | Keycloak OIDC (native) | None |
 | `rancher.<DOMAIN>` | cattle-system | Rancher-managed | rancher:443 | Keycloak OIDC (manual) | None |
 
 > **IngressRoute exception**: Kasm requires backend HTTPS with `serversTransport`
@@ -543,7 +544,7 @@ graph BT
 
     subgraph Monitoring["Monitoring Layer"]
         Prom["Prometheus<br/>(50 GiB, 30d retention)"]
-        Grafana["Grafana<br/>(24 dashboards)"]
+        Grafana["Grafana<br/>(26 dashboards)"]
         Loki["Loki<br/>(50 GiB, 7d retention)"]
         Alloy["Alloy<br/>(DaemonSet log collector)"]
         AM["Alertmanager<br/>(alert routing)"]
@@ -558,6 +559,7 @@ graph BT
         Harbor["Harbor HA<br/>(core, portal, registry,<br/>jobservice, trivy, exporter)"]
         MM["Mattermost<br/>(team messaging)"]
         Kasm["Kasm Workspaces<br/>(virtual desktops)"]
+        IdPortal["Identity Portal<br/>(user mgmt, SSH certs)"]
     end
 
     %% Infrastructure dependencies
@@ -604,6 +606,11 @@ graph BT
     Prom -->|"PromQL"| Grafana
     Loki -->|"LogQL"| Grafana
     Prom -->|"alerts"| AM
+
+    %% Identity Portal dependencies
+    KC -->|"OIDC + Admin API"| IdPortal
+    Vault -->|"SSH CA signing"| IdPortal
+    CM -->|"TLS certs"| IdPortal
 ```
 
 ### Service Communication Matrix
@@ -993,7 +1000,7 @@ graph TD
     end
 
     subgraph Visualization["Visualization"]
-        Grafana["Grafana<br/>(Deployment, 1 replica)<br/>:3000<br/>10 GiB PVC<br/>24 dashboards"]
+        Grafana["Grafana<br/>(Deployment, 1 replica)<br/>:3000<br/>10 GiB PVC<br/>26 dashboards"]
     end
 
     NE -->|"scrape"| Prom
@@ -1218,6 +1225,7 @@ graph TD
 | 12 | **Mattermost** | EE 10.5 | Kustomize | mattermost | general | 1 | HA-ready (gossip) | 500m / 2 | 1 GiB / 4 GiB | None (uses PG + MinIO) | Gateway + HTTPRoute |
 | 13 | **Kasm Workspaces** | 1.18.1 | kasmtech/kasm 1.1181.0 | kasm | general | 1 (each component) | N/A | ~750m / ~3 | ~1.5 GiB / ~6 GiB | None (uses PG) | IngressRoute |
 | 14 | **CNPG Operator** | (upstream) | Helm | cnpg-system | general | 1 | N/A | -- | -- | None | None (internal) |
+| 15 | **Identity Portal** | (custom) | Kustomize | identity-portal | general | 1 backend + 1 frontend | No | 250m / 1 | 256Mi / 512Mi | None | Gateway + HTTPRoute |
 
 ### Data Layer Services
 
@@ -1251,6 +1259,7 @@ graph TD
 | `kasm` | Kasm Workspaces (proxy, manager, share) | Helm + Kustomize |
 | `cnpg-system` | CNPG Operator | Helm |
 | `storage-autoscaler` | Storage Autoscaler controller | Kustomize |
+| `identity-portal` | Identity Portal (backend, frontend) | Kustomize |
 | `terraform-state` | Terraform state secret, vault-init.json | Manual |
 
 ### Resource Budget Summary

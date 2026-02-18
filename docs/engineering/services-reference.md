@@ -22,6 +22,8 @@ Comprehensive engineering reference for all services deployed on the RKE2 cluste
 12. [LibreNMS](#12-librenms)
 13. [Node Labeler](#13-node-labeler)
 14. [Storage Autoscaler](#14-storage-autoscaler)
+15. [DHI Builder](#15-dhi-builder-docker-hardened-images)
+16. [Identity Portal](#16-identity-portal)
 
 ---
 
@@ -44,7 +46,7 @@ graph TD
 
     subgraph Monitoring["Observability Layer"]
         Prometheus["Prometheus<br/>(31 scrape jobs)"]
-        Grafana["Grafana<br/>(24 dashboards)"]
+        Grafana["Grafana<br/>(26 dashboards)"]
         Loki["Loki<br/>(TSDB, 50Gi)"]
         Alloy["Alloy DaemonSet<br/>(log collection)"]
         Alertmanager["Alertmanager<br/>(route to receivers)"]
@@ -59,6 +61,7 @@ graph TD
 
     subgraph Identity["Identity Layer"]
         Keycloak["Keycloak HA<br/>(Infinispan, OIDC)"]
+        IdentityPortal["Identity Portal<br/>(user mgmt, SSH certs)"]
     end
 
     subgraph Apps["Application Layer"]
@@ -110,6 +113,8 @@ graph TD
     Keycloak -.->|"ForwardAuth"| Prometheus
     Keycloak -.->|"ForwardAuth"| UptimeKuma
     Keycloak -.->|"ForwardAuth"| LibreNMS
+    Keycloak -.->|"OIDC + Admin API"| IdentityPortal
+    Vault -.->|"SSH CA signing"| IdentityPortal
 
     ArgoCD -->|"GitOps sync"| Harbor
     ArgoCD -->|"GitOps sync"| Mattermost
@@ -129,12 +134,13 @@ graph TD
 |-------|----------|-----------|
 | 0 | RKE2, Cilium, Traefik, Harvester CSI | Infrastructure base (Terraform) |
 | 1 | cert-manager, CNPG Operator, Cluster Autoscaler, Redis Operator, Node Labeler, MariaDB Operator* | Cluster foundation (no TLS yet) |
-| 2 | Vault (HA Raft) + PKI | PKI backend for cert-manager ClusterIssuer |
+| 2 | Vault (HA Raft) + PKI + SSH CA | PKI backend for cert-manager ClusterIssuer; SSH CA for Identity Portal |
 | 3 | Monitoring Stack | Observability for all subsequent deployments |
 | 4 | Harbor, MinIO, CNPG, Redis Operator, Proxy Cache, Registry Mirrors | Container registry + database operators |
-| 5 | ArgoCD + Argo Rollouts | GitOps engine for remaining deployments |
+| 5 | ArgoCD + Argo Rollouts + Argo Workflows + Argo Events | GitOps engine for remaining deployments |
+| 5b | DHI Builder | Harbor `dhi/` project, BuildKit, Argo Events/Workflows pipeline | `DEPLOY_DHI_BUILDER=true` |
 | 6 | Keycloak | Identity provider for SSO integration |
-| 7 | Mattermost, Kasm, Uptime Kuma, LibreNMS | Remaining application services |
+| 7 | Mattermost, Kasm, Uptime Kuma, LibreNMS, Identity Portal | Remaining application services |
 | 8 | DNS Records | Create DNS A records for all services |
 | 9 | Validation | Health checks, VolumeAutoscaler CRs, smoke tests |
 | 10 | Keycloak OIDC Setup | OIDC clients, groups, oauth2-proxy ForwardAuth |
@@ -191,6 +197,8 @@ graph TD
 | **LibreNMS** | Valkey Sentinel | 3 | 50m | 200m | 64Mi | 128Mi | database |
 | **Node Labeler** | Controller | 3 | 10m | 100m | 32Mi | 64Mi | general |
 | **Storage Autoscaler** | Controller | 3 | 50m | 200m | 64Mi | 128Mi | general |
+| **Identity Portal** | Backend | 1 | 100m | 500m | 128Mi | 256Mi | general |
+| **Identity Portal** | Frontend | 1 | 50m | 200m | 64Mi | 128Mi | general |
 
 ### Storage Budget
 
@@ -2005,6 +2013,217 @@ ClusterRole: storage-autoscaler
 
 ---
 
+## 15. DHI Builder (Docker Hardened Images)
+
+### 15.1 Architecture
+
+```mermaid
+graph TB
+    subgraph dhi-builder["dhi-builder namespace"]
+        BK[BuildKit StatefulSet<br/>moby/buildkit:v0.18.2-rootless]
+        TR[Translator ConfigMap<br/>DHI YAML → Dockerfile]
+        IM[Image Manifest ConfigMap<br/>Desired images list]
+        SA[ServiceAccount<br/>dhi-builder-sa]
+        SEC[Secret<br/>Harbor push credentials]
+    end
+
+    subgraph argocd["argocd namespace"]
+        ES[EventSource<br/>ConfigMap watcher]
+        SN[Sensor<br/>Build trigger]
+        WT[WorkflowTemplate<br/>Build pipeline]
+        CW[CronWorkflow<br/>Daily scan 02:00 UTC]
+    end
+
+    IM -->|watched by| ES
+    ES -->|triggers| SN
+    SN -->|submits| WT
+    CW -->|references| WT
+    WT -->|reads| TR
+    WT -->|builds via| BK
+    WT -->|pushes to| HAR[Harbor dhi/ project]
+    WT -->|uses| SA
+    SA -->|pulls| SEC
+```
+
+### 15.2 Resources
+
+| Component | CPU Request | CPU Limit | Memory Request | Memory Limit | Storage |
+|-----------|------------|-----------|----------------|-------------|---------|
+| BuildKit | 500m | 2 | 1Gi | 4Gi | 50Gi PVC |
+| Workflow pods | 100m | 500m | 128Mi | 512Mi | — |
+
+### 15.3 Networking
+
+| Service | Type | Port | Protocol |
+|---------|------|------|----------|
+| buildkitd | ClusterIP | 1234 | gRPC |
+
+No external ingress — internal-only service.
+
+### 15.4 Storage
+
+- **BuildKit Cache**: 50Gi PVC (`buildkit-cache`) for layer cache persistence
+- **StorageClass**: Default (Longhorn)
+
+### 15.5 Security
+
+| Context | Value |
+|---------|-------|
+| runAsUser | 1000 |
+| runAsGroup | 1000 |
+| fsGroup | 1000 |
+| readOnlyRootFilesystem | true (workflow pods) |
+| seccompProfile | RuntimeDefault |
+| Image pull | Harbor push credentials secret |
+
+### 15.6 RBAC
+
+- **ServiceAccount**: `dhi-builder-sa` in `dhi-builder` namespace
+- **Role**: Get/list ConfigMaps, get Secrets, create/get/list Pods
+- **RoleBinding**: Binds SA to Role in `dhi-builder` namespace
+
+### 15.7 Monitoring Integration
+
+- Argo Workflows controller metrics (workflow count, duration, status)
+- BuildKit daemon metrics (build duration, cache hit rates)
+- Grafana dashboard: `dhi-builder-overview` (Services folder)
+- Loki logs from `dhi-builder` namespace
+
+### 15.8 Dependencies
+
+| Dependency | Required | Purpose |
+|-----------|----------|---------|
+| Harbor | Yes | Image registry (dhi/ project) |
+| Argo Workflows | Yes | Build pipeline orchestration |
+| Argo Events | Yes | Manifest change detection |
+| BuildKit | Yes | Container image builds |
+
+### 15.9 Common Issues
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| BuildKit OOM | Build pod killed during large image builds | Increase BuildKit memory limit |
+| Harbor push denied | 401/403 on image push | Check harbor-push-credentials secret |
+| Translator failure | Dockerfile generation errors | Verify DHI YAML format matches catalog spec |
+| Stale images | Image in manifest but not in Harbor | Check CronWorkflow status, run manually |
+
+---
+
+## 16. Identity Portal
+
+### 16.1 Architecture
+
+```mermaid
+graph TD
+    subgraph Ingress
+        Traefik6["Traefik LB<br/>identity.DOMAIN:443"]
+    end
+
+    subgraph Portal["identity-portal Namespace"]
+        FE["identity-portal-frontend<br/>React SPA (Nginx)<br/>:8080"]
+        BE["identity-portal-backend<br/>Go API Server<br/>:8443"]
+    end
+
+    subgraph Deps["Dependencies"]
+        KC["Keycloak<br/>(Admin REST API)"]
+        VaultSSH["Vault<br/>(ssh-client-signer/)"]
+    end
+
+    Traefik6 -->|"/  → frontend"| FE
+    Traefik6 -->|"/api/ → backend"| BE
+    FE -->|"API calls"| BE
+    BE -->|"User/Group CRUD"| KC
+    BE -->|"Sign SSH certs"| VaultSSH
+```
+
+### 16.2 Kubernetes Resources
+
+| Resource Type | Name | Namespace | Purpose |
+|--------------|------|-----------|---------|
+| Namespace | identity-portal | - | All Identity Portal components |
+| Deployment | identity-portal-backend | identity-portal | Go API server |
+| Deployment | identity-portal-frontend | identity-portal | React SPA (Nginx) |
+| Service (ClusterIP) | identity-portal-backend | identity-portal | :8443 (API) |
+| Service (ClusterIP) | identity-portal-frontend | identity-portal | :8080 (static) |
+| ServiceAccount | identity-portal | identity-portal | Pod identity for Vault K8s auth |
+| ConfigMap | identity-portal-config | identity-portal | Environment variables |
+| ConfigMap | identity-portal-ca | identity-portal | Root CA PEM for kubeconfig generation |
+| Secret | identity-portal-oidc | identity-portal | Keycloak OIDC client secret |
+| Gateway | identity-portal | identity-portal | HTTPS with cert-manager annotation |
+| HTTPRoute | identity-portal-frontend | identity-portal | Route `/` to frontend :8080 |
+| HTTPRoute | identity-portal-backend | identity-portal | Route `/api/` to backend :8443 |
+
+### 16.3 Configuration
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| KEYCLOAK_URL | `https://keycloak.DOMAIN` | Keycloak base URL |
+| KEYCLOAK_REALM | Derived from DOMAIN | Realm name |
+| KEYCLOAK_CLIENT_ID | `identity-portal` | OIDC client ID |
+| VAULT_ADDR | `http://vault.vault.svc.cluster.local:8200` | Vault API address |
+| VAULT_SSH_MOUNT | `ssh-client-signer` | SSH secrets engine mount |
+| VAULT_AUTH_PATH | `auth/kubernetes` | Vault K8s auth mount |
+| VAULT_ROLE | `identity-portal` | Vault K8s auth role |
+| LISTEN_ADDR | `:8443` | Backend listen address |
+
+### 16.4 Storage
+
+No persistent storage required. Stateless API backend and static frontend.
+
+### 16.5 Networking
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 8443 | HTTP | Backend API + Prometheus metrics |
+| 8080 | HTTP | Frontend static assets (Nginx) |
+
+### 16.6 Security
+
+| Context | Value |
+|---------|-------|
+| runAsNonRoot | true |
+| runAsUser | 65532 (backend), 101 (frontend/nginx) |
+| readOnlyRootFilesystem | true |
+| seccompProfile | RuntimeDefault |
+| allowPrivilegeEscalation | false |
+| capabilities.drop | ALL |
+| nodeSelector | workload-type: general |
+
+### 16.7 Monitoring Integration
+
+- **Prometheus scrape**: Auto-discovered via pod annotation `prometheus.io/scrape: "true"`, port `8443`, path `/metrics`
+- **Key metrics**: `identity_portal_ssh_certs_issued_total`, `identity_portal_kubeconfig_generated_total`, `identity_portal_auth_requests_total`, `identity_portal_keycloak_api_errors_total`
+- **Grafana dashboard**: `identity-portal-overview` (Services folder)
+- **Alert group**: `identity-portal-alerts` (6 rules)
+
+### 16.8 High Availability
+
+Currently single replica for both backend and frontend. HA upgrade path:
+1. Set `replicas: 2+` for both Deployments
+2. Pod anti-affinity already configured (`topologyKey: kubernetes.io/hostname`)
+3. Stateless design supports horizontal scaling
+
+### 16.9 Dependencies
+
+| Dependency | Required | Purpose |
+|------------|----------|---------|
+| Keycloak | Yes | OIDC authentication + Admin REST API for user/group CRUD |
+| Vault | Yes | SSH certificate signing via `ssh-client-signer/` engine |
+| cert-manager + Vault | Yes | TLS certificate for ingress |
+| Traefik | Yes | Ingress routing (Gateway + HTTPRoute) |
+| DNS | Yes | identity.DOMAIN -> Traefik LB IP |
+
+### 16.10 Common Issues
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| Vault auth failure | Backend returns 403 on SSH sign | Verify `identity-portal` K8s auth role exists in Vault; check ServiceAccount |
+| Keycloak API error | User CRUD operations fail | Verify OIDC client secret; check Keycloak admin client permissions |
+| SSH cert rejected | Users report `Permission denied (publickey)` | Ensure target host has `TrustedUserCAKeys` configured; check cert validity |
+| OIDC callback error | Login redirect fails | Verify `identity-portal` OIDC client redirect URI in Keycloak |
+
+---
+
 ## Appendix: Quick Reference
 
 ### All External Endpoints
@@ -2024,6 +2243,7 @@ ClusterRole: storage-autoscaler
 | Rancher | https://rancher.DOMAIN | Keycloak OIDC (manual UI config) |
 | Uptime Kuma | https://status.DOMAIN | Uptime Kuma login |
 | LibreNMS | https://librenms.DOMAIN | LibreNMS login |
+| Identity Portal | https://identity.DOMAIN | Keycloak OIDC (native) |
 | Hubble UI | https://hubble.DOMAIN | oauth2-proxy ForwardAuth |
 | Traefik Dashboard | https://traefik.DOMAIN | oauth2-proxy ForwardAuth |
 
@@ -2045,6 +2265,7 @@ ClusterRole: storage-autoscaler
 | uptime-kuma | Uptime Kuma |
 | librenms | LibreNMS, MariaDB Galera, Valkey |
 | gitlab | GitLab (webservice, sidekiq, gitaly, shell, registry), Valkey Sentinel |
+| identity-portal | Identity Portal (backend, frontend) |
 | node-labeler | Node Labeler controller |
 | storage-autoscaler | Storage Autoscaler controller |
 | kube-system | Traefik, Cilium, CoreDNS, Hubble |

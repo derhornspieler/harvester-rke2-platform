@@ -6,13 +6,15 @@
 This cluster ships two custom Kubernetes operators built with
 [Kubebuilder](https://kubebuilder.io/) and the
 [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime)
-framework. Both are compiled as static Go binaries, packaged in distroless
-container images, and deployed via Helm/Kustomize manifests.
+framework, plus a custom Go HTTP service (Identity Portal). All are compiled as
+static Go binaries, packaged in distroless container images, and deployed via
+Helm/Kustomize manifests.
 
-| Operator | API Group | Purpose |
-|----------|-----------|---------|
+| Component | API Group | Purpose |
+|-----------|-----------|---------|
 | **Node Labeler** | *(core -- watches Nodes)* | Applies `workload-type` labels to nodes based on hostname patterns |
 | **Storage Autoscaler** | `autoscaling.volume-autoscaler.io` | Automatically expands PVCs when Prometheus reports usage above a threshold |
+| **Identity Portal** | *(HTTP service -- not a controller)* | User management, SSH certificate issuance, kubeconfig generation |
 
 ---
 
@@ -39,12 +41,17 @@ container images, and deployed via Helm/Kustomize manifests.
    - [2.9 Test Coverage](#29-test-coverage)
    - [2.10 Build and Deploy](#210-build-and-deploy)
    - [2.11 VolumeAutoscaler Examples](#211-volumeautoscaler-examples)
-3. [Cross-Cutting Concerns](#3-cross-cutting-concerns)
-   - [3.1 Comparison Table](#31-comparison-table)
-   - [3.2 Airgapped Bootstrap (Chicken-and-Egg Problem)](#32-airgapped-bootstrap-chicken-and-egg-problem)
-   - [3.3 CI/CD Pipeline](#33-cicd-pipeline)
-   - [3.4 Development Workflow](#34-development-workflow)
-   - [3.5 Adding a New Operator](#35-adding-a-new-operator)
+3. [Identity Portal](#3-identity-portal)
+   - [3.1 Purpose and Design](#31-purpose-and-design-1)
+   - [3.2 Code Architecture](#32-code-architecture-1)
+   - [3.3 Prometheus Metrics](#33-prometheus-metrics)
+   - [3.4 Build and Deploy](#34-build-and-deploy-1)
+4. [Cross-Cutting Concerns](#4-cross-cutting-concerns)
+   - [4.1 Comparison Table](#41-comparison-table)
+   - [4.2 Airgapped Bootstrap (Chicken-and-Egg Problem)](#42-airgapped-bootstrap-chicken-and-egg-problem)
+   - [4.3 CI/CD Pipeline](#43-cicd-pipeline)
+   - [4.4 Development Workflow](#44-development-workflow)
+   - [4.5 Adding a New Operator](#45-adding-a-new-operator)
 
 ---
 
@@ -734,9 +741,84 @@ the production workloads managed by this cluster.
 
 ---
 
-## 3. Cross-Cutting Concerns
+## 3. Identity Portal
 
-### 3.1 Comparison Table
+Unlike the two Kubebuilder operators above, the Identity Portal is a standard Go HTTP service (not a controller-runtime reconciler). It shares the same build toolchain, CI/CD pipeline, and container image patterns as the operators, which is why it is documented here.
+
+### 3.1 Purpose and Design
+
+The Identity Portal provides a centralized web UI and API for:
+
+- **User management**: CRUD operations on Keycloak users and groups via the Admin REST API
+- **SSH certificate issuance**: Signs user SSH public keys via Vault's `ssh-client-signer/` secrets engine
+- **Kubeconfig generation**: Produces pre-configured kubeconfig files with kubelogin exec plugin settings
+
+Architecture: React SPA frontend (served by Nginx) + Go API backend. The backend authenticates users via Keycloak OIDC and uses Kubernetes ServiceAccount auth to access Vault.
+
+For full service documentation, see [Identity Portal](../identity-portal.md).
+
+### 3.2 Code Architecture
+
+```
+identity-portal/
+  cmd/
+    server/
+      main.go              # HTTP server entry point
+  internal/
+    auth/
+      oidc.go              # Keycloak OIDC middleware
+    handlers/
+      users.go             # User CRUD handlers (Keycloak Admin API)
+      ssh.go               # SSH certificate signing handlers (Vault)
+      kubeconfig.go        # Kubeconfig generation handler
+    keycloak/
+      client.go            # Keycloak Admin REST API client
+    vault/
+      ssh.go               # Vault SSH signing client
+    metrics/
+      metrics.go           # Prometheus metrics registration
+  frontend/
+    src/                   # React SPA source
+    nginx.conf             # Nginx config for SPA routing
+  Dockerfile               # Multi-stage: Go build + frontend build + distroless
+  Makefile                 # Standard targets: build, test, docker-build, docker-save
+```
+
+### 3.3 Prometheus Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `identity_portal_ssh_certs_issued_total` | Counter | `role` | SSH certificates signed |
+| `identity_portal_kubeconfig_generated_total` | Counter | - | Kubeconfig files generated |
+| `identity_portal_auth_requests_total` | Counter | `status` | Authentication attempts |
+| `identity_portal_auth_failures_total` | Counter | `reason` | Failed authentication attempts |
+| `identity_portal_keycloak_api_errors_total` | Counter | `operation` | Keycloak Admin API errors |
+| `identity_portal_ssh_sign_errors_total` | Counter | `role` | Vault SSH signing errors |
+| `identity_portal_request_duration_seconds` | Histogram | `method`, `path` | HTTP request latency |
+
+All metrics are registered via `prometheus/client_golang` and exposed at `/metrics` on port 8443.
+
+### 3.4 Build and Deploy
+
+The Identity Portal follows the same build pattern as the operators:
+
+```bash
+# Build and save image for airgapped deployment
+make docker-save IMG=harbor.<DOMAIN>/library/identity-portal:v0.1.0
+
+# Image tarball committed at:
+# operators/images/identity-portal-v0.1.0-amd64.tar.gz
+```
+
+**CI/CD**: GitHub Actions workflow at `.github/workflows/identity-portal.yml` follows the same pattern as the operator workflows (lint, test, build, push to GHCR).
+
+**Deployment**: Kustomize manifests at `services/identity-portal/`, deployed during Phase 7 of `deploy-cluster.sh`.
+
+---
+
+## 4. Cross-Cutting Concerns
+
+### 4.1 Comparison Table
 
 | Feature | Node Labeler | Storage Autoscaler |
 |---------|-------------|-------------------|
@@ -763,7 +845,7 @@ the production workloads managed by this cluster.
 | **Deploy phase** | Phase 1 (Foundation) | Phase 3 (Monitoring) |
 | **Lines of Go** | ~120 (controller) | ~430 (controller) + ~150 (Prometheus client) + ~170 (types) |
 
-### 3.2 Airgapped Bootstrap (Chicken-and-Egg Problem)
+### 4.2 Airgapped Bootstrap (Chicken-and-Egg Problem)
 
 Both operators deploy to the cluster before the Harbor container registry
 exists. This creates a bootstrap ordering problem:
@@ -823,7 +905,7 @@ cd operators/storage-autoscaler
 make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
 ```
 
-### 3.3 CI/CD Pipeline
+### 4.3 CI/CD Pipeline
 
 Both operators follow the same GitHub Actions workflow structure.
 
@@ -886,7 +968,7 @@ flowchart LR
 the metadata action extracts `0.2.0` from the tag pattern
 `storage-autoscaler-v(.*)` and applies it as the image tag.
 
-### 3.4 Development Workflow
+### 4.4 Development Workflow
 
 #### Modifying an existing operator
 
@@ -939,7 +1021,7 @@ cd operators/storage-autoscaler && make test-e2e
 - **Query Prometheus directly**: `kubectl port-forward -n monitoring svc/prometheus 9090:9090` then browse `http://localhost:9090`
 - **Check node labels**: `kubectl get nodes --show-labels | grep workload-type`
 
-### 3.5 Adding a New Operator
+### 4.5 Adding a New Operator
 
 Step-by-step guide for creating a new Kubebuilder-based operator in this
 repository.

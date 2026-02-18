@@ -2482,6 +2482,93 @@ data:
                       ]
                 },
                 {
+                      "title": "Identity Portal",
+                      "description": "Identity Portal backend instances responding",
+                      "type": "stat",
+                      "datasource": {
+                            "type": "prometheus",
+                            "uid": "prometheus"
+                      },
+                      "gridPos": {
+                            "h": 3,
+                            "w": 4,
+                            "x": 8,
+                            "y": 28
+                      },
+                      "id": 54,
+                      "links": [
+                            {
+                                  "title": "Identity Portal Dashboard",
+                                  "url": "/d/identity-portal/identity-portal?orgId=1",
+                                  "targetBlank": false
+                            }
+                      ],
+                      "fieldConfig": {
+                            "defaults": {
+                                  "noValue": "0",
+                                  "mappings": [
+                                        {
+                                              "type": "special",
+                                              "options": {
+                                                    "match": "null",
+                                                    "result": {
+                                                          "text": "DOWN",
+                                                          "color": "red",
+                                                          "index": 0
+                                                    }
+                                              }
+                                        },
+                                        {
+                                              "type": "value",
+                                              "options": {
+                                                    "0": {
+                                                          "text": "DOWN",
+                                                          "color": "red",
+                                                          "index": 1
+                                                    }
+                                              }
+                                        },
+                                        {
+                                              "type": "range",
+                                              "options": {
+                                                    "from": 1,
+                                                    "to": 999,
+                                                    "result": {
+                                                          "text": "UP",
+                                                          "color": "green",
+                                                          "index": 2
+                                                    }
+                                              }
+                                        }
+                                  ],
+                                  "links": [
+                                        {
+                                              "title": "Identity Portal Dashboard",
+                                              "url": "/d/identity-portal/identity-portal?orgId=1",
+                                              "targetBlank": false
+                                        }
+                                  ]
+                            }
+                      },
+                      "options": {
+                            "reduceOptions": {
+                                  "calcs": [
+                                        "lastNotNull"
+                                  ]
+                            },
+                            "colorMode": "background",
+                            "graphMode": "none",
+                            "textMode": "auto"
+                      },
+                      "targets": [
+                            {
+                                  "expr": "count(up{job=\"kubernetes-service-endpoints\",namespace=\"identity-portal\"} == 1) OR on() vector(0)",
+                                  "legendFormat": "",
+                                  "refId": "A"
+                            }
+                      ]
+                },
+                {
                       "title": "",
                       "type": "text",
                       "gridPos": {

@@ -1,0 +1,227 @@
+name: Identity Portal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'operators/identity-portal/**'
+      - '.github/workflows/identity-portal.yml'
+    tags:
+      - 'identity-portal-v*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'operators/identity-portal/**'
+      - '.github/workflows/identity-portal.yml'
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ${{ github.repository }}/identity-portal-backend
+  FRONTEND_IMAGE: ${{ github.repository }}/identity-portal-frontend
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+jobs:
+  # ── Backend Pipeline ──────────────────────────────────────────────────
+  test-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: operators/identity-portal
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: operators/identity-portal/go.mod
+
+      - name: Run tests
+        run: make test
+
+  govulncheck-backend:
+    runs-on: ubuntu-latest
+    # Non-blocking — reports vulnerabilities without gating the build
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: operators/identity-portal
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: operators/identity-portal/go.mod
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  lint-backend:
+    runs-on: ubuntu-latest
+    # Non-blocking — golangci-lint may not support the Go version yet
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: operators/identity-portal/go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: operators/identity-portal
+          version: latest
+
+  build-and-push-backend:
+    needs: test-backend
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    defaults:
+      run:
+        working-directory: operators/identity-portal
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=match,pattern=identity-portal-v(.*),group=1
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: operators/identity-portal
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  security-scan-backend:
+    needs: build-and-push-backend
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ needs.build-and-push-backend.outputs.version }}
+          format: table
+          exit-code: '0'
+
+  # ── Frontend Pipeline ─────────────────────────────────────────────────
+  test-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: operators/identity-portal/frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: operators/identity-portal/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --passWithNoTests
+
+      - name: Run lint
+        run: npm run lint
+
+  build-and-push-frontend:
+    needs: test-frontend
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    defaults:
+      run:
+        working-directory: operators/identity-portal/frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=match,pattern=identity-portal-v(.*),group=1
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: operators/identity-portal/frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  security-scan-frontend:
+    needs: build-and-push-frontend
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ needs.build-and-push-frontend.outputs.version }}
+          format: table
+          exit-code: '0'

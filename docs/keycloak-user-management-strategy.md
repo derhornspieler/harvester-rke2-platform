@@ -377,17 +377,21 @@ Three approaches for SSH access control:
 - Revocation: disable user in FreeIPA, access revoked immediately
 - Complexity: Low — standard Linux tooling, well-documented
 
-**2. Vault SSH CA (short-lived certificates)**
-- Vault acts as an SSH Certificate Authority
-- User authenticates to Vault (via OIDC → Keycloak → FreeIPA chain)
-- Vault signs a temporary SSH certificate (TTL: minutes to hours)
+**2. Vault SSH CA (short-lived certificates) -- Implemented via Identity Portal**
+- Vault acts as an SSH Certificate Authority (`ssh-client-signer/` secrets engine)
+- User authenticates to Identity Portal (via OIDC → Keycloak), then requests an SSH certificate
+- Vault signs a temporary SSH certificate (TTL: 2--12 hours depending on role)
 - Server trusts the Vault CA public key, no per-user key distribution
 - Revocation: certificates expire automatically, no CRL needed
 - Complexity: Medium — requires Vault SSH secret engine, client tooling
+- **Status**: Implemented via the [Identity Portal](identity-portal.md). See [SSH Certificate Authentication](ssh-certificate-auth.md) for full details.
 
 ```
-User ──► Vault (request SSH cert)
-              │ signs with SSH CA
+User ──► Identity Portal (authenticate via Keycloak OIDC)
+              │ paste SSH public key
+              ▼
+         Identity Portal ──► Vault (sign with SSH CA)
+              │
               ▼
          Temporary SSH Certificate (e.g. 4-hour TTL)
               │
@@ -506,6 +510,11 @@ FreeIPA, with group-to-role mapping configured on each device.
 Given the requirement for both web application auth (OIDC) AND infrastructure
 auth (RADIUS, TACACS+, SSH, OOB), Keycloak alone is insufficient. A directory
 service backend is required.
+
+> **Note**: The [Identity Portal](identity-portal.md) now provides admin and
+> self-service user management, SSH certificate issuance via Vault, and
+> kubeconfig generation -- covering the most common identity tasks through a web
+> UI without requiring direct Keycloak or Vault CLI access.
 
 > **Use FreeIPA + Keycloak + FreeRADIUS (Option C).**
 

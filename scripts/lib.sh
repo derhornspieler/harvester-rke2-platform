@@ -107,7 +107,8 @@ validate_airgapped_prereqs() {
   local required_oci_vars=(
     HELM_OCI_CERT_MANAGER HELM_OCI_CNPG HELM_OCI_CLUSTER_AUTOSCALER
     HELM_OCI_REDIS_OPERATOR HELM_OCI_VAULT HELM_OCI_HARBOR
-    HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_KASM
+    HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_ARGO_WORKFLOWS HELM_OCI_ARGO_EVENTS
+    HELM_OCI_KASM
   )
   if [[ "${DEPLOY_LIBRENMS:-false}" == "true" ]]; then
     required_oci_vars+=(HELM_OCI_MARIADB_OPERATOR)
@@ -145,6 +146,8 @@ validate_airgapped_prereqs() {
     echo "  HELM_OCI_HARBOR              — harbor 1.18.2 (upstream: https://helm.goharbor.io)"
     echo "  HELM_OCI_ARGOCD              — argo-cd (upstream: oci://ghcr.io/argoproj/argo-helm/argo-cd)"
     echo "  HELM_OCI_ARGO_ROLLOUTS       — argo-rollouts (upstream: oci://ghcr.io/argoproj/argo-helm/argo-rollouts)"
+    echo "  HELM_OCI_ARGO_WORKFLOWS      — argo-workflows (upstream: oci://ghcr.io/argoproj/argo-helm/argo-workflows)"
+    echo "  HELM_OCI_ARGO_EVENTS         — argo-events (upstream: oci://ghcr.io/argoproj/argo-helm/argo-events)"
     echo "  HELM_OCI_KASM                — kasm 1.1181.0 (upstream: https://helm.kasmweb.com/)"
     if [[ "${DEPLOY_LIBRENMS:-false}" == "true" ]]; then
       echo "  HELM_OCI_MARIADB_OPERATOR    — mariadb-operator (upstream: https://mariadb-operator.github.io/mariadb-operator)"
@@ -843,6 +846,9 @@ generate_or_load_env() {
   # GitLab API token (api scope) — leave empty to be prompted at runtime
   : "${GITLAB_API_TOKEN:=}"
 
+  # Identity Portal OIDC client secret
+  : "${IDENTITY_PORTAL_OIDC_SECRET:=$(gen_password 32)}"
+
   # oauth2-proxy Redis session store password
   : "${OAUTH2_PROXY_REDIS_PASSWORD:=$(gen_password 32)}"
 
@@ -905,6 +911,7 @@ generate_or_load_env() {
   export GITLAB_ROOT_PASSWORD GITLAB_PRAEFECT_DB_PASSWORD GITLAB_REDIS_PASSWORD
   export GITLAB_GITALY_TOKEN GITLAB_PRAEFECT_TOKEN GITLAB_CHART_PATH
   export GITLAB_API_TOKEN
+  export IDENTITY_PORTAL_OIDC_SECRET
   export OAUTH2_PROXY_REDIS_PASSWORD
   export GRAFANA_ADMIN_PASSWORD BASIC_AUTH_PASSWORD BASIC_AUTH_HTPASSWD
   export DOMAIN DOMAIN_DASHED DOMAIN_DOT TRAEFIK_LB_IP
@@ -975,6 +982,9 @@ GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD}"
 BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD}"
 BASIC_AUTH_HTPASSWD='${BASIC_AUTH_HTPASSWD}'
 
+# Identity Portal OIDC client secret
+IDENTITY_PORTAL_OIDC_SECRET="${IDENTITY_PORTAL_OIDC_SECRET}"
+
 # oauth2-proxy Redis session store
 OAUTH2_PROXY_REDIS_PASSWORD="${OAUTH2_PROXY_REDIS_PASSWORD}"
 
@@ -1022,6 +1032,33 @@ ENVEOF
   fi
 }
 
+# Create a Harbor project via API (from inside the cluster)
+# Usage: create_harbor_project <project_name> <public:true|false>
+create_harbor_project() {
+  local project_name="$1"
+  local is_public="${2:-false}"
+
+  local harbor_core_pod
+  harbor_core_pod=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [[ -z "$harbor_core_pod" ]]; then
+    log_warn "Harbor core pod not found, skipping project creation: ${project_name}"
+    return 0
+  fi
+
+  local harbor_api="http://harbor-core.harbor.svc.cluster.local/api/v2.0"
+  local admin_pass="${HARBOR_ADMIN_PASSWORD:-}"
+  if [[ -z "$admin_pass" ]]; then
+    admin_pass=$(grep 'harborAdminPassword' "${SERVICES_DIR}/harbor/harbor-values.yaml" | awk -F'"' '{print $2}')
+  fi
+  local auth="admin:${admin_pass}"
+
+  log_info "Creating Harbor project: ${project_name} (public=${is_public})"
+  kubectl exec -n harbor "$harbor_core_pod" -- \
+    curl -sf -u "$auth" -X POST "${harbor_api}/projects" \
+    -H "Content-Type: application/json" \
+    -d "{\"project_name\":\"${project_name}\",\"public\":${is_public},\"metadata\":{\"public\":\"${is_public}\"}}" 2>/dev/null || true
+}
+
 # Replace CHANGEME tokens and domain references in stdin, write to stdout
 _subst_changeme() {
   sed \
@@ -1042,6 +1079,7 @@ _subst_changeme() {
     -e "s|CHANGEME_KASM_PG_APP_PASSWORD|${KASM_PG_APP_PASSWORD}|g" \
     -e "s|CHANGEME_KC_ADMIN_PASSWORD|${KC_ADMIN_PASSWORD}|g" \
     -e "s|admin:CHANGEME_GENERATE_WITH_HTPASSWD|${BASIC_AUTH_HTPASSWD}|g" \
+    -e "s|CHANGEME_IDENTITY_PORTAL_OIDC_SECRET|${IDENTITY_PORTAL_OIDC_SECRET:-changeme}|g" \
     -e "s|CHANGEME_OAUTH2_PROXY_REDIS_PASSWORD|${OAUTH2_PROXY_REDIS_PASSWORD}|g" \
     -e "s|CHANGEME_TRAEFIK_LB_IP|${TRAEFIK_LB_IP}|g" \
     -e "s|CHANGEME_GIT_REPO_URL|${GIT_REPO_URL}|g" \
@@ -1181,7 +1219,7 @@ distribute_root_ca() {
 
   log_info "Distributing Root CA ConfigMap to service namespaces..."
 
-  local namespaces=(kube-system monitoring argocd argo-rollouts harbor mattermost gitlab keycloak)
+  local namespaces=(kube-system monitoring argocd argo-rollouts harbor mattermost gitlab keycloak identity-portal)
   for ns in "${namespaces[@]}"; do
     ensure_namespace "$ns"
     kubectl create configmap vault-root-ca \
@@ -1507,6 +1545,7 @@ Auth           (oauth2-proxy ForwardAuth — protects prometheus, alertmanager, 
 Keycloak       https://keycloak.${DOMAIN}       admin / CHANGEME_KC_ADMIN_PASSWORD  (bootstrap — run setup-keycloak.sh)
 Mattermost     https://mattermost.${DOMAIN}     (create admin via mmctl post-deploy)
 Kasm           https://kasm.${DOMAIN}           admin@kasm.local / ${kasm_pass}
+Identity       https://identity.${DOMAIN}      (Keycloak SSO)
 CREDSEOF
 
   # Append optional services

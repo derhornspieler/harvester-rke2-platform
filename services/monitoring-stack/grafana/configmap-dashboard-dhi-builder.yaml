@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-dhi-builder
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  dhi-builder-overview.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
+      "panels": [
+        {
+          "title": "Active Builds",
+          "description": "Count of currently running Argo Workflows in the dhi-builder namespace",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "id": 1,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 3}, {"color": "red", "value": 5}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "count(kube_pod_info{namespace=\"dhi-builder\", pod=~\"dhi-build-.*\"} * on(pod) group_left() kube_pod_status_phase{phase=\"Running\"}) or vector(0)", "legendFormat": "Active Builds", "refId": "A"}]
+        },
+        {
+          "title": "Build Success Rate (24h)",
+          "description": "Percentage of successful DHI builds in the last 24 hours",
+          "type": "gauge",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "id": 2,
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 70}, {"color": "green", "value": 90}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "(sum(argo_workflows_count{namespace=\"dhi-builder\", status=\"Succeeded\"}) / clamp_min(sum(argo_workflows_count{namespace=\"dhi-builder\"}), 1)) * 100 or vector(100)", "legendFormat": "Success Rate", "refId": "A"}]
+        },
+        {
+          "title": "Images in Harbor (dhi/)",
+          "description": "Total number of images in the dhi project in Harbor",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "id": 3,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "harbor_project_repo_count{project_name=\"dhi\"} or vector(0)", "legendFormat": "Images", "refId": "A"}]
+        },
+        {
+          "title": "BuildKit Cache Usage",
+          "description": "PVC utilization for the BuildKit cache volume",
+          "type": "gauge",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "id": 4,
+          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.7}, {"color": "red", "value": 0.9}]}}},
+          "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "kubelet_volume_stats_used_bytes{namespace=\"dhi-builder\", persistentvolumeclaim=\"buildkit-cache\"} / kubelet_volume_stats_capacity_bytes{namespace=\"dhi-builder\", persistentvolumeclaim=\"buildkit-cache\"}", "legendFormat": "Cache Usage", "refId": "A"}]
+        },
+        {
+          "title": "Build Duration",
+          "description": "Per-image build time trend over time",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "s", "noValue": "N/A", "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": {"mode": "none"}, "spanNulls": false}}},
+          "options": {"tooltip": {"mode": "multi", "sort": "desc"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "argo_workflows_duration_seconds{namespace=\"dhi-builder\", name=~\"dhi-build-.*\"}", "legendFormat": "{{name}}", "refId": "A"}]
+        },
+        {
+          "title": "Manifest vs Harbor",
+          "description": "Desired images from manifest compared to actual images in Harbor",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "id": 6,
+          "fieldConfig": {"defaults": {"custom": {"align": "auto"}}, "overrides": [{"matcher": {"id": "byName", "options": "Value"}, "properties": [{"id": "custom.displayMode", "value": "color-background"}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}]}]},
+          "options": {"showHeader": true, "sortBy": [{"displayName": "Value", "desc": false}]},
+          "targets": [
+            {"expr": "harbor_project_repo_count{project_name=\"dhi\"}", "legendFormat": "Harbor Repos", "refId": "A", "format": "table", "instant": true},
+            {"expr": "count(kube_configmap_info{namespace=\"dhi-builder\", configmap=\"dhi-image-manifest\"})", "legendFormat": "Manifest Entries", "refId": "B", "format": "table", "instant": true}
+          ],
+          "transformations": [{"id": "merge", "options": {}}]
+        },
+        {
+          "title": "Recent Build Logs",
+          "description": "Logs from the dhi-builder namespace (requires Loki)",
+          "type": "logs",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 12},
+          "id": 7,
+          "options": {"showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none"},
+          "targets": [{"expr": "{namespace=\"dhi-builder\"}", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Build History",
+          "description": "Recent DHI build workflow runs with status and duration",
+          "type": "table",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 22},
+          "id": 8,
+          "fieldConfig": {"defaults": {"custom": {"align": "auto"}}, "overrides": [{"matcher": {"id": "byName", "options": "status"}, "properties": [{"id": "custom.displayMode", "value": "color-background"}, {"id": "mappings", "value": [{"type": "value", "options": {"Succeeded": {"color": "green", "index": 0}, "Failed": {"color": "red", "index": 1}, "Running": {"color": "yellow", "index": 2}, "Error": {"color": "red", "index": 3}}}]}]}, {"matcher": {"id": "byName", "options": "Value #B"}, "properties": [{"id": "unit", "value": "s"}, {"id": "displayName", "value": "Duration"}]}]},
+          "options": {"showHeader": true, "sortBy": [{"displayName": "Time", "desc": true}]},
+          "targets": [
+            {"expr": "argo_workflows_count{namespace=\"dhi-builder\", name=~\"dhi-build-.*\"}", "legendFormat": "{{name}} ({{status}})", "refId": "A", "format": "table", "instant": true},
+            {"expr": "argo_workflows_duration_seconds{namespace=\"dhi-builder\", name=~\"dhi-build-.*\"}", "legendFormat": "", "refId": "B", "format": "table", "instant": true}
+          ],
+          "transformations": [{"id": "merge", "options": {}}, {"id": "organize", "options": {"excludeByName": {"__name__": true}, "renameByName": {"name": "Workflow", "status": "Status"}}}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["dhi", "builder", "buildkit", "harbor"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "DHI Builder Overview",
+      "uid": "dhi-builder-overview",
+      "version": 1,
+      "description": "DHI Builder pipeline monitoring dashboard covering active builds, build success rate, build duration trends, Harbor image inventory, BuildKit cache usage, manifest vs Harbor comparison, recent build logs, and build history."
+    }

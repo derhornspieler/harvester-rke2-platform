@@ -57,6 +57,7 @@ resources:
   - grafana/configmap-dashboard-storage.yaml
   - grafana/configmap-dashboard-argocd.yaml
   - grafana/configmap-dashboard-harbor.yaml
+  - grafana/configmap-dashboard-dhi-builder.yaml
   - grafana/configmap-dashboard-keycloak.yaml
   - grafana/configmap-dashboard-mattermost.yaml
   - grafana/configmap-dashboard-argo-rollouts.yaml
@@ -66,6 +67,7 @@ resources:
   - grafana/configmap-dashboard-redis.yaml
   - grafana/configmap-dashboard-security-advanced.yaml
   - grafana/configmap-dashboard-oauth2-proxy.yaml
+  - grafana/configmap-dashboard-identity-portal.yaml
   - grafana/secret-admin.yaml
   - grafana/deployment.yaml
   - grafana/service.yaml

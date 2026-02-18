@@ -1,0 +1,7 @@
+frontend/
+*.md
+.git/
+.golangci.yml
+coverage.out
+bin/
+images/

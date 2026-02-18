@@ -5,11 +5,13 @@ on:
     branches: [main]
     paths:
       - 'operators/storage-autoscaler/**'
+      - '.github/workflows/storage-autoscaler.yml'
     tags:
       - 'storage-autoscaler-v*'
   pull_request:
     paths:
       - 'operators/storage-autoscaler/**'
+      - '.github/workflows/storage-autoscaler.yml'
 
 env:
   REGISTRY: ghcr.io
@@ -76,6 +78,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     defaults:
       run:
         working-directory: operators/storage-autoscaler
@@ -118,9 +122,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.version }}
           format: table
           exit-code: '0'

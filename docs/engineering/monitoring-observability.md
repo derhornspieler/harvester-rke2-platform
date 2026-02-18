@@ -265,9 +265,11 @@ Prometheus uses a dedicated `ServiceAccount` named `prometheus` in the `monitori
 | 29 | `redis-exporter` | oauth2-proxy-redis pods | pod SD (monitoring) | HTTP | 9121 | none | Label: `app=oauth2-proxy-redis`; Redis exporter sidecar |
 | 30 | `grafana` | grafana endpoints | endpoints SD (monitoring) | HTTP | http | none | Self-monitoring |
 
+> **Note**: The Identity Portal backend is auto-discovered by Prometheus via pod annotation (`prometheus.io/scrape: "true"`, port `8443`, path `/metrics`). It is scraped by jobs #12 (kubernetes-service-endpoints) and #13 (kubernetes-pods).
+
 ### Alert Rules
 
-Prometheus defines alert rules organized into 17 groups:
+Prometheus defines alert rules organized into 18 groups:
 
 #### Group: node-alerts
 
@@ -400,6 +402,17 @@ Prometheus defines alert rules organized into 17 groups:
 |-------|-----------|-----|----------|
 | RedisDown | `up{job="redis-exporter"} == 0` | 2m | critical |
 | RedisHighMemory | Redis memory > 80% of max | 10m | warning |
+
+#### Group: identity-portal-alerts
+
+| Alert | Expression | For | Severity |
+|-------|-----------|-----|----------|
+| IdentityPortalBackendDown | `up{job="kubernetes-pods",namespace="identity-portal",container="backend"} == 0` | 2m | critical |
+| IdentityPortalFrontendDown | `up{job="kubernetes-pods",namespace="identity-portal",container="frontend"} == 0` | 2m | critical |
+| IdentityPortalHighSSHSignErrors | `rate(identity_portal_ssh_sign_errors_total[5m]) > 0.1` | 5m | warning |
+| IdentityPortalHighAuthFailures | `rate(identity_portal_auth_failures_total[5m]) > 1` | 5m | warning |
+| IdentityPortalKeycloakAPIErrors | `rate(identity_portal_keycloak_api_errors_total[5m]) > 0.5` | 5m | warning |
+| IdentityPortalHighLatency | `histogram_quantile(0.99, rate(identity_portal_request_duration_seconds_bucket[5m])) > 5` | 10m | warning |
 
 #### Group: operator-alerts
 
@@ -867,6 +880,15 @@ Inter-component communication within the cluster uses plain HTTP over ClusterIP 
 - Alloy -> Loki: `http://loki.monitoring.svc:3100/loki/api/v1/push`
 - Prometheus -> Alertmanager: `alertmanager.monitoring.svc:9093`
 
+### DHI Builder Monitoring
+
+The DHI Builder pipeline exposes metrics via the Argo Workflows controller and BuildKit daemon:
+
+- **Argo Workflows metrics**: Workflow count, duration, status (success/failure/error)
+- **BuildKit metrics**: Build duration, cache hit rates, active builds
+- **Loki logs**: Structured logs from `dhi-builder` namespace workflow pods
+- **Grafana dashboard**: `dhi-builder-overview` in Services folder
+
 ---
 
 ## 12. Dashboard Inventory
@@ -893,12 +915,14 @@ Inter-component communication within the cluster uses plain HTTP over ClusterIP 
 | 16 | Mattermost Overview | Services | `grafana-dashboard-mattermost` | `/var/lib/grafana/dashboards/services/mattermost-overview.json` | `mattermost-overview.json` | Prometheus |
 | 17 | Argo Rollouts Overview | Services | `grafana-dashboard-argo-rollouts` | `/var/lib/grafana/dashboards/services/argo-rollouts-overview.json` | `argo-rollouts-overview.json` | Prometheus |
 | 18 | Redis Overview | Services | `grafana-dashboard-redis` | `/var/lib/grafana/dashboards/services/redis-overview.json` | `redis-overview.json` | Prometheus |
-| 19 | Keycloak Overview | Security | `grafana-dashboard-keycloak` | `/var/lib/grafana/dashboards/security/keycloak-overview.json` | `keycloak-overview.json` | Prometheus |
-| 20 | cert-manager | Security | `grafana-dashboard-cert-manager` | `/var/lib/grafana/dashboards/security/cert-manager.json` | `cert-manager.json` | Prometheus |
-| 21 | Security Advanced | Security | `grafana-dashboard-security-advanced` | `/var/lib/grafana/dashboards/security/security-advanced.json` | `security-advanced.json` | Prometheus |
-| 22 | oauth2-proxy ForwardAuth | Security | `grafana-dashboard-oauth2-proxy` | `/var/lib/grafana/dashboards/security/oauth2-proxy-overview.json` | `oauth2-proxy-overview.json` | Prometheus + Loki |
-| 23 | Loki Logs | Observability | `grafana-dashboard-loki` | `/var/lib/grafana/dashboards/observability/loki-logs.json` | `loki-logs.json` | Loki |
-| 24 | Loki Stack Monitoring | Observability | `grafana-dashboard-loki-stack` | `/var/lib/grafana/dashboards/observability/loki-stack.json` | `loki-stack.json` | Prometheus + Loki |
+| 19 | DHI Builder Overview | Services | `grafana-dashboard-dhi-builder` | `/var/lib/grafana/dashboards/services/dhi-builder-overview.json` | `dhi-builder-overview.json` | Prometheus |
+| 20 | Identity Portal Overview | Services | `grafana-dashboard-identity-portal` | `/var/lib/grafana/dashboards/services/identity-portal-overview.json` | `identity-portal-overview.json` | Prometheus |
+| 21 | Keycloak Overview | Security | `grafana-dashboard-keycloak` | `/var/lib/grafana/dashboards/security/keycloak-overview.json` | `keycloak-overview.json` | Prometheus |
+| 22 | cert-manager | Security | `grafana-dashboard-cert-manager` | `/var/lib/grafana/dashboards/security/cert-manager.json` | `cert-manager.json` | Prometheus |
+| 23 | Security Advanced | Security | `grafana-dashboard-security-advanced` | `/var/lib/grafana/dashboards/security/security-advanced.json` | `security-advanced.json` | Prometheus |
+| 24 | oauth2-proxy ForwardAuth | Security | `grafana-dashboard-oauth2-proxy` | `/var/lib/grafana/dashboards/security/oauth2-proxy-overview.json` | `oauth2-proxy-overview.json` | Prometheus + Loki |
+| 25 | Loki Logs | Observability | `grafana-dashboard-loki` | `/var/lib/grafana/dashboards/observability/loki-logs.json` | `loki-logs.json` | Loki |
+| 26 | Loki Stack Monitoring | Observability | `grafana-dashboard-loki-stack` | `/var/lib/grafana/dashboards/observability/loki-stack.json` | `loki-stack.json` | Prometheus + Loki |
 
 ### Dashboard Count by Folder
 
@@ -907,10 +931,10 @@ Inter-component communication within the cluster uses plain HTTP over ClusterIP 
 | Home | 2 |
 | Platform | 5 |
 | Networking | 3 |
-| Services | 8 |
+| Services | 10 |
 | Security | 4 |
 | Observability | 2 |
-| **Total** | **24** |
+| **Total** | **26** |
 
 ### Home Dashboard Details
 

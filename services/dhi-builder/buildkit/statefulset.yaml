@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: buildkitd
+  namespace: dhi-builder
+  labels:
+    app: buildkitd
+    app.kubernetes.io/name: dhi-builder
+spec:
+  replicas: 1
+  serviceName: buildkitd
+  selector:
+    matchLabels:
+      app: buildkitd
+  template:
+    metadata:
+      labels:
+        app: buildkitd
+        app.kubernetes.io/name: dhi-builder
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        workload-type: general
+      containers:
+        - name: buildkitd
+          image: moby/buildkit:v0.18.2-rootless
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+          ports:
+            - name: grpc
+              containerPort: 1234
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: buildkit-cache
+              mountPath: /home/user/.local/share/buildkit
+      volumes:
+        - name: buildkit-cache
+          persistentVolumeClaim:
+            claimName: buildkit-cache

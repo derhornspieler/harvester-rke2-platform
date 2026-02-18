@@ -17,9 +17,9 @@ Comprehensive, source-verified documentation derived from the actual codebase. U
 | [System Architecture](engineering/system-architecture.md) | ~1,400 | Infrastructure topology, networking (Cilium CNI, L2, dual-NIC), cluster topology (4 node pools), storage architecture, and service overview |
 | [Terraform Infrastructure](engineering/terraform-infrastructure.md) | ~1,700 | Deep dive into all Terraform resources, 54 variables, cloud-init templates, `terraform.sh` wrapper, and state management |
 | [Deployment Automation](engineering/deployment-automation.md) | ~1,600 | All deployment scripts (`deploy-cluster.sh`, `destroy-cluster.sh`, `setup-keycloak.sh`, `setup-cicd.sh`, `upgrade-cluster.sh`), 12-phase deployment sequence (0-11), `lib.sh` function reference |
-| [Services Reference](engineering/services-reference.md) | ~2,000 | All 14+ Kubernetes services: architecture, resources, networking, storage, security contexts, HA design, monitoring integration |
+| [Services Reference](engineering/services-reference.md) | ~2,000 | All 15+ Kubernetes services: architecture, resources, networking, storage, security contexts, HA design, monitoring integration |
 | [Monitoring & Observability](engineering/monitoring-observability.md) | ~900 | Monitoring stack deep dive: Prometheus scrape jobs, Grafana dashboards, Loki log pipeline, Alloy collection, Alertmanager routing, TLS integration |
-| [Security Architecture](engineering/security-architecture.md) | ~950 | PKI architecture (Root CA → Intermediate → leaf), Vault HA, cert-manager, Keycloak OIDC (14 clients), RBAC, secrets management, network security, container hardening |
+| [Security Architecture](engineering/security-architecture.md) | ~950 | PKI architecture (Root CA → Intermediate → leaf), Vault HA, cert-manager, Keycloak OIDC (15 clients), SSH CA, RBAC, secrets management, network security, container hardening |
 | [Custom Operators](engineering/custom-operators.md) | ~1,100 | Two Kubebuilder operators: node-labeler (harvester-pool labels from machine annotations) and storage-autoscaler (PVC expansion via VolumeAutoscaler CRD) |
 | [Golden Image & CI/CD](engineering/golden-image-cicd.md) | ~1,550 | Golden image build pipeline (Packer + Terraform), CI/CD architecture (GitLab CI + ArgoCD app-of-apps), Harbor integration |
 | [Flow Charts](engineering/flow-charts.md) | ~1,350 | 23+ Mermaid diagrams covering deployment phases, operational flows, controller reconciliation loops, decision trees, and network/TLS flows |
@@ -41,6 +41,7 @@ Find what you need by topic:
 | **TLS / certificates** | [Security Architecture](engineering/security-architecture.md) | [Troubleshooting SOP](engineering/troubleshooting-sop.md) (Section 4) |
 | **Vault (unseal, PKI, auth)** | [Troubleshooting SOP](engineering/troubleshooting-sop.md) (Section 5) | [Security Architecture](engineering/security-architecture.md) |
 | **Keycloak / OIDC / SSO** | [Security Architecture](engineering/security-architecture.md) | [Deployment Automation](engineering/deployment-automation.md), [kubectl OIDC Setup](kubectl-oidc-setup.md) |
+| **Identity management / SSH access** | [Identity Portal](identity-portal.md) | [SSH Certificate Auth](ssh-certificate-auth.md), [Security Architecture](engineering/security-architecture.md), [Keycloak User Management Strategy](keycloak-user-management-strategy.md) |
 | **Monitoring / alerting** | [Monitoring & Observability](engineering/monitoring-observability.md) | [Services Reference](engineering/services-reference.md) |
 | **Networking (Cilium, Traefik)** | [System Architecture](engineering/system-architecture.md) | [Flow Charts](engineering/flow-charts.md), [Troubleshooting SOP](engineering/troubleshooting-sop.md) (Section 3) |
 | **Database issues (CNPG)** | [Troubleshooting SOP](engineering/troubleshooting-sop.md) (Section 6) | [Services Reference](engineering/services-reference.md) |
@@ -51,6 +52,7 @@ Find what you need by topic:
 | **Day-2 operations** | [Troubleshooting SOP](engineering/troubleshooting-sop.md) (Section 11) | [Deployment Automation](engineering/deployment-automation.md) |
 | **Disaster recovery** | [Troubleshooting SOP](engineering/troubleshooting-sop.md) (Section 10) | [Flow Charts](engineering/flow-charts.md) |
 | **Golden image pipeline** | [Golden Image & CI/CD](engineering/golden-image-cicd.md) | [Terraform Infrastructure](engineering/terraform-infrastructure.md) |
+| **Hardened image builds** | [Services Reference](engineering/services-reference.md) | [Deployment Automation](engineering/deployment-automation.md), [Monitoring & Observability](engineering/monitoring-observability.md) |
 
 ---
 
@@ -59,6 +61,8 @@ Find what you need by topic:
 | Document | Description |
 |----------|-------------|
 | [kubectl OIDC Setup](kubectl-oidc-setup.md) | End-user guide: install kubelogin, import Root CA, configure kubeconfig for Keycloak OIDC authentication |
+| [Identity Portal](identity-portal.md) | Identity Portal service: admin/self-service user management, SSH certificate issuance, kubeconfig generation |
+| [SSH Certificate Authentication](ssh-certificate-auth.md) | Vault SSH CA architecture: signing roles, host configuration, user workflow, troubleshooting |
 
 ---
 

@@ -1,0 +1,21 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: identity-portal
+  namespace: identity-portal
+  annotations:
+    cert-manager.io/cluster-issuer: vault-issuer
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 8443
+      hostname: "identity.CHANGEME_DOMAIN"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: identity-CHANGEME_DOMAIN_DASHED-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

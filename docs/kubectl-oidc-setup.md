@@ -2,6 +2,21 @@
 
 Authenticate to the RKE2 cluster using your Keycloak identity via kubelogin.
 
+## Self-Service Kubeconfig (Recommended)
+
+The easiest way to get a working kubeconfig is via the **Identity Portal**:
+
+1. Navigate to `https://identity.<DOMAIN>`
+2. Log in with your Keycloak credentials
+3. Click **"Download Kubeconfig"**
+4. Save the downloaded file to `~/.kube/config`
+
+The generated kubeconfig includes the cluster CA, API server URL, and kubelogin exec plugin configuration. Your first `kubectl` command will open a browser window for Keycloak OIDC login.
+
+> If you prefer manual configuration or need to customize the kubeconfig, follow the steps below.
+
+---
+
 ## Prerequisites
 
 - `kubectl` installed

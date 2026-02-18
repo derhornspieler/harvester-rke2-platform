@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - secret.yaml
+  - image-manifest.yaml
+  # BuildKit
+  - buildkit/pvc.yaml
+  - buildkit/statefulset.yaml
+  - buildkit/service.yaml
+  # Argo Events
+  - argo-events/eventsource.yaml
+  - argo-events/sensor.yaml
+  # Argo Workflows
+  - argo-workflows/workflow-template.yaml
+  - argo-workflows/cron-workflow.yaml
+  # Translator
+  - translator/configmap-scripts.yaml

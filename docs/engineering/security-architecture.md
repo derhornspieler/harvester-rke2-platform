@@ -278,6 +278,7 @@ Metrics are exposed at `/v1/sys/metrics?format=prometheus` on port 8200 with una
 | Engine | Mount Path | Purpose |
 |--------|-----------|---------|
 | PKI | `pki_int/` | Intermediate CA for issuing leaf certificates |
+| SSH | `ssh-client-signer/` | SSH Certificate Authority for signing user certificates |
 | KV v2 | `secret/` | Credential storage (planned, see Section 9) |
 
 ### Vault Policies
@@ -288,6 +289,10 @@ Metrics are exposed at `/v1/sys/metrics?format=prometheus` on port 8200 with una
 | `cert-manager` | `pki_int/cert/ca` | read | cert-manager |
 | `external-secrets` | `secret/data/*` | read | External Secrets Operator (planned) |
 | `external-secrets` | `secret/metadata/*` | read, list | External Secrets Operator (planned) |
+| `ssh-sign-admin` | `ssh-client-signer/sign/admin-role` | create, update | Identity Portal (platform-admins) |
+| `ssh-sign-infra` | `ssh-client-signer/sign/infra-role` | create, update | Identity Portal (infra-engineers) |
+| `ssh-sign-developer` | `ssh-client-signer/sign/developer-role` | create, update | Identity Portal (developers) |
+| `ssh-ca-public-key` | `ssh-client-signer/public_key` | read | Identity Portal (public CA key) |
 
 ### Authentication Methods
 
@@ -303,6 +308,7 @@ Metrics are exposed at `/v1/sys/metrics?format=prometheus` on port 8200 with una
 |------|----------|-----------------|----------|-----|
 | `cert-manager-issuer` | `vault-issuer` | `cert-manager` | `cert-manager` | 1h |
 | `external-secrets` | `external-secrets` | `external-secrets` | `external-secrets` | 1h |
+| `identity-portal` | `identity-portal` | `identity-portal` | `ssh-sign-admin`, `ssh-sign-infra`, `ssh-sign-developer`, `ssh-ca-public-key` | 1h |
 
 ### OIDC Configuration
 
@@ -410,6 +416,7 @@ sequenceDiagram
 | Mattermost | `mattermost-<DOMAIN_DASHED>-tls` | mattermost | Auto (gateway-shim) | cert-manager |
 | Kasm | `kasm-<DOMAIN_DASHED>-tls` | kasm | Auto (gateway-shim) | cert-manager |
 | GitLab | `gitlab-<DOMAIN_DASHED>-tls` | gitlab | Auto (gateway-shim) | cert-manager |
+| Identity Portal | `identity-<DOMAIN_DASHED>-tls` | identity-portal | Auto (gateway-shim) | cert-manager |
 
 ---
 
@@ -575,6 +582,7 @@ sequenceDiagram
 | `traefik.<DOMAIN>` | oauth2-proxy ForwardAuth | `traefik-dashboard-oidc` | Implemented | Groups: platform-admins, network-engineers |
 | `rollouts.<DOMAIN>` | oauth2-proxy ForwardAuth | `rollouts-oidc` | Implemented | Groups: platform-admins, infra-engineers, senior-developers |
 | `rancher.<DOMAIN>` | Keycloak OIDC | `rancher` | Manual config required | Manual UI setup |
+| `identity.<DOMAIN>` | Keycloak OIDC | `identity-portal` | Implemented | N/A |
 | `keycloak.<DOMAIN>` | Keycloak (native) | N/A | N/A (is the IdP) | N/A |
 
 ### SSO Implementation Status
@@ -595,6 +603,16 @@ graph LR
     style Phase3 fill:#9f9,stroke:#333
     style Phase4 fill:#9f9,stroke:#333
 ```
+
+### SSH Certificate Authentication
+
+In addition to web-based OIDC SSO, the platform provides SSH certificate-based authentication via Vault's SSH secrets engine (`ssh-client-signer/`). Users authenticate through the [Identity Portal](../identity-portal.md) using their Keycloak credentials, then receive short-lived SSH certificates signed by Vault. Target hosts trust the Vault SSH CA public key, eliminating the need for per-user key distribution.
+
+- **Certificate TTL**: 2--12 hours depending on role (admin, infra, developer)
+- **Principals**: `rocky` for standard access, `root,rocky` for admin-role
+- **Host trust**: `TrustedUserCAKeys` configured via cloud-init on all cluster nodes
+
+For full details, see [SSH Certificate Authentication](../ssh-certificate-auth.md).
 
 ---
 
@@ -638,6 +656,7 @@ The `setup-keycloak.sh` script creates all OIDC clients in the realm. The realm 
 | `traefik-dashboard-oidc` | Traefik Dashboard | Confidential | `https://traefik.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, network-engineers |
 | `rollouts-oidc` | Argo Rollouts | Confidential | `https://rollouts.<DOMAIN>/oauth2/callback` | openid, profile, email, groups | oauth2-proxy ForwardAuth — platform-admins, infra-engineers, senior-developers |
 | `rancher` | Rancher | Confidential | `https://rancher.<DOMAIN>/verify-auth` | openid, profile, email, groups | Manual UI configuration required |
+| `identity-portal` | Identity Portal | Confidential | `https://identity.<DOMAIN>/api/v1/auth/callback` | openid, profile, email, groups | User/group management, SSH cert issuance |
 
 ### Common Client Settings
 

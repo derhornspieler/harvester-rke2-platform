@@ -216,7 +216,7 @@ On failure, it prints the full list of required charts with upstream sources.
 | 4 | Harbor | Chart via `HELM_OCI_HARBOR`; proxy cache uses `UPSTREAM_PROXY_REGISTRY` |
 | 5 | ArgoCD + Rollouts | Charts via `HELM_OCI_ARGOCD`/`HELM_OCI_ARGO_ROLLOUTS`; plugin URL substituted |
 | 6 | Keycloak | Images via Harbor mirrors |
-| 7 | Kasm, Mattermost, etc. | Chart via `HELM_OCI_KASM`; images via Harbor mirrors |
+| 7 | Kasm, Mattermost, Identity Portal, etc. | Chart via `HELM_OCI_KASM`; images via Harbor mirrors; Identity Portal is Kustomize-only (no Helm chart) |
 | 8 | DNS Records | Internal DNS only |
 | 9 | Validation | No external dependencies |
 | 10 | Keycloak OIDC | oauth2-proxy images via Harbor mirrors |
@@ -239,5 +239,6 @@ On failure, it prints the full list of required charts with upstream sources.
 - [x] Terraform: private CA PEM injection + `update-ca-trust`
 - [x] `prepare-airgapped.sh` — rewrites ArgoCD bootstrap app git URLs
 - [x] TF_VAR bridge for `airgapped`, `private_rocky_repo_url`, `private_rke2_repo_url`
+- [x] Identity Portal: Kustomize-only deployment (no new Helm chart needed); images at `harbor.<DOMAIN>/library/identity-portal-backend` and `harbor.<DOMAIN>/library/identity-portal-frontend`
 - [ ] Document required container image list per service
 - [ ] Test full airgapped deployment cycle

@@ -35,6 +35,14 @@ Comprehensive visual reference for all deployment, operational, and controller f
   21. [External Traffic Path](#21-external-traffic-path)
   22. [TLS Certificate Issuance](#22-tls-certificate-issuance)
   23. [Monitoring Data Flow](#23-monitoring-data-flow)
+- [Identity Management Flows](#identity-management-flows)
+  24. [SSH Certificate Issuance Flow](#24-ssh-certificate-issuance-flow)
+  25. [Identity Portal Authentication Flow](#25-identity-portal-authentication-flow)
+- [Decision Trees (continued)](#decision-trees-continued)
+  26. [SSH Role Selection](#26-ssh-role-selection)
+- [Service Pipelines](#service-pipelines)
+  27. [DHI Build Pipeline Flow](#27-dhi-build-pipeline-flow)
+  28. [Argo Events Trigger Flow](#28-argo-events-trigger-flow)
 
 ---
 
@@ -94,7 +102,7 @@ flowchart TD
 
     P2{Phase 2?} -->|FROM_PHASE <= 2| Phase2
 
-    subgraph Phase2 [Phase 2: Vault + PKI]
+    subgraph Phase2 [Phase 2: Vault + PKI + SSH CA]
         P2_Helm[Helm install Vault HA 3 replicas] --> P2_Init{Already<br/>initialized?}
         P2_Init -->|no| P2_DoInit[vault operator init<br/>5 shares, threshold 3]
         P2_DoInit --> P2_Unseal0[Unseal vault-0<br/>3 of 5 keys]
@@ -104,7 +112,8 @@ flowchart TD
         P2_Raft --> P2_RootCA[Generate Root CA<br/>15yr, 4096-bit RSA, local key]
         P2_RootCA --> P2_IntCA[Generate Intermediate CA<br/>CSR in Vault, signed locally by Root CA]
         P2_IntCA --> P2_K8sAuth[Configure K8s auth<br/>for cert-manager]
-        P2_K8sAuth --> P2_Push[Push vault-init.json to Harvester]
+        P2_K8sAuth --> P2_SSHCA[Enable SSH secrets engine<br/>ssh-client-signer/ + signing roles]
+        P2_SSHCA --> P2_Push[Push vault-init.json to Harvester]
         P2_Push --> P2_Issuer[Apply ClusterIssuer vault-issuer<br/>+ RBAC for cert-manager]
         P2_Issuer --> P2_Gateway[Apply Vault Gateway + HTTPRoute]
         P2_Gateway --> P2_RootDist[Distribute Root CA ConfigMap<br/>to service namespaces]
@@ -176,8 +185,9 @@ flowchart TD
         P7_Uptime -->|no| P7_Libre{LibreNMS<br/>enabled?}
         P7_UptimeDeploy --> P7_Libre
         P7_Libre -->|yes| P7_LibreDeploy[Deploy LibreNMS<br/>MariaDB + Redis + App]
-        P7_Libre -->|no| P7_Done[Done]
-        P7_LibreDeploy --> P7_Done
+        P7_Libre -->|no| P7_Identity[Deploy Identity Portal]
+        P7_LibreDeploy --> P7_Identity
+        P7_Identity --> P7_Done[Done]
     end
 
     Phase7 --> P8
@@ -1349,4 +1359,174 @@ flowchart TD
     style Prom fill:#fff3e0
     style Loki fill:#e3f2fd
     style AM fill:#fce4ec
+```
+
+---
+
+## Identity Management Flows
+
+### 24. SSH Certificate Issuance Flow
+
+How a user obtains a short-lived SSH certificate via the Identity Portal and Vault SSH CA.
+
+```mermaid
+sequenceDiagram
+    participant User as User (Browser)
+    participant FE as Identity Portal Frontend
+    participant BE as Identity Portal Backend
+    participant KC as Keycloak
+    participant V as Vault (ssh-client-signer/)
+
+    User->>FE: Navigate to identity.DOMAIN
+    FE->>BE: GET /api/v1/auth/login
+    BE->>KC: OIDC redirect
+    KC-->>User: Login page
+    User->>KC: Enter credentials
+    KC-->>BE: Authorization code
+    BE->>KC: Exchange code for tokens
+    KC-->>BE: ID token + access token
+    BE-->>FE: Session established
+
+    Note over User,FE: User authenticated
+
+    User->>FE: Paste SSH public key + select role
+    FE->>BE: POST /api/v1/ssh/sign {public_key, role}
+    BE->>KC: GET /admin/realms/REALM/users/{id}/groups
+    KC-->>BE: User group memberships
+    BE->>BE: Validate role allowed for user groups
+
+    alt Role not authorized
+        BE-->>FE: 403 Forbidden
+    else Role authorized
+        BE->>V: POST ssh-client-signer/sign/ROLE<br/>{public_key, valid_principals, ttl}
+        V-->>BE: Signed SSH certificate
+        BE-->>FE: {certificate, serial, valid_until}
+        FE-->>User: Download certificate file
+    end
+```
+
+### 25. Identity Portal Authentication Flow
+
+Authentication and authorization flow for the Identity Portal administrative and self-service operations.
+
+```mermaid
+flowchart TD
+    START["User accesses identity.DOMAIN"] --> AUTH{"Has valid<br/>session?"}
+
+    AUTH -->|No| LOGIN["Redirect to Keycloak<br/>OIDC login"]
+    LOGIN --> CALLBACK["OIDC callback<br/>Exchange code for tokens"]
+    CALLBACK --> GROUPS["Fetch user groups<br/>from Keycloak"]
+    AUTH -->|Yes| REQUEST
+
+    GROUPS --> SESSION["Create session<br/>Store tokens + groups"]
+    SESSION --> REQUEST["User makes request"]
+
+    REQUEST --> TYPE{"Request type?"}
+
+    TYPE -->|"Self-service<br/>(SSH cert, kubeconfig)"| SELFAUTH["Validate Bearer token"]
+    SELFAUTH --> SELFACTION["Execute self-service action<br/>(sign SSH key / generate kubeconfig)"]
+
+    TYPE -->|"Admin<br/>(user/group CRUD)"| ADMINCHECK{"User in<br/>platform-admins?"}
+    ADMINCHECK -->|No| DENY["403 Forbidden"]
+    ADMINCHECK -->|Yes| ADMINACTION["Execute admin action<br/>via Keycloak Admin REST API"]
+
+    SELFACTION --> RESPONSE["Return response"]
+    ADMINACTION --> RESPONSE
+
+    style START fill:#2d5aa0,color:#fff
+    style LOGIN fill:#a05a2d,color:#fff
+    style DENY fill:#a02d2d,color:#fff
+    style RESPONSE fill:#1a7a3a,color:#fff
+```
+
+---
+
+## Decision Trees (continued)
+
+### 26. SSH Role Selection
+
+Decision tree for determining which Vault SSH signing role a user receives based on their Keycloak group membership.
+
+```mermaid
+flowchart TD
+    START["User requests SSH certificate"] --> GROUPS["Fetch user groups<br/>from Keycloak"]
+
+    GROUPS --> PA{"Member of<br/>platform-admins?"}
+    PA -->|Yes| ADMIN["admin-role<br/>Principals: root, rocky<br/>TTL: 4h (max 12h)<br/>Extensions: pty, agent-fwd, port-fwd"]
+
+    PA -->|No| IE{"Member of<br/>infra-engineers?"}
+    IE -->|Yes| INFRA["infra-role<br/>Principals: rocky<br/>TTL: 4h (max 8h)<br/>Extensions: pty, agent-fwd"]
+
+    IE -->|No| DEV{"Member of<br/>developers or<br/>senior-developers?"}
+    DEV -->|Yes| DEVELOPER["developer-role<br/>Principals: rocky<br/>TTL: 2h (max 4h)<br/>Extensions: pty"]
+
+    DEV -->|No| DENIED["No SSH role available<br/>403 Forbidden"]
+
+    style ADMIN fill:#1a7a3a,color:#fff
+    style INFRA fill:#2d5aa0,color:#fff
+    style DEVELOPER fill:#6b4c9a,color:#fff
+    style DENIED fill:#a02d2d,color:#fff
+```
+
+---
+
+## Service Pipelines
+
+### 27. DHI Build Pipeline Flow
+
+The Docker Hardened Images (DHI) build pipeline: from manifest change or scheduled scan through Argo Workflows to Harbor registry.
+
+```mermaid
+flowchart TD
+    subgraph trigger["Trigger"]
+        COMMIT["User commits<br/>image-manifest.yaml change"]
+        CRON["CronWorkflow<br/>Daily 02:00 UTC"]
+    end
+
+    subgraph pipeline["Argo Workflow: dhi-build-pipeline"]
+        READ["Read image manifest<br/>ConfigMap"]
+        LOOP["For each image entry"]
+        CHECK{"Image exists<br/>in Harbor?"}
+        TRANSLATE["Translate DHI YAML<br/>→ Dockerfile"]
+        BUILD["BuildKit build<br/>via buildctl"]
+        PUSH["Push to Harbor<br/>dhi/image:tag"]
+        SKIP["Skip — already built"]
+    end
+
+    COMMIT -->|ArgoCD sync| SYNC["Argo Events<br/>detects ConfigMap change"]
+    SYNC -->|Sensor triggers| READ
+    CRON -->|Scheduled| READ
+    READ --> LOOP
+    LOOP --> CHECK
+    CHECK -->|Yes| SKIP
+    CHECK -->|No| TRANSLATE
+    TRANSLATE --> BUILD
+    BUILD --> PUSH
+    PUSH --> LOOP
+
+    style trigger fill:#e1f5fe
+    style pipeline fill:#f3e5f5
+```
+
+---
+
+### 28. Argo Events Trigger Flow
+
+How Argo Events detects DHI image manifest changes and triggers the build workflow.
+
+```mermaid
+flowchart LR
+    CM["dhi-image-manifest<br/>ConfigMap"]
+    ES["EventSource<br/>Resource watcher"]
+    SN["Sensor<br/>dhi-build-trigger"]
+    WF["Workflow<br/>dhi-build-pipeline"]
+
+    CM -->|ADD/UPDATE| ES
+    ES -->|Event| SN
+    SN -->|Submit| WF
+
+    style CM fill:#fff3e0
+    style ES fill:#e8f5e9
+    style SN fill:#e3f2fd
+    style WF fill:#f3e5f5
 ```

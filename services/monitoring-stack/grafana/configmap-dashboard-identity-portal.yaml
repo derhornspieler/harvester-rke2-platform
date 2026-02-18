@@ -1,0 +1,272 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-identity-portal
+  namespace: monitoring
+  labels:
+    app: grafana
+    grafana-dashboard: "true"
+data:
+  identity-portal.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "id": null,
+      "links": [{"title": "Back to Home", "url": "/d/home-overview/cluster-home?orgId=1", "icon": "external link", "targetBlank": false, "type": "link"}],
+      "panels": [
+        {
+          "title": "Overview",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+          "id": 100,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Requests/sec",
+          "description": "Total HTTP request rate across all paths",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 4, "w": 5, "x": 0, "y": 1},
+          "id": 1,
+          "fieldConfig": {"defaults": {"unit": "reqps", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 500}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(rate(identity_portal_http_requests_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Error Rate",
+          "description": "Percentage of requests returning 5xx status codes",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 4, "w": 5, "x": 5, "y": 1},
+          "id": 2,
+          "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(rate(identity_portal_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(identity_portal_http_requests_total[5m]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "SSH Certs Issued (24h)",
+          "description": "Total SSH certificates issued in the last 24 hours",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 4, "w": 5, "x": 10, "y": 1},
+          "id": 3,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "sum(increase(identity_portal_ssh_certs_issued_total[24h]))", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Active Users",
+          "description": "Total number of active users in the Identity Portal",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 4, "w": 5, "x": 15, "y": 1},
+          "id": 4,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "identity_portal_active_users_total", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "MFA Enrollment %",
+          "description": "Percentage of active users with MFA configured",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+          "id": 5,
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 50}, {"color": "green", "value": 80}]}}},
+          "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "identity_portal_mfa_enrolled_users_total / identity_portal_active_users_total * 100", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Traffic",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+          "id": 101,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Request Rate by Path",
+          "description": "HTTP request rate broken down by path",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 6},
+          "id": 6,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_http_requests_total[5m])) by (path)", "legendFormat": "{{path}}", "refId": "A"}]
+        },
+        {
+          "title": "Request Latency p50/p95/p99",
+          "description": "HTTP request duration percentiles",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 6},
+          "id": 7,
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [
+            {"expr": "histogram_quantile(0.5, sum(rate(identity_portal_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum(rate(identity_portal_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "B"},
+            {"expr": "histogram_quantile(0.99, sum(rate(identity_portal_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "C"}
+          ]
+        },
+        {
+          "title": "Status Code Distribution",
+          "description": "HTTP request rate broken down by status code",
+          "type": "barchart",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 6},
+          "id": 8,
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"stacking": {"mode": "normal"}}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_http_requests_total[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A"}]
+        },
+        {
+          "title": "SSH CA",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+          "id": 102,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Certs Issued by Role",
+          "description": "SSH certificate issuance rate by role",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+          "id": 9,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_ssh_certs_issued_total[5m])) by (role)", "legendFormat": "{{role}}", "refId": "A"}]
+        },
+        {
+          "title": "SSH Signing Errors",
+          "description": "SSH certificate signing error rate by error type",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+          "id": 10,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_ssh_cert_errors_total[5m])) by (error_type)", "legendFormat": "{{error_type}}", "refId": "A"}]
+        },
+        {
+          "title": "Keycloak",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+          "id": 103,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Keycloak API Calls",
+          "description": "Keycloak API request rate by operation",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+          "id": 11,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_keycloak_requests_total[5m])) by (operation)", "legendFormat": "{{operation}}", "refId": "A"}]
+        },
+        {
+          "title": "Keycloak Errors",
+          "description": "Keycloak API error rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+          "id": 12,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_keycloak_errors_total[5m]))", "legendFormat": "errors/s", "refId": "A"}]
+        },
+        {
+          "title": "Active Sessions",
+          "description": "Current number of active Identity Portal sessions",
+          "type": "stat",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+          "id": 13,
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 500}]}}},
+          "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+          "targets": [{"expr": "identity_portal_active_sessions_total", "legendFormat": "", "refId": "A"}]
+        },
+        {
+          "title": "Vault",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32},
+          "id": 104,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Vault API Calls",
+          "description": "Vault API request rate by operation",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 33},
+          "id": 14,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_vault_requests_total[5m])) by (operation)", "legendFormat": "{{operation}}", "refId": "A"}]
+        },
+        {
+          "title": "Vault Errors",
+          "description": "Vault API error rate",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 33},
+          "id": 15,
+          "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "fillOpacity": 10}}},
+          "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+          "targets": [{"expr": "sum(rate(identity_portal_vault_errors_total[5m]))", "legendFormat": "errors/s", "refId": "A"}]
+        },
+        {
+          "title": "Logs",
+          "type": "row",
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 41},
+          "id": 105,
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "title": "Backend Logs",
+          "description": "Live log stream from the Identity Portal backend container",
+          "type": "logs",
+          "datasource": {"type": "loki", "uid": "loki"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 42},
+          "id": 16,
+          "options": {"showTime": true, "showLabels": false, "showCommonLabels": false, "wrapLogMessage": true, "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending", "dedupStrategy": "none"},
+          "targets": [{"expr": "{namespace=\"identity-portal\", container=\"backend\"}", "refId": "A"}]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["identity-portal", "services"],
+      "templating": {
+        "list": [
+          {
+            "current": {"selected": false, "text": "Prometheus", "value": "prometheus"},
+            "hide": 0,
+            "includeAll": false,
+            "label": "Datasource",
+            "multi": false,
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          }
+        ]
+      },
+      "time": {"from": "now-6h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Identity Portal",
+      "uid": "identity-portal",
+      "version": 1,
+      "description": "Identity Portal monitoring dashboard covering HTTP traffic, SSH CA operations, Keycloak and Vault integration metrics, and backend logs."
+    }

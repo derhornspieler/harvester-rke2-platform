@@ -5,8 +5,8 @@
 # Deploys the entire stack from bare Harvester to fully operational cluster:
 #   Terraform → cert-manager → CNPG → Redis Operator → Node Labeler → Vault
 #   → Monitoring → Harbor → ArgoCD → Keycloak → Mattermost → Kasm
-#   → Uptime Kuma → LibreNMS (optional) → RBAC → Validation
-#   → Keycloak OIDC Setup → oauth2-proxy ForwardAuth → GitLab
+#   → Uptime Kuma → LibreNMS (optional) → Identity Portal → RBAC
+#   → Validation → Keycloak OIDC Setup → oauth2-proxy ForwardAuth → GitLab
 #
 # Prerequisites:
 #   1. cluster/terraform.tfvars populated (see terraform.tfvars.example)
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       echo "Usage: $0 [--skip-tf] [--from PHASE_NUMBER]"
       echo "  --skip-tf    Skip Terraform (assume cluster already exists)"
-      echo "  --from N     Resume from phase N (0-11)"
+      echo "  --from N     Resume from phase N (0=terraform, 1=foundation, 2=vault, 3=monitoring, 4=harbor, 5=argocd+dhi, 6=keycloak, 7=services, 8=dns, 9=validation, 10=keycloak-setup, 11=gitlab)"
       exit 0
       ;;
     *) die "Unknown argument: $1" ;;
@@ -716,6 +716,111 @@ POLICY
   kubectl rollout restart daemonset/rke2-traefik -n kube-system
   kubectl rollout status daemonset/rke2-traefik -n kube-system --timeout=120s
 
+  # ── SSH Certificate Authority ──────────────────────────────────────────
+  log_step "Enabling SSH client signer secrets engine"
+  vault_exec "$root_token" secrets enable -path=ssh-client-signer ssh 2>/dev/null || true
+
+  log_step "Generating SSH CA signing key"
+  vault_exec "$root_token" write ssh-client-signer/config/ca generate_signing_key=true 2>/dev/null || true
+
+  log_step "Creating SSH signing roles"
+
+  # Admin role — platform-admins, all principals, 24h TTL
+  vault_exec_stdin "$root_token" write ssh-client-signer/roles/admin-role - <<'ROLE'
+{
+  "key_type": "ca",
+  "allow_user_certificates": true,
+  "allowed_users": "*",
+  "default_extensions": {"permit-pty":"","permit-port-forwarding":"","permit-agent-forwarding":"","permit-X11-forwarding":"","permit-user-rc":""},
+  "ttl": "24h",
+  "max_ttl": "72h"
+}
+ROLE
+
+  # Infra role — infra-engineers, network-engineers, restricted principals, 8h TTL
+  vault_exec_stdin "$root_token" write ssh-client-signer/roles/infra-role - <<'ROLE'
+{
+  "key_type": "ca",
+  "allow_user_certificates": true,
+  "allowed_users": "rocky,infra,ansible",
+  "default_extensions": {"permit-pty":"","permit-port-forwarding":"","permit-agent-forwarding":""},
+  "ttl": "8h",
+  "max_ttl": "24h"
+}
+ROLE
+
+  # Developer role — developers, minimal access, 4h TTL
+  vault_exec_stdin "$root_token" write ssh-client-signer/roles/developer-role - <<'ROLE'
+{
+  "key_type": "ca",
+  "allow_user_certificates": true,
+  "allowed_users": "rocky,developer",
+  "default_extensions": {"permit-pty":""},
+  "ttl": "4h",
+  "max_ttl": "8h"
+}
+ROLE
+
+  log_step "Creating SSH CA Vault policies"
+
+  # ssh-sign-admin — for identity-portal backend (sign via all roles + read CA)
+  vault_exec_stdin "$root_token" policy write ssh-sign-admin - <<'POLICY'
+path "ssh-client-signer/sign/*" {
+  capabilities = ["create", "update"]
+}
+path "ssh-client-signer/config/ca" {
+  capabilities = ["read"]
+}
+POLICY
+
+  # ssh-sign-self — for self-service OIDC users (developer-role only)
+  vault_exec_stdin "$root_token" policy write ssh-sign-self - <<'POLICY'
+path "ssh-client-signer/sign/developer-role" {
+  capabilities = ["create", "update"]
+}
+path "ssh-client-signer/config/ca" {
+  capabilities = ["read"]
+}
+POLICY
+
+  # ssh-admin — full CRUD on ssh-client-signer (for platform-admins)
+  vault_exec_stdin "$root_token" policy write ssh-admin - <<'POLICY'
+path "ssh-client-signer/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+POLICY
+
+  # identity-portal — broader policy for portal management
+  vault_exec_stdin "$root_token" policy write identity-portal - <<'POLICY'
+path "ssh-client-signer/sign/*" {
+  capabilities = ["create", "update"]
+}
+path "ssh-client-signer/config/ca" {
+  capabilities = ["read"]
+}
+path "ssh-client-signer/roles/*" {
+  capabilities = ["read", "list", "create", "update", "delete"]
+}
+path "sys/policies/acl/*" {
+  capabilities = ["read", "list", "create", "update", "delete"]
+}
+path "sys/policies/acl" {
+  capabilities = ["list"]
+}
+path "pki_int/cert/ca_chain" {
+  capabilities = ["read"]
+}
+POLICY
+
+  log_step "Creating Vault K8s auth role for identity-portal"
+  vault_exec "$root_token" write auth/kubernetes/role/identity-portal \
+    bound_service_account_names=identity-portal \
+    bound_service_account_namespaces=identity-portal \
+    policies=identity-portal \
+    ttl=1h
+
+  log_ok "SSH Certificate Authority configured"
+
   end_phase "PHASE 2: VAULT + PKI"
 }
 
@@ -953,7 +1058,7 @@ configure_harbor_projects() {
 # PHASE 5: ARGOCD + ARGO ROLLOUTS
 # =============================================================================
 phase_5_argocd() {
-  start_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS"
+  start_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
 
   # 5.1 ArgoCD
   log_step "Installing ArgoCD HA..."
@@ -1000,10 +1105,50 @@ phase_5_argocd() {
                    "${SERVICES_DIR}/argo/argo-rollouts/httproute.yaml"
   wait_for_tls_secret argo-rollouts "rollouts-${DOMAIN_DASHED}-tls" 120
 
+  # 5.3 Argo Workflows
+  log_step "Installing Argo Workflows..."
+  local _chart; _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-workflows" "HELM_OCI_ARGO_WORKFLOWS")
+  local workflows_values_tmp; workflows_values_tmp=$(mktemp)
+  _subst_changeme < "${SERVICES_DIR}/argo/argo-workflows/argo-workflows-values.yaml" > "$workflows_values_tmp"
+  helm_install_if_needed argo-workflows "$_chart" argocd \
+    -f "$workflows_values_tmp" --timeout 5m
+  rm -f "$workflows_values_tmp"
+  wait_for_deployment argocd argo-workflows-server 120s
+  log_ok "Argo Workflows deployed"
+
+  # 5.4 Argo Events
+  log_step "Installing Argo Events..."
+  _chart=$(resolve_helm_chart "oci://ghcr.io/argoproj/argo-helm/argo-events" "HELM_OCI_ARGO_EVENTS")
+  helm_install_if_needed argo-events "$_chart" argocd \
+    --set crds.install=true --timeout 5m
+  log_ok "Argo Events deployed"
+
   # HTTPS connectivity checks
   check_https_batch "argo.${DOMAIN}" "rollouts.${DOMAIN}"
 
-  end_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS"
+  end_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
+}
+
+# =============================================================================
+# PHASE 5b: DHI BUILDER (Docker Hardened Images)
+# =============================================================================
+phase_5b_dhi_builder() {
+  if [[ "${DEPLOY_DHI_BUILDER:-false}" != "true" ]]; then
+    log_info "DHI Builder not enabled (set DEPLOY_DHI_BUILDER=true in .env) — skipping"
+    return 0
+  fi
+  start_phase "PHASE 5b: DHI BUILDER"
+
+  # 5b.1 Create Harbor 'dhi' project (public, for hardened images)
+  log_step "Creating Harbor 'dhi' project..."
+  create_harbor_project "dhi" "true"
+
+  # 5b.2 Deploy DHI Builder manifests (BuildKit, RBAC, EventSource, Sensor, WorkflowTemplate)
+  log_step "Deploying DHI Builder stack..."
+  kube_apply_k_subst "${SERVICES_DIR}/dhi-builder"
+  wait_for_pods_ready dhi-builder "app=buildkitd" 120
+
+  end_phase "PHASE 5b: DHI BUILDER"
 }
 
 # =============================================================================
@@ -1244,6 +1389,13 @@ EOF
     log_info "Skipping LibreNMS (DEPLOY_LIBRENMS=false)"
   fi
 
+  # ── Identity Portal ────────────────────────────────────────────────────
+  log_step "Deploying Identity Portal"
+  kube_apply_k_subst "${SERVICES_DIR}/identity-portal"
+  wait_for_deployment identity-portal identity-portal-backend 120
+  wait_for_deployment identity-portal identity-portal-frontend 120
+  log_ok "Identity Portal deployed"
+
   end_phase "PHASE 7: REMAINING SERVICES"
 }
 
@@ -1273,6 +1425,7 @@ phase_8_dns() {
     "mattermost.${DOMAIN}"
     "kasm.${DOMAIN}"
     "gitlab.${DOMAIN}"
+    "identity.${DOMAIN}"
   )
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && fqdns+=("status.${DOMAIN}")
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && fqdns+=("librenms.${DOMAIN}")
@@ -1354,6 +1507,7 @@ phase_9_validation() {
     "keycloak:keycloak-${DOMAIN_DASHED}-tls"
     "mattermost:mattermost-${DOMAIN_DASHED}-tls"
   )
+  expected_secrets+=("identity-portal:identity-${DOMAIN_DASHED}-tls")
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && expected_secrets+=("uptime-kuma:status-${DOMAIN_DASHED}-tls")
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && expected_secrets+=("librenms:librenms-${DOMAIN_DASHED}-tls")
   for entry in "${expected_secrets[@]}"; do
@@ -1386,6 +1540,7 @@ phase_9_validation() {
     "keycloak.${DOMAIN}"
     "mattermost.${DOMAIN}"
     "kasm.${DOMAIN}"
+    "identity.${DOMAIN}"
   )
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && check_fqdns+=("status.${DOMAIN}")
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && check_fqdns+=("librenms.${DOMAIN}")
@@ -1401,6 +1556,8 @@ phase_9_validation() {
     "argocd:argocd-server"
     "keycloak:keycloak"
     "mattermost:mattermost"
+    "identity-portal:identity-portal-backend"
+    "identity-portal:identity-portal-frontend"
   )
   for entry in "${critical_deployments[@]}"; do
     local ns="${entry%%:*}"
@@ -1461,6 +1618,7 @@ phase_9_validation() {
   echo "    Mattermost:  https://mattermost.${DOMAIN}"
   echo "    Kasm:        https://kasm.${DOMAIN}"
   echo "    GitLab:      https://gitlab.${DOMAIN} (external)"
+  echo "    Identity:    https://identity.${DOMAIN}"
   [[ "${DEPLOY_UPTIME_KUMA}" == "true" ]] && echo "    Uptime Kuma: https://status.${DOMAIN}"
   [[ "${DEPLOY_LIBRENMS}" == "true" ]] && echo "    LibreNMS:    https://librenms.${DOMAIN}"
   echo ""
@@ -1578,6 +1736,15 @@ phase_10_keycloak_setup() {
     log_warn "oidc-client-secrets.json not found — oauth2-proxy auth will not work"
   fi
 
+  # Inject identity-portal OIDC secret
+  log_step "Injecting Identity Portal OIDC secret"
+  kubectl -n identity-portal create secret generic identity-portal-secret \
+    --from-literal=KEYCLOAK_CLIENT_SECRET="${IDENTITY_PORTAL_OIDC_SECRET}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n identity-portal rollout restart deployment/identity-portal-backend
+  wait_for_deployment identity-portal identity-portal-backend 120
+  log_ok "Identity Portal OIDC secret injected"
+
   end_phase "PHASE 10: KEYCLOAK OIDC SETUP"
 }
 
@@ -1626,6 +1793,7 @@ main() {
   [[ $FROM_PHASE -le 3 ]] && phase_3_monitoring
   [[ $FROM_PHASE -le 4 ]] && phase_4_harbor
   [[ $FROM_PHASE -le 5 ]] && phase_5_argocd
+  [[ $FROM_PHASE -le 5 ]] && phase_5b_dhi_builder
   [[ $FROM_PHASE -le 6 ]] && phase_6_keycloak
   [[ $FROM_PHASE -le 7 ]] && phase_7_remaining
   [[ $FROM_PHASE -le 8 ]] && phase_8_dns

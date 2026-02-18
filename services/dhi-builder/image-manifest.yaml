@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dhi-image-manifest
+  namespace: dhi-builder
+  labels:
+    app.kubernetes.io/name: dhi-builder
+data:
+  manifest.yaml: |
+    images:
+      - name: nginx
+        tag: "1.27.0-alpine3.20"
+        catalog: nginx/alpine-mainline.yaml
+        platforms: ["linux/amd64"]

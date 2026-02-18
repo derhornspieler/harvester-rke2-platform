@@ -120,6 +120,10 @@ spec:
             - name: dashboard-harbor
               mountPath: /var/lib/grafana/dashboards/services/harbor-overview.json
               subPath: harbor-overview.json
+            - name: dashboard-dhi-builder
+              mountPath: /var/lib/grafana/dashboards/services/dhi-builder-overview.json
+              subPath: dhi-builder-overview.json
+              readOnly: true
             - name: dashboard-mattermost
               mountPath: /var/lib/grafana/dashboards/services/mattermost-overview.json
               subPath: mattermost-overview.json
@@ -129,6 +133,9 @@ spec:
             - name: dashboard-redis
               mountPath: /var/lib/grafana/dashboards/services/redis-overview.json
               subPath: redis-overview.json
+            - name: dashboard-identity-portal
+              mountPath: /var/lib/grafana/dashboards/services/identity-portal.json
+              subPath: identity-portal.json
             # Security folder dashboards
             - name: dashboard-keycloak
               mountPath: /var/lib/grafana/dashboards/security/keycloak-overview.json
@@ -208,6 +215,9 @@ spec:
         - name: dashboard-harbor
           configMap:
             name: grafana-dashboard-harbor
+        - name: dashboard-dhi-builder
+          configMap:
+            name: grafana-dashboard-dhi-builder
         - name: dashboard-keycloak
           configMap:
             name: grafana-dashboard-keycloak
@@ -235,6 +245,9 @@ spec:
         - name: dashboard-oauth2-proxy
           configMap:
             name: grafana-dashboard-oauth2-proxy
+        - name: dashboard-identity-portal
+          configMap:
+            name: grafana-dashboard-identity-portal
         - name: vault-root-ca
           configMap:
             name: vault-root-ca

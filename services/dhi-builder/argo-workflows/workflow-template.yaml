@@ -1,0 +1,184 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: dhi-build-pipeline
+  namespace: dhi-builder
+  labels:
+    app.kubernetes.io/name: dhi-builder
+spec:
+  serviceAccountName: dhi-builder-sa
+  entrypoint: build-all-images
+  arguments:
+    parameters:
+      - name: manifest-configmap
+        value: dhi-image-manifest
+  volumes:
+    - name: manifest
+      configMap:
+        name: "{{workflow.parameters.manifest-configmap}}"
+    - name: translator-scripts
+      configMap:
+        name: dhi-translator-scripts
+        defaultMode: 0755
+    - name: docker-config
+      secret:
+        secretName: harbor-push-credentials
+        items:
+          - key: .dockerconfigjson
+            path: config.json
+    - name: workspace
+      emptyDir: {}
+
+  templates:
+    # -------------------------------------------------------------------------
+    # Entrypoint: read manifest and fan out to per-image builds
+    # -------------------------------------------------------------------------
+    - name: build-all-images
+      steps:
+        - - name: parse-manifest
+            template: parse-manifest
+
+        - - name: build-image
+            template: build-single-image
+            arguments:
+              parameters:
+                - name: image-name
+                  value: "{{item.name}}"
+                - name: image-tag
+                  value: "{{item.tag}}"
+                - name: catalog-path
+                  value: "{{item.catalog}}"
+            withParam: "{{steps.parse-manifest.outputs.result}}"
+
+    # -------------------------------------------------------------------------
+    # Parse manifest ConfigMap and output JSON array of images
+    # -------------------------------------------------------------------------
+    - name: parse-manifest
+      container:
+        image: mikefarah/yq:4
+        command: [sh, -c]
+        args:
+          - |
+            yq -o=json '.images' /manifest/manifest.yaml | \
+              yq -o=json '[ .[] | {"name": .name, "tag": .tag, "catalog": .catalog} ]'
+        volumeMounts:
+          - name: manifest
+            mountPath: /manifest
+
+    # -------------------------------------------------------------------------
+    # Per-image build pipeline (DAG)
+    # -------------------------------------------------------------------------
+    - name: build-single-image
+      inputs:
+        parameters:
+          - name: image-name
+          - name: image-tag
+          - name: catalog-path
+      dag:
+        tasks:
+          - name: check-harbor
+            template: check-harbor
+            arguments:
+              parameters:
+                - name: image-name
+                  value: "{{inputs.parameters.image-name}}"
+                - name: image-tag
+                  value: "{{inputs.parameters.image-tag}}"
+
+          - name: translate
+            template: translate
+            dependencies: [check-harbor]
+            when: "{{tasks.check-harbor.outputs.result}} == not-found"
+            arguments:
+              parameters:
+                - name: catalog-path
+                  value: "{{inputs.parameters.catalog-path}}"
+
+          - name: build-and-push
+            template: build-and-push
+            dependencies: [translate]
+            when: "{{tasks.check-harbor.outputs.result}} == not-found"
+            arguments:
+              parameters:
+                - name: image-name
+                  value: "{{inputs.parameters.image-name}}"
+                - name: image-tag
+                  value: "{{inputs.parameters.image-tag}}"
+
+    # -------------------------------------------------------------------------
+    # Check if the image already exists in Harbor
+    # -------------------------------------------------------------------------
+    - name: check-harbor
+      inputs:
+        parameters:
+          - name: image-name
+          - name: image-tag
+      container:
+        image: gcr.io/go-containerregistry/crane:latest
+        command: [sh, -c]
+        args:
+          - |
+            IMAGE="harbor.CHANGEME_DOMAIN/dhi/{{inputs.parameters.image-name}}:{{inputs.parameters.image-tag}}"
+            echo "Checking if ${IMAGE} exists in Harbor..."
+            if crane manifest "${IMAGE}" --insecure > /dev/null 2>&1; then
+              echo "Image exists, skipping build."
+              echo -n "exists"
+            else
+              echo "Image not found, will build."
+              echo -n "not-found"
+            fi
+        volumeMounts:
+          - name: docker-config
+            mountPath: /home/nonroot/.docker
+
+    # -------------------------------------------------------------------------
+    # Translate DHI catalog YAML to Dockerfile
+    # -------------------------------------------------------------------------
+    - name: translate
+      inputs:
+        parameters:
+          - name: catalog-path
+      container:
+        image: mikefarah/yq:4
+        command: [sh, -c]
+        args:
+          - |
+            /scripts/translate.sh /manifest/{{inputs.parameters.catalog-path}} /workspace/Dockerfile
+            echo "--- Generated Dockerfile ---"
+            cat /workspace/Dockerfile
+        volumeMounts:
+          - name: manifest
+            mountPath: /manifest
+          - name: translator-scripts
+            mountPath: /scripts
+          - name: workspace
+            mountPath: /workspace
+
+    # -------------------------------------------------------------------------
+    # Build with BuildKit and push to Harbor
+    # -------------------------------------------------------------------------
+    - name: build-and-push
+      inputs:
+        parameters:
+          - name: image-name
+          - name: image-tag
+      container:
+        image: moby/buildkit:v0.18.2
+        command: [sh, -c]
+        args:
+          - |
+            IMAGE="harbor.CHANGEME_DOMAIN/dhi/{{inputs.parameters.image-name}}:{{inputs.parameters.image-tag}}"
+            echo "Building ${IMAGE} via BuildKit..."
+            buildctl \
+              --addr tcp://buildkitd:1234 \
+              build \
+              --frontend dockerfile.v0 \
+              --local context=/workspace \
+              --local dockerfile=/workspace \
+              --output "type=image,name=${IMAGE},push=true,registry.insecure=true"
+            echo "Build and push complete: ${IMAGE}"
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspace
+          - name: docker-config
+            mountPath: /root/.docker

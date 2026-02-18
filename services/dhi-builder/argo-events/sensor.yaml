@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: dhi-build-trigger
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: dhi-builder
+spec:
+  dependencies:
+    - name: dhi-manifest-change
+      eventSourceName: dhi-manifest-watcher
+      eventName: dhi-manifest
+  triggers:
+    - template:
+        name: dhi-build
+        argoWorkflow:
+          operation: submit
+          source:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Workflow
+              metadata:
+                generateName: dhi-build-
+                namespace: dhi-builder
+              spec:
+                workflowTemplateRef:
+                  name: dhi-build-pipeline
+          parameters:
+            - src:
+                dependencyName: dhi-manifest-change
+                dataKey: body.metadata.name
+              dest: spec.arguments.parameters.0.value

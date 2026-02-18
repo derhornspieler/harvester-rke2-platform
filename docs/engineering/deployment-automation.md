@@ -250,6 +250,7 @@ The shared library (`scripts/lib.sh`) provides all common functions used across 
 
 | Function | Parameters | Return | Side Effects |
 |----------|-----------|--------|-------------|
+| `create_harbor_project` | `name`, `public` | None | Creates a Harbor project via API. Used by Phase 4 (proxy caches) and Phase 5b (DHI). |
 | `configure_rancher_registries` | None | None | Patches the Rancher provisioning cluster object with registry mirrors (docker.io, quay.io, ghcr.io, gcr.io, registry.k8s.io, docker.elastic.co) pointing to Harbor proxy-cache projects. Includes Root CA bundle for TLS. Primary method: kubectl patch via K3K Rancher pod. Fallback: Rancher Steve API PUT. |
 | `_configure_registries_curl` | `rancher_url`, `rancher_token`, `cluster_name`, `ca_b64`, `harbor_fqdn` | `0`/`1` | Curl fallback for `configure_rancher_registries`. Fetches full cluster JSON, merges registries config, PUTs back via Rancher API. |
 
@@ -274,6 +275,7 @@ All variables are defined in `scripts/.env` (generated from `.env.example`). If 
 | `DOMAIN_DOT` | *(derived)* | Yes | Domain with dots replaced by `-dot-` (e.g., `example-dot-com`). Used in Vault PKI role names. |
 | `DEPLOY_UPTIME_KUMA` | `true` | No | Feature flag: deploy Uptime Kuma status page |
 | `DEPLOY_LIBRENMS` | `false` | No | Feature flag: deploy LibreNMS network monitoring |
+| `DEPLOY_DHI_BUILDER` | `false` | No | Enable DHI Builder hardened image pipeline (requires Harbor + ArgoCD) |
 | `AIRGAPPED` | `false` | No | Enable airgapped mode for Harbor proxy-cache |
 | `UPSTREAM_PROXY_REGISTRY` | *(empty)* | No | Upstream proxy registry hostname for airgapped mode |
 | `KEYCLOAK_BOOTSTRAP_CLIENT_SECRET` | *(random 32 chars)* | Yes | Keycloak bootstrap admin client secret |
@@ -320,6 +322,7 @@ All variables are defined in `scripts/.env` (generated from `.env.example`). If 
 | `HARVESTER_CONTEXT` | `harvester` | No | kubectl context name for Harvester in `~/.kube/config` |
 | `USER_DATA_CP_FILE` | *(empty)* | No | Custom cloud-init file for control plane nodes |
 | `USER_DATA_WORKER_FILE` | *(empty)* | No | Custom cloud-init file for worker nodes |
+| `IDENTITY_PORTAL_OIDC_SECRET` | *(random 32 chars)* | Yes | Identity Portal Keycloak OIDC client secret |
 | `GITLAB_API_TOKEN` | *(empty)* | No | GitLab API token for automated deploy key setup (optional, used by `setup-cicd.sh`) |
 
 ### 3.2 Auto-Generation Logic
@@ -539,9 +542,9 @@ flowchart TD
     style CA fill:#2d5aa0,color:#fff
 ```
 
-### 4.5 Phase 2: Vault + PKI
+### 4.5 Phase 2: Vault + PKI + SSH CA
 
-See [Section 5: Vault PKI Setup Flow](#5-vault-pki-setup-flow) for detailed breakdown.
+See [Section 5: Vault PKI Setup Flow](#5-vault-pki-setup-flow) for detailed breakdown. This phase also configures the SSH secrets engine (`ssh-client-signer/`), signing roles (admin-role, infra-role, developer-role), and the `identity-portal` K8s auth role for SSH certificate issuance.
 
 ### 4.6 Phase 3: Monitoring Stack
 
@@ -605,7 +608,7 @@ flowchart TD
     style REG fill:#6b4c9a,color:#fff
 ```
 
-### 4.8 Phase 5: ArgoCD + Argo Rollouts
+### 4.8 Phase 5: ArgoCD + Argo Rollouts + Argo Workflows + Argo Events
 
 ```mermaid
 flowchart TD
@@ -622,13 +625,34 @@ flowchart TD
     ROLLOAUTH --> ROLLGW["Apply Gateway, HTTPRoute"]
     ROLLGW --> ROLLTLS["Wait for rollouts TLS secret"]
 
-    ROLLTLS --> HTTPS["HTTPS checks: argo, rollouts"]
+    ROLLTLS --> WFNS["Helm install Argo Workflows<br/>OCI chart from ghcr.io"]
+    WFNS --> WFWAIT["Wait for argo-workflows-server"]
+    WFWAIT --> EVNS["Helm install Argo Events<br/>with CRDs"]
+    EVNS --> HTTPS["HTTPS checks: argo, rollouts"]
 
     HTTPS --> DONE["Phase 5 Complete"]
 
     style START fill:#a07a2d,color:#fff
     style ARGOCD fill:#1a7a3a,color:#fff
     style ROLLOUTS fill:#1a7a3a,color:#fff
+```
+
+### 4.8a Phase 5b: DHI Builder
+
+Phase 5b deploys the Docker Hardened Images (DHI) Builder pipeline. This phase is gated behind the `DEPLOY_DHI_BUILDER=true` feature flag and requires Harbor (Phase 4) and ArgoCD (Phase 5) to be operational.
+
+**Feature flag**: `DEPLOY_DHI_BUILDER=true`
+
+**Steps**: Create Harbor `dhi/` project, deploy DHI Builder manifests (BuildKit, Argo Events, Argo Workflows pipeline), wait for BuildKit readiness.
+
+```mermaid
+flowchart TD
+    START["Phase 5b: DHI Builder"] --> CHECK{"DEPLOY_DHI_BUILDER<br/>== true?"}
+    CHECK -->|No| SKIP["Skip phase"]
+    CHECK -->|Yes| HPROJ["create_harbor_project 'dhi' true"]
+    HPROJ --> APPLY["kube_apply_k_subst<br/>services/dhi-builder"]
+    APPLY --> WAIT["wait_for_pods_ready<br/>dhi-builder app=buildkitd"]
+    WAIT --> DONE["Phase 5b Complete"]
 ```
 
 ### 4.9 Phase 6: Keycloak
@@ -654,7 +678,7 @@ flowchart TD
     style KC fill:#1a7a3a,color:#fff
 ```
 
-### 4.10 Phase 7: Remaining Services
+### 4.10 Phase 7: Remaining Services (including Identity Portal)
 
 ```mermaid
 flowchart TD
@@ -695,10 +719,17 @@ flowchart TD
         LNDB --> LNREDIS["Wait for Redis repl + sentinel"]
         LNREDIS --> LNAPP["Wait for LibreNMS deployment"]
         LNAPP --> LNTLS["Wait for TLS + HTTPS check"]
-        LNTLS --> DONE
+        LNTLS --> IDCHECK
     end
 
-    DONE["Phase 7 Complete"]
+    subgraph "7.5 Identity Portal"
+        IDCHECK["Deploy Identity Portal"] --> IDNS["ensure_namespace identity-portal"]
+        IDNS --> IDAPPLY["kube_apply_k_subst identity-portal/"]
+        IDAPPLY --> IDWAIT["Wait for backend + frontend deployments"]
+        IDWAIT --> IDTLS["Wait for TLS + HTTPS check"]
+    end
+
+    IDTLS --> DONE["Phase 7 Complete"]
 
     style START fill:#5a2d7a,color:#fff
 ```
@@ -707,7 +738,7 @@ flowchart TD
 
 Phase 8 is informational only -- it prints the required DNS A records pointing to the Traefik LoadBalancer IP. The following FQDNs are listed:
 
-- vault, grafana, prometheus, alertmanager, hubble, traefik, harbor, argo, rollouts, keycloak, mattermost, kasm, gitlab
+- vault, grafana, prometheus, alertmanager, hubble, traefik, harbor, argo, rollouts, keycloak, mattermost, kasm, identity, gitlab
 - Conditionally: status (Uptime Kuma), librenms (LibreNMS)
 
 ### 4.12 Phase 9: Validation
@@ -741,7 +772,7 @@ flowchart TD
 
 Phase 10 has two stages:
 
-1. **Keycloak OIDC Setup**: Calls `setup-keycloak.sh` as a child process, which creates the realm, 14 OIDC clients, service bindings, and 8 groups. See [Section 8](#8-setup-keycloaksh-flow) for details.
+1. **Keycloak OIDC Setup**: Calls `setup-keycloak.sh` as a child process, which creates the realm, 15 OIDC clients (including `identity-portal`), service bindings, and 8 groups. See [Section 8](#8-setup-keycloaksh-flow) for details.
 
 2. **oauth2-proxy ForwardAuth**: After Keycloak setup completes, Phase 10 reads the generated `oidc-client-secrets.json` and:
    - Creates per-service `oauth2-proxy-*` Secrets in the correct namespaces for: prometheus (monitoring), alertmanager (monitoring), hubble (kube-system), traefik-dashboard (kube-system), rollouts (argo-rollouts)
@@ -1873,7 +1904,8 @@ deploy-cluster.sh
   Phase 2:  Vault HA + PKI (Root CA, Intermediate CA, ClusterIssuer)
   Phase 3:  Prometheus, Grafana, Loki, Alloy, Alertmanager, Storage Autoscaler
   Phase 4:  MinIO, CNPG, Valkey Sentinel, Harbor, Proxy Cache, Registry Mirrors
-  Phase 5:  ArgoCD HA + Argo Rollouts
+  Phase 5:  ArgoCD HA + Argo Rollouts + Argo Workflows + Argo Events
+  Phase 5b: DHI Builder (Harbor dhi/ project, BuildKit, Argo Events/Workflows pipeline) [DEPLOY_DHI_BUILDER=true]
   Phase 6:  CNPG, Keycloak HA + Infinispan
   Phase 7:  Mattermost, Kasm, Uptime Kuma, LibreNMS
   Phase 8:  DNS Records (informational)
@@ -1893,8 +1925,8 @@ upgrade-cluster.sh
 
 setup-keycloak.sh
   Phase 1:  Realm + Admin/User Creation + TOTP
-  Phase 2:  OIDC Client Creation (14 clients)
-  Phase 3:  Service Bindings (Grafana, ArgoCD, Harbor, Vault, Mattermost, Kasm*, GitLab*)
+  Phase 2:  OIDC Client Creation (15 clients, including identity-portal)
+  Phase 3:  Service Bindings (Grafana, ArgoCD, Harbor, Vault, Mattermost, Identity Portal, Kasm*, GitLab*)
   Phase 4:  Groups + Role Mapping (8 groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, network-engineers, senior-developers, developers, viewers)
   Phase 5:  Validation + Summary
 
