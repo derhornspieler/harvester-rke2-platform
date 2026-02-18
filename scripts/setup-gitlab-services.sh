@@ -3,7 +3,7 @@
 # setup-gitlab-services.sh — Break Monorepo into GitLab Projects
 # =============================================================================
 # Splits each service from services/ into its own GitLab project under a
-# "Services" group, structured for MinimalCD with ArgoCD and multi-cluster
+# "Platform Services" group, structured for MinimalCD with ArgoCD and multi-cluster
 # readiness (Kustomize base/overlay layout).
 #
 # This replaces the GitHub-based setup-cicd.sh flow — ArgoCD Application
@@ -46,12 +46,14 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Phases:"
       echo "  1  Prerequisites & GitLab authentication"
-      echo "  2  Create Services group"
+      echo "  2  Create Platform Services group"
       echo "  3  GitLab <-> ArgoCD connection (SSH key, known hosts)"
       echo "  4  Create projects & push manifests (Kustomize base/overlay)"
       echo "  5  Generate ArgoCD Application manifests"
       echo "  6  Sample GitLab CI templates"
       echo "  7  Validation summary"
+      echo "  8  Deploy GitLab runners (shared + group)"
+      echo "  9  Example pipeline apps (hello-nginx, echo-go, static-site)"
       exit 0
       ;;
     *) die "Unknown argument: $1" ;;
@@ -223,39 +225,39 @@ phase_1_prerequisites() {
 }
 
 # =============================================================================
-# PHASE 2: CREATE "SERVICES" GROUP
+# PHASE 2: CREATE "PLATFORM SERVICES" GROUP
 # =============================================================================
 phase_2_create_group() {
-  start_phase "PHASE 2: CREATE SERVICES GROUP"
+  start_phase "PHASE 2: CREATE PLATFORM SERVICES GROUP"
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[DRY RUN] Would create/find GitLab group 'services'"
+    log_info "[DRY RUN] Would create/find GitLab group 'platform_services'"
     GROUP_ID="dry-run-group-id"
     end_phase "PHASE 2: CREATE GROUP"
     return 0
   fi
 
   # Check if group already exists (exact path match)
-  log_step "Checking for existing 'services' group..."
+  log_step "Checking for existing 'platform_services' group..."
   local groups_response
-  groups_response=$(gitlab_get "/groups?search=services")
+  groups_response=$(gitlab_get "/groups?search=platform_services")
 
-  GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "services") | .id' 2>/dev/null | head -1)
+  GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "platform_services") | .id' 2>/dev/null | head -1)
 
   if [[ -n "$GROUP_ID" && "$GROUP_ID" != "null" ]]; then
-    log_ok "Services group already exists (ID: ${GROUP_ID})"
+    log_ok "Platform Services group already exists (ID: ${GROUP_ID})"
   else
-    log_step "Creating 'Services' group..."
+    log_step "Creating 'Platform Services' group..."
     local create_response
     create_response=$(gitlab_post "/groups" \
-      '{"name":"Services","path":"services","visibility":"private"}')
+      '{"name":"Platform Services","path":"platform_services","visibility":"private"}')
 
     if [[ "$GITLAB_HTTP_CODE" -lt 200 || "$GITLAB_HTTP_CODE" -ge 300 ]]; then
-      die "Failed to create Services group (HTTP ${GITLAB_HTTP_CODE}): $(echo "$create_response" | jq -r '.message // .' 2>/dev/null)"
+      die "Failed to create Platform Services group (HTTP ${GITLAB_HTTP_CODE}): $(echo "$create_response" | jq -r '.message // .' 2>/dev/null)"
     fi
 
     GROUP_ID=$(echo "$create_response" | jq -r '.id')
-    log_ok "Services group created (ID: ${GROUP_ID})"
+    log_ok "Platform Services group created (ID: ${GROUP_ID})"
   fi
 
   end_phase "PHASE 2: CREATE GROUP"
@@ -313,7 +315,7 @@ phase_3_argocd_connection() {
   # 3.3 Create ArgoCD credential template Secret for GitLab repos
   log_step "Creating ArgoCD credential template for GitLab repos..."
   if [[ "$DRY_RUN" == "true" ]]; then
-    log_info "[DRY RUN] Would create ArgoCD repo credential template for git@gitlab.${DOMAIN}:services"
+    log_info "[DRY RUN] Would create ArgoCD repo credential template for git@gitlab.${DOMAIN}:platform_services"
   else
     local private_key
     private_key=$(cat "$DEPLOY_KEY_PRIVATE")
@@ -329,11 +331,11 @@ metadata:
 type: Opaque
 stringData:
   type: git
-  url: git@gitlab.${DOMAIN}:services
+  url: git@gitlab.${DOMAIN}:platform_services
   sshPrivateKey: |
 $(echo "$private_key" | sed 's/^/    /')
 EOF
-    log_ok "ArgoCD credential template created (matches git@gitlab.${DOMAIN}:services/*)"
+    log_ok "ArgoCD credential template created (matches git@gitlab.${DOMAIN}:platform_services/*)"
   fi
 
   # 3.4 Verify ArgoCD sees the credentials
@@ -360,21 +362,21 @@ create_gitlab_service_repo() {
   local service_name="$1"
   local source_dir="${REPO_ROOT}/$2"
   local repo_name="${REPO_PREFIX}-${service_name}"
-  local repo_url="git@gitlab.${DOMAIN}:services/${repo_name}.git"
+  local repo_url="git@gitlab.${DOMAIN}:platform_services/${repo_name}.git"
 
   # All log output goes to stderr so stdout is clean for the URL
   {
     if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[DRY RUN] Would create project: services/${repo_name}"
+      log_info "[DRY RUN] Would create project: platform_services/${repo_name}"
       log_info "[DRY RUN] Would push kustomize base/overlay from: $2"
     else
       # 4a. Create GitLab project under Services group
       local existing_project
       existing_project=$(gitlab_get "/projects?search=${repo_name}" | \
-        jq -r ".[] | select(.path == \"${repo_name}\" and .namespace.path == \"services\") | .id" 2>/dev/null | head -1)
+        jq -r ".[] | select(.path == \"${repo_name}\" and .namespace.path == \"platform_services\") | .id" 2>/dev/null | head -1)
 
       if [[ -n "$existing_project" && "$existing_project" != "null" ]]; then
-        log_info "Project already exists: services/${repo_name} (ID: ${existing_project})"
+        log_info "Project already exists: platform_services/${repo_name} (ID: ${existing_project})"
       else
         local create_response
         create_response=$(gitlab_post "/projects" \
@@ -389,7 +391,7 @@ create_gitlab_service_repo() {
 
         local project_id
         project_id=$(echo "$create_response" | jq -r '.id')
-        log_ok "Created project: services/${repo_name} (ID: ${project_id})"
+        log_ok "Created project: platform_services/${repo_name} (ID: ${project_id})"
 
         # Add deploy key to project (read-only)
         if [[ -f "$DEPLOY_KEY_PUBLIC" ]]; then
@@ -492,7 +494,7 @@ OVERLAY_EOF
       fi
 
       rm -rf "${tmp_dir}"
-      log_ok "Pushed kustomize base/overlay to services/${repo_name}"
+      log_ok "Pushed kustomize base/overlay to platform_services/${repo_name}"
     fi
   } >&2
 
@@ -504,14 +506,14 @@ phase_4_create_projects() {
 
   # If resuming, we need the group ID
   if [[ -z "$GROUP_ID" || "$GROUP_ID" == "dry-run-group-id" ]] && [[ "$DRY_RUN" == "false" ]]; then
-    log_step "Looking up Services group ID..."
+    log_step "Looking up Platform Services group ID..."
     local groups_response
-    groups_response=$(gitlab_get "/groups?search=services")
-    GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "services") | .id' 2>/dev/null | head -1)
+    groups_response=$(gitlab_get "/groups?search=platform_services")
+    GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "platform_services") | .id' 2>/dev/null | head -1)
     if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" ]]; then
-      die "Services group not found. Run Phase 2 first."
+      die "Platform Services group not found. Run Phase 2 first."
     fi
-    log_ok "Services group ID: ${GROUP_ID}"
+    log_ok "Platform Services group ID: ${GROUP_ID}"
   fi
 
   log_step "Creating GitLab projects and pushing kustomize-structured manifests..."
@@ -600,7 +602,7 @@ phase_5_argocd_manifests() {
   for entry in "${SERVICES[@]}"; do
     IFS='|' read -r svc_name svc_source svc_namespace svc_sync <<< "$entry"
     local repo_name="${REPO_PREFIX}-${svc_name}"
-    local repo_url="git@gitlab.${DOMAIN}:services/${repo_name}.git"
+    local repo_url="git@gitlab.${DOMAIN}:platform_services/${repo_name}.git"
 
     generate_gitlab_app_manifest "$svc_name" "$repo_url" "$svc_namespace" "$svc_sync"
   done
@@ -811,12 +813,12 @@ phase_7_validation() {
     # Look up group ID if not set (when resuming with --from 7)
     if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" ]]; then
       local groups_response
-      groups_response=$(gitlab_get "/groups?search=services")
-      GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "services") | .id' 2>/dev/null | head -1)
+      groups_response=$(gitlab_get "/groups?search=platform_services")
+      GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "platform_services") | .id' 2>/dev/null | head -1)
     fi
 
     if [[ -n "$GROUP_ID" && "$GROUP_ID" != "null" ]]; then
-      log_step "GitLab projects in Services group:"
+      log_step "GitLab projects in Platform Services group:"
       local projects_response
       projects_response=$(gitlab_get "/groups/${GROUP_ID}/projects?per_page=100")
       echo "$projects_response" | jq -r '.[] | "  \(.path_with_namespace)  (\(.web_url))"' 2>/dev/null || \
@@ -841,7 +843,7 @@ phase_7_validation() {
   echo -e "${BOLD}============================================================${NC}"
   echo ""
   echo "  GitLab:       ${GITLAB_URL}"
-  echo "  Group:        ${GITLAB_URL}/services"
+  echo "  Group:        ${GITLAB_URL}/platform_services"
   echo "  Repo Prefix:  ${REPO_PREFIX}-*"
   echo "  Cluster:      ${CLUSTER_NAME}"
   echo ""
@@ -862,7 +864,7 @@ phase_7_validation() {
     IFS='|' read -r svc_name _ _ svc_sync <<< "$entry"
     local sync_label="auto-sync"
     [[ "$svc_sync" == "manual" ]] && sync_label="manual-sync"
-    echo "    ${svc_name}  (${sync_label})  ->  services/${REPO_PREFIX}-${svc_name}"
+    echo "    ${svc_name}  (${sync_label})  ->  platform_services/${REPO_PREFIX}-${svc_name}"
   done
   echo ""
   echo "  Multi-Cluster:"
@@ -881,6 +883,303 @@ phase_7_validation() {
 
   print_total_time
   end_phase "PHASE 7: VALIDATION"
+}
+
+# =============================================================================
+# PHASE 8: DEPLOY GITLAB RUNNERS (SHARED + GROUP)
+# =============================================================================
+phase_8_runners() {
+  start_phase "PHASE 8: DEPLOY GITLAB RUNNERS"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[DRY RUN] Would deploy shared + group GitLab runners"
+    end_phase "PHASE 8: RUNNERS"
+    return 0
+  fi
+
+  # 8.1 Create namespace and distribute Root CA
+  log_step "Creating gitlab-runners namespace..."
+  ensure_namespace "gitlab-runners"
+  distribute_root_ca
+
+  # 8.2 Apply RBAC manifests
+  log_step "Applying RBAC manifests..."
+  kube_apply_k "${SERVICES_DIR}/gitlab-runners"
+
+  # 8.3 Create gitlab-runner-certs secret (Root CA for GitLab TLS trust)
+  log_step "Creating gitlab-runner-certs secret..."
+  local root_ca
+  root_ca=$(extract_root_ca)
+  if [[ -n "$root_ca" ]]; then
+    kubectl create secret generic gitlab-runner-certs \
+      --from-literal=ca.crt="$root_ca" \
+      -n gitlab-runners --dry-run=client -o yaml | kubectl apply -f -
+    log_ok "gitlab-runner-certs secret created"
+  else
+    log_warn "Could not extract Root CA — runners may fail TLS verification to GitLab"
+  fi
+
+  # 8.4 Look up group ID for group runner
+  if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" ]]; then
+    local groups_response
+    groups_response=$(gitlab_get "/groups?search=platform_services")
+    GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "platform_services") | .id' 2>/dev/null | head -1)
+  fi
+
+  # 8.5 Create shared (instance) runner via GitLab API (new auth token flow — GitLab 16+)
+  log_step "Creating shared runner via GitLab API..."
+  if [[ -n "${GITLAB_RUNNER_SHARED_TOKEN}" ]]; then
+    log_info "GITLAB_RUNNER_SHARED_TOKEN already set — skipping API creation"
+  else
+    local shared_response
+    shared_response=$(gitlab_post "/user/runners" \
+      '{"runner_type":"instance_type","description":"shared-k8s-runner","tag_list":"shared,kubernetes,compute","run_untagged":true}')
+
+    if [[ "$GITLAB_HTTP_CODE" -ge 200 && "$GITLAB_HTTP_CODE" -lt 300 ]]; then
+      GITLAB_RUNNER_SHARED_TOKEN=$(echo "$shared_response" | jq -r '.token // empty')
+      if [[ -n "$GITLAB_RUNNER_SHARED_TOKEN" ]]; then
+        log_ok "Shared runner created (token: ${GITLAB_RUNNER_SHARED_TOKEN:0:8}...)"
+      else
+        log_warn "Shared runner created but no token returned"
+      fi
+    else
+      log_warn "Failed to create shared runner (HTTP ${GITLAB_HTTP_CODE}). Create manually in GitLab Admin > CI/CD > Runners."
+      log_warn "Response: $(echo "$shared_response" | jq -r '.message // .' 2>/dev/null)"
+    fi
+  fi
+
+  # 8.6 Create group runner for platform_services
+  log_step "Creating group runner via GitLab API..."
+  if [[ -n "${GITLAB_RUNNER_GROUP_TOKEN}" ]]; then
+    log_info "GITLAB_RUNNER_GROUP_TOKEN already set — skipping API creation"
+  else
+    if [[ -n "$GROUP_ID" && "$GROUP_ID" != "null" ]]; then
+      local group_response
+      group_response=$(gitlab_post "/user/runners" \
+        "{\"runner_type\":\"group_type\",\"group_id\":${GROUP_ID},\"description\":\"platform-services-k8s-runner\",\"tag_list\":\"group,kubernetes,platform-services\",\"run_untagged\":true}")
+
+      if [[ "$GITLAB_HTTP_CODE" -ge 200 && "$GITLAB_HTTP_CODE" -lt 300 ]]; then
+        GITLAB_RUNNER_GROUP_TOKEN=$(echo "$group_response" | jq -r '.token // empty')
+        if [[ -n "$GITLAB_RUNNER_GROUP_TOKEN" ]]; then
+          log_ok "Group runner created (token: ${GITLAB_RUNNER_GROUP_TOKEN:0:8}...)"
+        else
+          log_warn "Group runner created but no token returned"
+        fi
+      else
+        log_warn "Failed to create group runner (HTTP ${GITLAB_HTTP_CODE}). Create manually in GitLab group > Build > Runners."
+        log_warn "Response: $(echo "$group_response" | jq -r '.message // .' 2>/dev/null)"
+      fi
+    else
+      log_warn "Platform Services group ID not found — skipping group runner creation"
+    fi
+  fi
+
+  # 8.7 Add Helm repo + resolve chart
+  log_step "Installing GitLab runner Helm charts..."
+  helm_repo_add gitlab https://charts.gitlab.io
+  if [[ "${AIRGAPPED:-false}" != "true" ]]; then
+    helm repo update gitlab 2>/dev/null || true
+  fi
+  local runner_chart
+  runner_chart=$(resolve_helm_chart "gitlab/gitlab-runner" "HELM_OCI_GITLAB_RUNNER")
+
+  # 8.8 Install shared runner
+  if [[ -n "${GITLAB_RUNNER_SHARED_TOKEN}" ]]; then
+    log_step "Installing shared runner Helm release..."
+    helm_install_if_needed gitlab-runner-shared "$runner_chart" gitlab-runners \
+      -f "${SERVICES_DIR}/gitlab-runners/shared-runner-values.yaml" \
+      --set runnerToken="${GITLAB_RUNNER_SHARED_TOKEN}" \
+      --set gitlabUrl="https://gitlab.${DOMAIN}"
+  else
+    log_warn "No shared runner token — skipping Helm install for shared runner"
+  fi
+
+  # 8.9 Install group runner
+  if [[ -n "${GITLAB_RUNNER_GROUP_TOKEN}" ]]; then
+    log_step "Installing group runner Helm release..."
+    helm_install_if_needed gitlab-runner-group "$runner_chart" gitlab-runners \
+      -f "${SERVICES_DIR}/gitlab-runners/group-runner-values.yaml" \
+      --set runnerToken="${GITLAB_RUNNER_GROUP_TOKEN}" \
+      --set gitlabUrl="https://gitlab.${DOMAIN}"
+  else
+    log_warn "No group runner token — skipping Helm install for group runner"
+  fi
+
+  # 8.10 Save tokens back to .env
+  log_step "Saving runner tokens to .env..."
+  export GITLAB_RUNNER_SHARED_TOKEN GITLAB_RUNNER_GROUP_TOKEN
+  # Re-source to update .env file with new tokens
+  generate_or_load_env
+
+  # 8.11 Verify runner pods
+  log_step "Verifying runner pods..."
+  sleep 10
+  kubectl -n gitlab-runners get pods 2>/dev/null || log_warn "Could not list runner pods"
+
+  end_phase "PHASE 8: RUNNERS"
+}
+
+# =============================================================================
+# PHASE 9: EXAMPLE PIPELINE APPS
+# =============================================================================
+phase_9_example_apps() {
+  start_phase "PHASE 9: EXAMPLE PIPELINE APPS"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log_info "[DRY RUN] Would create demo-apps namespace and push example apps"
+    end_phase "PHASE 9: EXAMPLE APPS"
+    return 0
+  fi
+
+  local examples_dir="${SCRIPTS_DIR}/samples/example-apps"
+  if [[ ! -d "$examples_dir" ]]; then
+    log_warn "Example apps directory not found at ${examples_dir} — skipping"
+    end_phase "PHASE 9: EXAMPLE APPS"
+    return 0
+  fi
+
+  # 9.1 Create demo-apps namespace
+  log_step "Creating demo-apps namespace..."
+  ensure_namespace "demo-apps"
+
+  # 9.2 Create Harbor 'dev' project for CI builds
+  log_step "Creating Harbor 'dev' project..."
+  create_harbor_project "dev" "false"
+
+  # 9.3 Look up group ID
+  if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" ]]; then
+    local groups_response
+    groups_response=$(gitlab_get "/groups?search=platform_services")
+    GROUP_ID=$(echo "$groups_response" | jq -r '.[] | select(.path == "platform_services") | .id' 2>/dev/null | head -1)
+  fi
+
+  if [[ -z "$GROUP_ID" || "$GROUP_ID" == "null" ]]; then
+    log_warn "Platform Services group not found — skipping example app creation"
+    end_phase "PHASE 9: EXAMPLE APPS"
+    return 0
+  fi
+
+  # 9.4 Set CI/CD variables at group level
+  log_step "Setting CI/CD variables on platform_services group..."
+  for var_pair in \
+    "HARBOR_REGISTRY=harbor.${DOMAIN}" \
+    "HARBOR_CI_USER=admin" \
+    "HARBOR_CI_PASSWORD=${HARBOR_ADMIN_PASSWORD}"; do
+    local var_key="${var_pair%%=*}"
+    local var_value="${var_pair#*=}"
+    local masked="false"
+    [[ "$var_key" == "HARBOR_CI_PASSWORD" ]] && masked="true"
+
+    gitlab_api POST "/groups/${GROUP_ID}/variables" \
+      -H "Content-Type: application/json" \
+      -d "{\"key\":\"${var_key}\",\"value\":\"${var_value}\",\"protected\":false,\"masked\":${masked}}" \
+      2>/dev/null || \
+    gitlab_api PUT "/groups/${GROUP_ID}/variables/${var_key}" \
+      -H "Content-Type: application/json" \
+      -d "{\"value\":\"${var_value}\",\"protected\":false,\"masked\":${masked}}" \
+      2>/dev/null || true
+    log_ok "  Set ${var_key} on platform_services group"
+  done
+
+  # 9.5 Create GitLab projects and push example apps
+  log_step "Creating example app projects..."
+
+  export GIT_SSH_COMMAND="ssh -i ${DEPLOY_KEY_PRIVATE} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+  for app_dir in "${examples_dir}"/*/; do
+    local app_name
+    app_name=$(basename "$app_dir")
+    local project_name="${app_name}"
+    local repo_url="git@gitlab.${DOMAIN}:platform_services/${project_name}.git"
+
+    log_info "--- ${app_name} ---"
+
+    # Create project
+    local existing_project
+    existing_project=$(gitlab_get "/projects?search=${project_name}" | \
+      jq -r ".[] | select(.path == \"${project_name}\" and .namespace.path == \"platform_services\") | .id" 2>/dev/null | head -1)
+
+    local project_id=""
+    if [[ -n "$existing_project" && "$existing_project" != "null" ]]; then
+      log_info "Project already exists: platform_services/${project_name} (ID: ${existing_project})"
+      project_id="$existing_project"
+    else
+      local create_response
+      create_response=$(gitlab_post "/projects" \
+        "{\"name\":\"${project_name}\",\"path\":\"${project_name}\",\"namespace_id\":${GROUP_ID},\"visibility\":\"private\",\"initialize_with_readme\":false}")
+
+      if [[ "$GITLAB_HTTP_CODE" -ge 200 && "$GITLAB_HTTP_CODE" -lt 300 ]]; then
+        project_id=$(echo "$create_response" | jq -r '.id')
+        log_ok "Created project: platform_services/${project_name} (ID: ${project_id})"
+
+        # Add deploy key (read-only)
+        if [[ -f "$DEPLOY_KEY_PUBLIC" ]]; then
+          local pub_key
+          pub_key=$(cat "$DEPLOY_KEY_PUBLIC")
+          gitlab_post "/projects/${project_id}/deploy_keys" \
+            "{\"title\":\"ArgoCD Deploy Key\",\"key\":\"${pub_key}\",\"can_push\":false}" >/dev/null 2>&1 || true
+        fi
+        sleep 1
+      else
+        log_warn "Failed to create project ${project_name} (HTTP ${GITLAB_HTTP_CODE})"
+        continue
+      fi
+    fi
+
+    # Clone or init, push code
+    local tmp_dir
+    tmp_dir=$(mktemp -d "/tmp/example-${app_name}-XXXXXX")
+
+    if ! git clone "${repo_url}" "${tmp_dir}/repo" 2>/dev/null; then
+      mkdir -p "${tmp_dir}/repo"
+      git -C "${tmp_dir}/repo" init -b main
+      git -C "${tmp_dir}/repo" remote add origin "${repo_url}"
+    fi
+
+    local work_dir="${tmp_dir}/repo"
+    find "${work_dir}" -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+
+    # Copy example app files and substitute CHANGEME tokens
+    cp -a "${app_dir}"/. "${work_dir}/"
+    find "${work_dir}" \( -name '*.yaml' -o -name '*.yml' \) -not -path '*/.git/*' \
+      | while read -r f; do
+          _subst_changeme < "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
+        done
+
+    git -C "${work_dir}" config user.name "${GIT_AUTHOR_NAME}"
+    git -C "${work_dir}" config user.email "${GIT_AUTHOR_EMAIL}"
+    git -C "${work_dir}" add -A
+
+    if git -C "${work_dir}" diff --cached --quiet 2>/dev/null; then
+      log_info "No changes to commit for ${project_name}"
+    else
+      git -C "${work_dir}" commit -m "Initial commit: ${app_name} example app"
+    fi
+
+    if ! git -C "${work_dir}" push -u origin main 2>/dev/null; then
+      git -C "${work_dir}" branch -M main
+      git -C "${work_dir}" push -u origin main
+    fi
+
+    rm -rf "${tmp_dir}"
+    log_ok "Pushed ${app_name} to platform_services/${project_name}"
+  done
+
+  # 9.6 Verify pipelines
+  log_step "Waiting for pipelines to trigger..."
+  sleep 10
+  for app_dir in "${examples_dir}"/*/; do
+    local app_name
+    app_name=$(basename "$app_dir")
+    local project_path="platform_services%2F${app_name}"
+    local pipelines
+    pipelines=$(gitlab_get "/projects/${project_path}/pipelines?per_page=1" 2>/dev/null || echo "[]")
+    local pipeline_status
+    pipeline_status=$(echo "$pipelines" | jq -r '.[0].status // "none"' 2>/dev/null || echo "unknown")
+    log_info "  ${app_name}: pipeline status = ${pipeline_status}"
+  done
+
+  end_phase "PHASE 9: EXAMPLE APPS"
 }
 
 # =============================================================================
@@ -906,6 +1205,8 @@ main() {
   [[ $FROM_PHASE -le 5 ]] && phase_5_argocd_manifests
   [[ $FROM_PHASE -le 6 ]] && phase_6_samples
   [[ $FROM_PHASE -le 7 ]] && phase_7_validation
+  [[ $FROM_PHASE -le 8 ]] && phase_8_runners
+  [[ $FROM_PHASE -le 9 ]] && phase_9_example_apps
 }
 
 main "$@"

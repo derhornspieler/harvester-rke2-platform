@@ -811,7 +811,7 @@ VEOF'
 phase_4_groups() {
   start_phase "PHASE 4: GROUPS + ROLE MAPPING"
 
-  local groups=("platform-admins" "harvester-admins" "rancher-admins" "infra-engineers" "network-engineers" "senior-developers" "developers" "viewers")
+  local groups=("platform-admins" "harvester-admins" "rancher-admins" "infra-engineers" "network-engineers" "senior-developers" "developers" "viewers" "ci-service-accounts")
 
   for group in "${groups[@]}"; do
     log_step "Creating group: ${group}"
@@ -849,12 +849,32 @@ phase_4_groups() {
     log_ok "General user added to developers"
   fi
 
+  # Add gitlab-ci service account user to ci-service-accounts and infra-engineers groups
+  log_step "Adding gitlab-ci service account to groups..."
+  local gitlab_ci_internal_id gitlab_ci_sa_user_id
+  gitlab_ci_internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=gitlab-ci" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+  if [[ -n "$gitlab_ci_internal_id" ]]; then
+    gitlab_ci_sa_user_id=$(kc_api GET "/realms/${KC_REALM}/clients/${gitlab_ci_internal_id}/service-account-user" 2>/dev/null | jq -r '.id // empty' || echo "")
+    if [[ -n "$gitlab_ci_sa_user_id" ]]; then
+      for sa_group in ci-service-accounts infra-engineers; do
+        local sa_group_id
+        sa_group_id=$(kc_api GET "/realms/${KC_REALM}/groups?search=${sa_group}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+        if [[ -n "$sa_group_id" ]]; then
+          kc_api PUT "/realms/${KC_REALM}/users/${gitlab_ci_sa_user_id}/groups/${sa_group_id}" 2>/dev/null || true
+          log_ok "service-account-gitlab-ci added to ${sa_group}"
+        fi
+      done
+    else
+      log_warn "Could not find service account user for gitlab-ci client"
+    fi
+  fi
+
   # Configure group mapper for clients that need it
   log_step "Configuring group claim mappers..."
   local clients
   clients=$(kc_api GET "/realms/${KC_REALM}/clients?max=100" 2>/dev/null || echo "[]")
 
-  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher" "identity-portal")
+  local our_clients=("grafana" "argocd" "harbor" "vault" "mattermost" "kasm" "gitlab" "kubernetes" "prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc" "rancher" "identity-portal" "gitlab-ci")
   for client_id_name in "${our_clients[@]}"; do
     local internal_id
     internal_id=$(echo "$clients" | jq -r ".[] | select(.clientId==\"${client_id_name}\") | .id" 2>/dev/null || echo "")
@@ -923,12 +943,12 @@ phase_5_validation() {
   echo "  OIDC Clients Created:"
   echo "    grafana, argocd, harbor, vault, mattermost, kasm, gitlab, kubernetes (public)
     prometheus-oidc, alertmanager-oidc, hubble-oidc, traefik-dashboard-oidc, rollouts-oidc, rancher
-    identity-portal"
+    identity-portal, gitlab-ci (service account)"
   echo ""
   echo "  Client secrets saved to:"
   echo "    ${OIDC_SECRETS_FILE}"
   echo ""
-  echo "  Groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, network-engineers, senior-developers, developers, viewers"
+  echo "  Groups: platform-admins, harvester-admins, rancher-admins, infra-engineers, network-engineers, senior-developers, developers, viewers, ci-service-accounts"
   echo ""
   echo -e "${YELLOW}  Manual steps remaining:${NC}"
   echo "    1. Configure Kasm OIDC via Admin UI"

@@ -1,9 +1,10 @@
+version: "2"
 run:
-  timeout: 5m
+  allow-parallel-runners: true
 linters:
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
@@ -11,3 +12,24 @@ linters:
     - gosec
     - bodyclose
     - noctx
+    - revive
+    - unconvert
+  settings:
+    revive:
+      rules:
+        - name: comment-spacings
+        - name: import-shadowing
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
