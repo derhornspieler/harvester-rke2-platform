@@ -907,7 +907,7 @@ graph TB
     E -->|needs: test| G
     G -->|needs: build-and-push| S1
 
-    G5 --> H["ghcr.io/derhornspieler/node-labeler<br/>ghcr.io/derhornspieler/storage-autoscaler"]
+    G5 --> H["ghcr.io/derhornspieler/&lt;repo&gt;/node-labeler<br/>ghcr.io/derhornspieler/&lt;repo&gt;/storage-autoscaler"]
 
     style H fill:#2d5016,stroke:#4a8529
 
@@ -992,8 +992,8 @@ Images are pushed to `ghcr.io` using the repository's `GITHUB_TOKEN`:
 
 | Operator | Image Path |
 |----------|-----------|
-| Node Labeler | `ghcr.io/derhornspieler/node-labeler` |
-| Storage Autoscaler | `ghcr.io/derhornspieler/storage-autoscaler` |
+| Node Labeler | `ghcr.io/derhornspieler/<repo>/node-labeler` |
+| Storage Autoscaler | `ghcr.io/derhornspieler/<repo>/storage-autoscaler` |
 
 ### Tagging Strategy
 

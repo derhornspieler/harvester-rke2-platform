@@ -13,7 +13,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: derhornspieler/storage-autoscaler
+  IMAGE_NAME: ${{ github.repository }}/storage-autoscaler
 
 permissions:
   contents: read

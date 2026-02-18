@@ -43,7 +43,7 @@ make test
 make build
 
 # Build and push Docker image to GHCR (multi-arch)
-make docker-buildx IMG=ghcr.io/derhornspieler/node-labeler:v0.2.0
+make docker-buildx IMG=ghcr.io/derhornspieler/rke2-cluster/node-labeler:v0.2.0
 
 # Or build for local/airgapped deployment (amd64 only, saves tarball)
 make docker-save IMG=harbor.<DOMAIN>/library/node-labeler:v0.2.0

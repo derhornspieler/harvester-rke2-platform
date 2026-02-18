@@ -45,7 +45,7 @@ For airgapped clusters, a pre-built image tarball is available at `operators/ima
 
 ```bash
 # Build and push Docker image to GHCR (multi-arch)
-make docker-buildx IMG=ghcr.io/derhornspieler/storage-autoscaler:v0.2.0
+make docker-buildx IMG=ghcr.io/derhornspieler/rke2-cluster/storage-autoscaler:v0.2.0
 
 # Or build for local/airgapped deployment (amd64 only, saves tarball)
 make docker-save IMG=harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0

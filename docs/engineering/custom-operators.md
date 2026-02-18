@@ -758,7 +758,7 @@ the production workloads managed by this cluster.
 | **CRD generation** | N/A | controller-gen v0.20.0 |
 | **Makefile complexity** | Simple (no CRD generation) | Full Kubebuilder scaffold |
 | **CI/CD** | GitHub Actions (test, lint, build-push) | GitHub Actions (test, lint, build-push) |
-| **GHCR image** | `ghcr.io/derhornspieler/node-labeler` | `ghcr.io/derhornspieler/storage-autoscaler` |
+| **GHCR image** | `ghcr.io/derhornspieler/<repo>/node-labeler` | `ghcr.io/derhornspieler/<repo>/storage-autoscaler` |
 | **Replicas** | 3 (leader election) | 3 (leader election) |
 | **Deploy phase** | Phase 1 (Foundation) | Phase 3 (Monitoring) |
 | **Lines of Go** | ~120 (controller) | ~430 (controller) + ~150 (Prometheus client) + ~170 (types) |
@@ -875,7 +875,7 @@ flowchart LR
 | Workflow file | `.github/workflows/node-labeler.yml` | `.github/workflows/storage-autoscaler.yml` |
 | Path filter | `operators/node-labeler/**` | `operators/storage-autoscaler/**` |
 | Tag pattern | `node-labeler-v*` | `storage-autoscaler-v*` |
-| GHCR image | `ghcr.io/derhornspieler/node-labeler` | `ghcr.io/derhornspieler/storage-autoscaler` |
+| GHCR image | `ghcr.io/derhornspieler/<repo>/node-labeler` | `ghcr.io/derhornspieler/<repo>/storage-autoscaler` |
 | Build platforms | linux/amd64, linux/arm64 | linux/amd64, linux/arm64 |
 | GHA cache | Enabled (`type=gha, mode=max`) | Enabled (`type=gha, mode=max`) |
 | Lint blocking | No (`continue-on-error: true`) | No (`continue-on-error: true`) |

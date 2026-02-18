@@ -52,5 +52,8 @@ golden-image/.terraform.lock.hcl
 golden-image/*.tfstate
 golden-image/*.tfstate.*
 
+# Documentation review audit trail
+.doc-review/
+
 # OS
 .DS_Store
