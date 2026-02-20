@@ -122,14 +122,15 @@ APP_IMAGES=(
   "registry.k8s.io/autoscaling/cluster-autoscaler:v1.32.0"
 )
 
-# Helm charts (name version repo_url)
+# Helm charts (name:version:repo_url:harbor_project)
+# harbor_project = the repo URL hostname used as the project name in Harbor
 HELM_CHARTS=(
-  "jetstack/cert-manager:v1.19.3:https://charts.jetstack.io"
-  "cnpg/cloudnative-pg:0.27.1:https://cloudnative-pg.github.io/charts"
-  "ot-helm/redis-operator:0.18.4:https://ot-container-kit.github.io/helm-charts/"
-  "hashicorp/vault:0.32.0:https://helm.releases.hashicorp.com"
-  "prometheus-community/kube-prometheus-stack:${KPS_CHART_VERSION}:https://prometheus-community.github.io/helm-charts"
-  "goharbor/harbor:1.18.2:https://helm.goharbor.io"
+  "jetstack/cert-manager:v1.19.3:https://charts.jetstack.io:charts.jetstack.io"
+  "cnpg/cloudnative-pg:0.27.1:https://cloudnative-pg.github.io/charts:cloudnative-pg.github.io"
+  "ot-helm/redis-operator:0.18.4:https://ot-container-kit.github.io/helm-charts/:ot-container-kit.github.io"
+  "hashicorp/vault:0.32.0:https://helm.releases.hashicorp.com:helm.releases.hashicorp.com"
+  "prometheus-community/kube-prometheus-stack:${KPS_CHART_VERSION}:https://prometheus-community.github.io/helm-charts:prometheus-community.github.io"
+  "goharbor/harbor:1.18.2:https://helm.goharbor.io:helm.goharbor.io"
 )
 
 # =============================================================================
@@ -144,9 +145,10 @@ if $LIST_ONLY; then
   printf '%s\n' "${APP_IMAGES[@]}"
   echo ""
   echo -e "${BOLD}=== Helm Charts ===${NC}"
+  echo "  Harbor project names match the Helm repo URL hostname:"
   for chart in "${HELM_CHARTS[@]}"; do
-    IFS=':' read -r name version repo <<< "$chart"
-    echo "  ${name} v${version} (${repo})"
+    IFS=':' read -r name version repo project <<< "$chart"
+    echo "  ${name} v${version} → Harbor project: ${project}"
   done
   echo ""
   echo "Total app images: ${#APP_IMAGES[@]}"
@@ -204,15 +206,16 @@ fi
 # =============================================================================
 echo ""
 log_info "=== Pushing Helm charts as OCI artifacts ==="
+log_info "Project naming: repo URL hostname becomes the Harbor project name"
 for chart_entry in "${HELM_CHARTS[@]}"; do
-  IFS=':' read -r chart_name chart_version repo_url <<< "$chart_entry"
+  IFS=':' read -r chart_name chart_version repo_url harbor_project <<< "$chart_entry"
   repo_alias=$(echo "$chart_name" | cut -d'/' -f1)
   chart_short=$(echo "$chart_name" | cut -d'/' -f2)
 
-  log_info "  ${chart_name} v${chart_version}..."
+  log_info "  ${chart_name} v${chart_version} → ${harbor_project}/${chart_short}"
 
   # Add repo
-  helm repo add "$repo_alias" "$repo_url" 2>/dev/null || true
+  helm repo add "$repo_alias" "${repo_url}" 2>/dev/null || true
   helm repo update "$repo_alias" 2>/dev/null || true
 
   # Pull chart
@@ -221,13 +224,14 @@ for chart_entry in "${HELM_CHARTS[@]}"; do
     continue
   }
 
-  # Push as OCI
+  # Push as OCI — project name matches the repo URL hostname
+  # e.g., oci://registry.local:5000/charts.jetstack.io/cert-manager:v1.19.3
   tarball=$(ls /tmp/${chart_short}-${chart_version}.tgz 2>/dev/null | head -1)
   if [[ -n "$tarball" ]]; then
-    helm push "$tarball" "oci://${BOOTSTRAP_REGISTRY}/charts" 2>/dev/null || \
+    helm push "$tarball" "oci://${BOOTSTRAP_REGISTRY}/${harbor_project}" 2>/dev/null || \
       log_warn "Failed to push ${chart_name} to OCI"
     rm -f "$tarball"
-    log_ok "  Pushed: oci://${BOOTSTRAP_REGISTRY}/charts/${chart_short}:${chart_version}"
+    log_ok "  Pushed: oci://${BOOTSTRAP_REGISTRY}/${harbor_project}/${chart_short}:${chart_version}"
   fi
 done
 
@@ -238,5 +242,10 @@ log_info ""
 log_info "Next steps:"
 log_info "  1. Set BOOTSTRAP_REGISTRY=${BOOTSTRAP_REGISTRY} in scripts/.env"
 log_info "  2. Set AIRGAPPED=true in scripts/.env"
-log_info "  3. Set HELM_OCI_* variables to point to oci://${BOOTSTRAP_REGISTRY}/charts/<chart>"
+log_info "  3. Set HELM_OCI_* variables, e.g.:"
+log_info "     HELM_OCI_CERT_MANAGER=oci://${BOOTSTRAP_REGISTRY}/charts.jetstack.io/cert-manager"
+log_info "     HELM_OCI_CNPG=oci://${BOOTSTRAP_REGISTRY}/cloudnative-pg.github.io/cloudnative-pg"
+log_info "     HELM_OCI_VAULT=oci://${BOOTSTRAP_REGISTRY}/helm.releases.hashicorp.com/vault"
+log_info "     HELM_OCI_HARBOR=oci://${BOOTSTRAP_REGISTRY}/helm.goharbor.io/harbor"
+log_info "     HELM_OCI_KPS=oci://${BOOTSTRAP_REGISTRY}/prometheus-community.github.io/kube-prometheus-stack"
 log_info "  4. Run: ./scripts/deploy-cluster.sh"

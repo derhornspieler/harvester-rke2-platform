@@ -1645,18 +1645,10 @@ configure_rancher_registries() {
   local patch_file
   patch_file=$(mktemp /tmp/registries-patch-XXXXXX.json)
 
-  # In airgapped mode, also transition system-default-registry from bootstrap to Harbor
-  local sdr_patch=""
-  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
-    sdr_patch="\"machineGlobalConfig\": { \"system-default-registry\": \"${harbor_fqdn}\" },"
-    log_info "Airgapped: transitioning system-default-registry to ${harbor_fqdn}"
-  fi
-
   cat > "$patch_file" <<PATCHEOF
 {
   "spec": {
     "rkeConfig": {
-      ${sdr_patch}
       "registries": {
         "configs": {
           "${harbor_fqdn}": {
