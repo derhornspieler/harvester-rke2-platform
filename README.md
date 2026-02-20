@@ -222,5 +222,5 @@ Each service has its own README with architecture diagrams, deployment steps, co
 
 | Contributor | Role |
 |-------------|------|
-| **Your Name** | Platform architect, infrastructure and services |
+| **derhornspieler** | Platform architect, infrastructure and services |
 | **[Claude Code](https://claude.ai/claude-code)** | AI pair programmer — Gateway API migration, Harbor HPA fix, documentation, IaC |
