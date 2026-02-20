@@ -32,98 +32,6 @@ subjects:
     name: rancher-ca-sync
     namespace: cattle-system
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: rancher-ca-sync-script
-  namespace: cattle-system
-data:
-  sync.sh: |
-    #!/bin/sh
-    set -e
-
-    RANCHER_URL="${RANCHER_URL:-https://rancher.CHANGEME_DOMAIN}"
-    TOKEN_PATH="/var/run/secrets/kubernetes.io/serviceaccount/token"
-    CA_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-    API="https://kubernetes.default.svc"
-
-    # Fetch what /cacerts currently serves
-    cacerts=$(wget -q -O - --no-check-certificate "${RANCHER_URL}/cacerts" 2>/dev/null || true)
-    if [ -z "$cacerts" ] || [ "$cacerts" = "null" ]; then
-      echo "[WARN] Could not fetch ${RANCHER_URL}/cacerts — skipping"
-      exit 0
-    fi
-
-    # Strip trailing whitespace (matches install.sh behavior)
-    cacerts=$(printf '%s' "$cacerts" | sed -e 's/[[:space:]]*$//')
-
-    # Compute sha256 of what /cacerts returns
-    actual_hash=$(printf '%s' "$cacerts" | sha256sum | awk '{print $1}')
-
-    # Read current CATTLE_CA_CHECKSUM from stv-aggregation secret
-    TOKEN=$(cat "$TOKEN_PATH")
-    secret_json=$(wget -q -O - --no-check-certificate \
-      --header="Authorization: Bearer ${TOKEN}" \
-      "${API}/api/v1/namespaces/cattle-system/secrets/stv-aggregation" 2>/dev/null || true)
-
-    if [ -z "$secret_json" ]; then
-      echo "[WARN] Could not read stv-aggregation secret — skipping"
-      exit 0
-    fi
-
-    stored_b64=$(printf '%s' "$secret_json" | sed -n 's/.*"CATTLE_CA_CHECKSUM":"\([^"]*\)".*/\1/p')
-    stored_hash=$(printf '%s' "$stored_b64" | base64 -d 2>/dev/null || echo "")
-
-    if [ "$stored_hash" = "$actual_hash" ]; then
-      echo "[OK] CA checksum is current (${actual_hash})"
-      exit 0
-    fi
-
-    echo "[WARN] CA checksum drift detected"
-    echo "  stored:  ${stored_hash}"
-    echo "  actual:  ${actual_hash}"
-
-    # Build updated secret — replace CATTLE_CA_CHECKSUM and ca.crt
-    new_hash_b64=$(printf '%s' "$actual_hash" | base64 | tr -d '\n')
-    new_cert_b64=$(printf '%s' "$cacerts" | base64 | tr -d '\n')
-
-    updated_json=$(printf '%s' "$secret_json" \
-      | sed "s|\"CATTLE_CA_CHECKSUM\":\"[^\"]*\"|\"CATTLE_CA_CHECKSUM\":\"${new_hash_b64}\"|" \
-      | sed "s|\"ca.crt\":\"[^\"]*\"|\"ca.crt\":\"${new_cert_b64}\"|")
-
-    # Replace the secret
-    result=$(wget -q -O - --no-check-certificate \
-      --header="Authorization: Bearer ${TOKEN}" \
-      --header="Content-Type: application/json" \
-      --method=PUT \
-      --body-data="$updated_json" \
-      "${API}/api/v1/namespaces/cattle-system/secrets/stv-aggregation" 2>&1 || true)
-
-    if printf '%s' "$result" | grep -q '"kind":"Secret"'; then
-      echo "[OK] Patched stv-aggregation with correct checksum"
-    else
-      echo "[ERROR] Failed to patch stv-aggregation: ${result}"
-      exit 1
-    fi
-
-    # Clean up failed system-agent-upgrader pods
-    failed=$(wget -q -O - --no-check-certificate \
-      --header="Authorization: Bearer ${TOKEN}" \
-      "${API}/api/v1/namespaces/cattle-system/pods?labelSelector=upgrade.cattle.io/plan=system-agent-upgrader&fieldSelector=status.phase=Failed" 2>/dev/null \
-      | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' || true)
-
-    if [ -n "$failed" ]; then
-      count=$(printf '%s\n' "$failed" | wc -l)
-      echo "[INFO] Deleting ${count} failed upgrader pods..."
-      for pod in $failed; do
-        wget -q -O /dev/null --no-check-certificate \
-          --header="Authorization: Bearer ${TOKEN}" \
-          --method=DELETE \
-          "${API}/api/v1/namespaces/cattle-system/pods/${pod}" 2>/dev/null || true
-      done
-      echo "[OK] Failed pods cleaned up"
-    fi
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -149,22 +57,17 @@ spec:
             workload-type: general
           containers:
             - name: sync
-              image: alpine:3.21
-              command: ["sh", "/scripts/sync.sh"]
+              image: harbor.CHANGEME_DOMAIN/library/rancher-ca-sync:v0.1.0
               env:
                 - name: RANCHER_URL
                   value: "https://CHANGEME_RANCHER_FQDN"
               resources:
                 requests:
                   cpu: 10m
-                  memory: 16Mi
+                  memory: 32Mi
                 limits:
                   cpu: 100m
-                  memory: 32Mi
-              volumeMounts:
-                - name: script
-                  mountPath: /scripts
-                  readOnly: true
+                  memory: 64Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 runAsNonRoot: true
@@ -172,8 +75,3 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
-          volumes:
-            - name: script
-              configMap:
-                name: rancher-ca-sync-script
-                defaultMode: 0555
