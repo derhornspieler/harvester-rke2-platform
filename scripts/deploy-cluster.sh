@@ -257,6 +257,12 @@ phase_1_foundation() {
   log_step "Syncing Rancher agent CA checksum..."
   sync_rancher_agent_ca
 
+  # Deploy CronJob to auto-heal CA checksum drift every 5 minutes.
+  # Without this, any Rancher restart causes all system-agent-upgrader pods to
+  # fail until someone manually patches stv-aggregation.
+  log_step "Deploying Rancher CA sync CronJob..."
+  kube_apply_subst "${SERVICES_DIR}/rancher-ca-sync/cronjob.yaml"
+
   # 1.1 Wait for Traefik system chart + apply HelmChartConfig
   log_step "Waiting for Traefik system chart to be deployed..."
   local traefik_retries=0
@@ -330,6 +336,12 @@ phase_1_foundation() {
     --set nodeSelector.workload-type=general \
     --set webhook.nodeSelector.workload-type=general \
     --set cainjector.nodeSelector.workload-type=general \
+    --set resources.requests.cpu=50m \
+    --set resources.requests.memory=64Mi \
+    --set webhook.resources.requests.cpu=25m \
+    --set webhook.resources.requests.memory=32Mi \
+    --set cainjector.resources.requests.cpu=50m \
+    --set cainjector.resources.requests.memory=64Mi \
     --set startupapicheck.enabled=false \
     --timeout 10m
 
@@ -346,6 +358,8 @@ phase_1_foundation() {
   helm_install_if_needed cnpg-operator "$_chart" cnpg-system \
     --version 0.27.1 \
     --set nodeSelector.workload-type=general \
+    --set resources.requests.cpu=100m \
+    --set resources.requests.memory=128Mi \
     --timeout 10m
 
   log_ok "CNPG Operator installed"
@@ -428,6 +442,8 @@ clusterNamespace: fleet-default" \
   local _chart; _chart=$(resolve_helm_chart "ot-helm/redis-operator" "HELM_OCI_REDIS_OPERATOR")
   helm_install_if_needed redis-operator "$_chart" redis-operator-system \
     --set nodeSelector.workload-type=general \
+    --set resources.requests.cpu=100m \
+    --set resources.requests.memory=128Mi \
     --timeout 5m
 
   log_ok "Redis Operator installed"

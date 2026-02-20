@@ -5,6 +5,13 @@
 ## ---- Prometheus Operator ----
 prometheusOperator:
   enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
   nodeSelector:
     workload-type: general
 
@@ -41,6 +48,13 @@ prometheus:
         memory: 4Gi
     nodeSelector:
       workload-type: general
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
     enableAdminAPI: false
     enableFeatures: []
     # Additional scrape configs from Secret
@@ -70,6 +84,13 @@ alertmanager:
         memory: 256Mi
     nodeSelector:
       workload-type: general
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: alertmanager
   config:
     global:
       resolve_timeout: 5m
@@ -122,6 +143,13 @@ grafana:
       memory: 1Gi
   nodeSelector:
     workload-type: general
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: grafana
   persistence:
     enabled: false
   # Sidecar discovers ConfigMaps with grafana_dashboard: "1"

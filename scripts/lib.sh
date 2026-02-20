@@ -1532,14 +1532,18 @@ sync_rancher_agent_ca() {
   log_info "  stv-aggregation has: ${current_hash:0:16}..."
   log_info "  /cacerts serves:     ${actual_hash:0:16}..."
 
-  # Patch the secret with the correct hash and updated ca.crt
+  # Replace the secret data with correct hash and CA cert.
+  # Uses kubectl get + jq + replace instead of patch, because merge-patch
+  # silently no-ops when the base64 encoding roundtrips to the same value.
   local encoded_hash encoded_cert
   encoded_hash=$(echo -n "$actual_hash" | base64 -w0)
   encoded_cert=$(echo -n "$cacerts_pem" | base64 -w0)
 
-  kubectl patch secret stv-aggregation -n cattle-system --type merge \
-    -p "{\"data\":{\"CATTLE_CA_CHECKSUM\":\"${encoded_hash}\",\"ca.crt\":\"${encoded_cert}\"}}"
-  log_ok "Patched stv-aggregation: CATTLE_CA_CHECKSUM + ca.crt updated"
+  kubectl get secret stv-aggregation -n cattle-system -o json \
+    | jq --arg h "$encoded_hash" --arg c "$encoded_cert" \
+      '.data.CATTLE_CA_CHECKSUM = $h | .data["ca.crt"] = $c' \
+    | kubectl replace -f -
+  log_ok "Replaced stv-aggregation: CATTLE_CA_CHECKSUM + ca.crt updated"
 
   # Clean up failed system-agent-upgrader pods so the controller retries immediately
   local failed_count

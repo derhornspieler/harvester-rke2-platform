@@ -19,6 +19,13 @@ spec:
         prometheus.io/port: "8080"
     spec:
       serviceAccountName: storage-autoscaler
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: storage-autoscaler
       nodeSelector:
         workload-type: general
       tolerations:

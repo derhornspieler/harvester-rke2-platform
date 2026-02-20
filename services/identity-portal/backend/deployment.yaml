@@ -20,6 +20,14 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: identity-portal
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: identity-portal
+              component: backend
       nodeSelector:
         workload-type: general
       affinity:

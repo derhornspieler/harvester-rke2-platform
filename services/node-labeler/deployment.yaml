@@ -19,6 +19,13 @@ spec:
         prometheus.io/port: "8080"
     spec:
       serviceAccountName: node-labeler
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: node-labeler
       nodeSelector:
         workload-type: general
       tolerations:
