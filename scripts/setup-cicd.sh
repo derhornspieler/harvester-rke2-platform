@@ -1162,7 +1162,7 @@ jobs:
     steps:
       - name: Install ArgoCD CLI
         run: |
-          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          curl -sSL -o argocd CHANGEME_BINARY_URL_ARGOCD_CLI
           chmod +x argocd
           sudo mv argocd /usr/local/bin/
 
@@ -1188,7 +1188,7 @@ jobs:
     steps:
       - name: Install ArgoCD CLI
         run: |
-          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          curl -sSL -o argocd CHANGEME_BINARY_URL_ARGOCD_CLI
           chmod +x argocd
           sudo mv argocd /usr/local/bin/
 

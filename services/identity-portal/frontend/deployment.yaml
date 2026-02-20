@@ -41,7 +41,7 @@ spec:
         fsGroup: 101
       containers:
         - name: frontend
-          image: harbor.CHANGEME_DOMAIN/library/identity-portal-frontend:v0.3.0
+          image: harbor.CHANGEME_DOMAIN/library/identity-portal-frontend:v0.5.0
           ports:
             - name: http
               containerPort: 8080

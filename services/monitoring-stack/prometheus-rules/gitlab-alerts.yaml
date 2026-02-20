@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gitlab-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: gitlab-alerts
+      rules:
+        - alert: GitLabDown
+          expr: up{job="gitlab-exporter"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "GitLab exporter is down"
+            description: "GitLab exporter has been unreachable for more than 5 minutes."

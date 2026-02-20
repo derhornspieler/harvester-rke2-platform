@@ -126,7 +126,7 @@ fi
 
 # Authenticate if no token provided
 if [[ -z "$TOKEN" ]]; then
-  log_info "No token provided — fetching OIDC config for browser login..."
+  log_info "No token provided — starting device authorization flow..."
 
   # Get OIDC config from the portal
   CONFIG=$(curl -sf "${SERVER_URL}/api/v1/config" 2>/dev/null || echo "")
@@ -144,36 +144,92 @@ if [[ -z "$TOKEN" ]]; then
     exit 1
   fi
 
-  # Use OIDC device authorization flow if available, otherwise use direct grant prompt
-  TOKEN_ENDPOINT="${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/token"
-
   log_info "Keycloak: ${KC_URL}/realms/${KC_REALM}"
-  echo ""
-  echo -e "${YELLOW}Authentication required.${NC}"
-  echo "Enter your Keycloak credentials:"
-  echo ""
-  read -r -p "  Username: " KC_USER
-  read -r -s -p "  Password: " KC_PASS
-  echo ""
-  echo ""
 
-  # Request token via direct grant (resource owner password)
-  TOKEN_RESPONSE=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
-    -d "grant_type=password" \
+  # Step 1: Request device code
+  DEVICE_ENDPOINT="${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/auth/device"
+
+  DEVICE_RESPONSE=$(curl -sf -X POST "$DEVICE_ENDPOINT" \
     -d "client_id=${KC_CLIENT}" \
-    -d "username=${KC_USER}" \
-    -d "password=${KC_PASS}" \
     -d "scope=openid" 2>/dev/null || echo "")
 
-  if [[ -z "$TOKEN_RESPONSE" ]]; then
-    log_error "Authentication failed — could not reach Keycloak"
+  if [[ -z "$DEVICE_RESPONSE" ]]; then
+    log_error "Failed to request device code — is device auth enabled on the Keycloak client?"
     exit 1
   fi
 
-  TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token // empty')
+  DEVICE_CODE=$(echo "$DEVICE_RESPONSE" | jq -r '.device_code // empty')
+  USER_CODE=$(echo "$DEVICE_RESPONSE" | jq -r '.user_code // empty')
+  VERIFICATION_URI=$(echo "$DEVICE_RESPONSE" | jq -r '.verification_uri_complete // .verification_uri // empty')
+  EXPIRES_IN=$(echo "$DEVICE_RESPONSE" | jq -r '.expires_in // 600')
+  INTERVAL=$(echo "$DEVICE_RESPONSE" | jq -r '.interval // 5')
+
+  if [[ -z "$DEVICE_CODE" || -z "$USER_CODE" ]]; then
+    log_error "Invalid device authorization response"
+    exit 1
+  fi
+
+  # Step 2: Display URL + code, attempt to open browser
+  echo ""
+  echo -e "  ${YELLOW}Open this URL in your browser:${NC}"
+  echo ""
+  echo "    ${VERIFICATION_URI}"
+  echo ""
+  echo -e "  ${YELLOW}Enter code:${NC} ${BLUE}${USER_CODE}${NC}"
+  echo ""
+
+  # Try to open browser automatically (non-blocking, best-effort)
+  if command -v xdg-open &>/dev/null; then
+    xdg-open "$VERIFICATION_URI" 2>/dev/null &
+  elif command -v open &>/dev/null; then
+    open "$VERIFICATION_URI" 2>/dev/null &
+  fi
+
+  # Step 3: Poll for token
+  TOKEN_ENDPOINT="${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/token"
+  DEADLINE=$((SECONDS + EXPIRES_IN))
+
+  echo -n "  Waiting for browser login..."
+  while [[ $SECONDS -lt $DEADLINE ]]; do
+    sleep "$INTERVAL"
+    POLL_RESPONSE=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+      -d "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
+      -d "client_id=${KC_CLIENT}" \
+      -d "device_code=${DEVICE_CODE}" 2>/dev/null || echo "")
+
+    TOKEN=$(echo "$POLL_RESPONSE" | jq -r '.access_token // empty')
+    if [[ -n "$TOKEN" ]]; then
+      echo ""
+      break
+    fi
+
+    ERROR=$(echo "$POLL_RESPONSE" | jq -r '.error // empty')
+    case "$ERROR" in
+      authorization_pending|slow_down)
+        echo -n "."
+        [[ "$ERROR" == "slow_down" ]] && INTERVAL=$((INTERVAL + 1))
+        ;;
+      expired_token)
+        echo ""
+        log_error "Device code expired — please try again"
+        exit 1
+        ;;
+      access_denied)
+        echo ""
+        log_error "Authentication denied"
+        exit 1
+        ;;
+      *)
+        echo ""
+        log_error "Authentication failed: $ERROR"
+        exit 1
+        ;;
+    esac
+  done
+
   if [[ -z "$TOKEN" ]]; then
-    ERROR_MSG=$(echo "$TOKEN_RESPONSE" | jq -r '.error_description // .error // "unknown error"')
-    log_error "Authentication failed: $ERROR_MSG"
+    echo ""
+    log_error "Authentication timed out after ${EXPIRES_IN}s"
     exit 1
   fi
 

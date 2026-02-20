@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import {
   Check,
   Clipboard,
+  Download,
   KeyRound,
   Loader2,
   Plus,
@@ -474,6 +475,45 @@ export function SSHAccessPage() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* CLI Tool */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            CLI Tool
+          </CardTitle>
+          <CardDescription>
+            <code className="bg-muted px-1 rounded">identity-ssh-sign</code>{" "}
+            automates certificate signing — authenticate via browser, sign your
+            key, and install the certificate in one command.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <a href="/api/v1/cli/identity-ssh-sign" download="identity-ssh-sign">
+            <Button variant="outline" size="sm">
+              <Download className="mr-2 h-3 w-3" />
+              Download identity-ssh-sign
+            </Button>
+          </a>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Install</p>
+            <div className="bg-background rounded border p-3">
+              <pre className="text-xs font-mono whitespace-pre-wrap">{`curl -sL ${window.location.origin}/api/v1/cli/identity-ssh-sign -o identity-ssh-sign
+chmod +x identity-ssh-sign
+sudo mv identity-ssh-sign /usr/local/bin/`}</pre>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Usage</p>
+            <div className="bg-background rounded border p-3">
+              <pre className="text-xs font-mono">{`identity-ssh-sign -s ${window.location.origin}`}</pre>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

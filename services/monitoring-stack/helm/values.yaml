@@ -1,0 +1,254 @@
+# kube-prometheus-stack Helm values
+# Migrated from raw kustomize manifests to Operator-based deployment
+# Domain substitution: _subst_changeme replaces example.com before helm install
+
+## ---- Prometheus Operator ----
+prometheusOperator:
+  enabled: true
+  nodeSelector:
+    workload-type: general
+
+## ---- Prometheus ----
+prometheus:
+  ingress:
+    enabled: false
+  prometheusSpec:
+    # Discover all ServiceMonitors/PrometheusRules regardless of labels
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    podMonitorSelector: {}
+    ruleSelector: {}
+    # Retention
+    retention: 30d
+    retentionSize: 40GB
+    # Storage
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+    # Resources (match existing StatefulSet)
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    nodeSelector:
+      workload-type: general
+    enableAdminAPI: false
+    enableFeatures: []
+    # Additional scrape configs from Secret
+    additionalScrapeConfigsSecret:
+      enabled: true
+      name: additional-scrape-configs
+      key: scrape-configs.yaml
+
+## ---- Alertmanager ----
+alertmanager:
+  ingress:
+    enabled: false
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    nodeSelector:
+      workload-type: general
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "default"
+      group_by: ["alertname", "namespace", "job"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: "critical"
+          matchers:
+            - severity = critical
+          group_wait: 10s
+          repeat_interval: 1h
+        - receiver: "warning"
+          matchers:
+            - severity = warning
+    receivers:
+      - name: "default"
+      - name: "critical"
+      - name: "warning"
+    inhibit_rules:
+      - source_matchers:
+          - severity = critical
+        target_matchers:
+          - severity = warning
+        equal: ["alertname", "namespace"]
+
+## ---- Grafana ----
+grafana:
+  fullnameOverride: "grafana"
+  ingress:
+    enabled: false
+  service:
+    port: 3000
+    targetPort: 3000
+  adminUser: admin
+  adminPassword: "CHANGEME_GRAFANA_ADMIN_PASSWORD"
+  env:
+    GF_SERVER_ROOT_URL: https://grafana.example.com/
+    GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA: /etc/ssl/certs/vault-root-ca.pem
+    GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /tmp/dashboards/Home/home-overview.json
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector:
+    workload-type: general
+  persistence:
+    enabled: false
+  # Sidecar discovers ConfigMaps with grafana_dashboard: "1"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: false
+  # Datasources provisioned directly (Prometheus alias, Loki, Alertmanager alias)
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://prometheus.monitoring.svc:9090
+          access: proxy
+          isDefault: true
+          editable: false
+        - name: Loki
+          type: loki
+          uid: loki
+          url: http://loki.monitoring.svc:3100
+          access: proxy
+          isDefault: false
+          editable: false
+        - name: Alertmanager
+          type: alertmanager
+          uid: alertmanager
+          url: http://alertmanager.monitoring.svc:9093
+          access: proxy
+          isDefault: false
+          editable: false
+          jsonData:
+            implementation: prometheus
+            handleGrafanaManagedAlerts: true
+            alertmanagerUid: ""
+  # Mount the Vault root CA for Keycloak OIDC TLS verification
+  extraVolumeMounts:
+    - name: vault-root-ca
+      mountPath: /etc/ssl/certs/vault-root-ca.pem
+      subPath: ca.crt
+      readOnly: true
+  extraVolumes:
+    - name: vault-root-ca
+      configMap:
+        name: vault-root-ca
+
+## ---- Node Exporter ----
+nodeExporter:
+  enabled: true
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+
+## ---- kube-state-metrics ----
+kubeStateMetrics:
+  enabled: true
+kube-state-metrics:
+  nodeSelector:
+    workload-type: general
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+## ---- Disable components that RKE2 handles differently ----
+kubeEtcd:
+  enabled: false
+coreDns:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+## ---- Disable built-in kube-prometheus-stack dashboards (our custom dashboards replace them) ----
+defaultDashboardsEnabled: false
+
+## ---- Default alerting rules ----
+# Disable most built-in alert groups — our 18 custom PrometheusRules replace them
+# Keep only recording rules and operator health
+defaultRules:
+  create: true
+  rules:
+    alertmanager: false
+    etcd: false
+    configReloaders: false
+    general: false
+    k8sContainerCpuUsageSecondsTotal: false
+    k8sContainerMemoryCache: false
+    k8sContainerMemoryRss: false
+    k8sContainerMemorySwap: false
+    k8sContainerMemoryWorkingSetBytes: false
+    k8sContainerResource: false
+    k8sPodOwner: false
+    kubeApiserverAvailability: false
+    kubeApiserverBurnrate: false
+    kubeApiserverHistogram: false
+    kubeApiserverSlos: false
+    kubeControllerManager: false
+    kubelet: false
+    kubeProxy: false
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: false
+    kubernetesResources: false
+    kubernetesStorage: false
+    kubernetesSystem: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: true
+    kubeStateMetrics: false
+    network: false
+    node: false
+    nodeExporterAlerting: false
+    nodeExporterRecording: true
+    prometheus: false
+    prometheusOperator: true

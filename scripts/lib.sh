@@ -108,7 +108,7 @@ validate_airgapped_prereqs() {
     HELM_OCI_CERT_MANAGER HELM_OCI_CNPG HELM_OCI_CLUSTER_AUTOSCALER
     HELM_OCI_REDIS_OPERATOR HELM_OCI_VAULT HELM_OCI_HARBOR
     HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_ARGO_WORKFLOWS HELM_OCI_ARGO_EVENTS
-    HELM_OCI_KASM
+    HELM_OCI_KASM HELM_OCI_KPS
   )
   if [[ "${DEPLOY_LIBRENMS:-false}" == "true" ]]; then
     required_oci_vars+=(HELM_OCI_MARIADB_OPERATOR)
@@ -131,8 +131,34 @@ validate_airgapped_prereqs() {
   fi
 
   if [[ ! -f "${REPO_ROOT}/crds/gateway-api-v1.3.0-standard-install.yaml" ]]; then
-    log_error "AIRGAPPED=true but crds/gateway-api-v1.3.0-standard-install.yaml not found"
+    if [[ "${GATEWAY_API_CRD_URL:-}" == *"github.com"* ]]; then
+      log_error "AIRGAPPED=true but crds/gateway-api-v1.3.0-standard-install.yaml not found and GATEWAY_API_CRD_URL still points to github.com"
+      errors=$((errors + 1))
+    fi
+  fi
+
+  # Check binary URL overrides point away from github.com
+  local binary_vars=(BINARY_URL_ARGOCD_CLI BINARY_URL_KUSTOMIZE BINARY_URL_KUBECONFORM)
+  for var in "${binary_vars[@]}"; do
+    if [[ "${!var:-}" == *"github.com"* ]]; then
+      log_error "AIRGAPPED=true but ${var} still points to github.com"
+      errors=$((errors + 1))
+    fi
+  done
+  if [[ "${CRD_SCHEMA_BASE_URL:-}" == *"githubusercontent.com"* ]]; then
+    log_error "AIRGAPPED=true but CRD_SCHEMA_BASE_URL still points to githubusercontent.com"
     errors=$((errors + 1))
+  fi
+
+  # Soft warnings for CI proxy configuration (not blocking errors)
+  if [[ -z "${CI_GOPROXY:-}" ]]; then
+    log_warn "CI_GOPROXY not set — Go CI builds will require vendor/ directories"
+  fi
+  if [[ -z "${CI_NPM_REGISTRY:-}" ]]; then
+    log_warn "CI_NPM_REGISTRY not set — npm CI will need pre-populated cache"
+  fi
+  if [[ -z "${CI_PIP_INDEX_URL:-}" ]]; then
+    log_warn "CI_PIP_INDEX_URL not set — pip CI will need pre-cached packages"
   fi
 
   if [[ $errors -gt 0 ]]; then
@@ -149,6 +175,7 @@ validate_airgapped_prereqs() {
     echo "  HELM_OCI_ARGO_WORKFLOWS      — argo-workflows (upstream: oci://ghcr.io/argoproj/argo-helm/argo-workflows)"
     echo "  HELM_OCI_ARGO_EVENTS         — argo-events (upstream: oci://ghcr.io/argoproj/argo-helm/argo-events)"
     echo "  HELM_OCI_KASM                — kasm 1.1181.0 (upstream: https://helm.kasmweb.com/)"
+    echo "  HELM_OCI_KPS                 — kube-prometheus-stack (upstream: https://prometheus-community.github.io/helm-charts)"
     if [[ "${DEPLOY_LIBRENMS:-false}" == "true" ]]; then
       echo "  HELM_OCI_MARIADB_OPERATOR    — mariadb-operator (upstream: https://mariadb-operator.github.io/mariadb-operator)"
     fi
@@ -201,7 +228,8 @@ check_tfvars() {
   local required_vars=(rancher_url rancher_token harvester_kubeconfig_path
     harvester_cluster_id vm_namespace harvester_network_name
     harvester_network_namespace harvester_cloud_credential_name
-    harvester_cloud_provider_kubeconfig_path cluster_name ssh_authorized_keys)
+    harvester_cloud_provider_kubeconfig_path cluster_name domain
+    keycloak_realm ssh_authorized_keys)
 
   for var in "${required_vars[@]}"; do
     if ! grep -q "^${var}\s*=" "$tfvars"; then
@@ -265,6 +293,77 @@ ensure_harvester_kubeconfig() {
 
   chmod 600 "$harvester_kc"
   log_ok "Harvester kubeconfig extracted from ~/.kube/config"
+}
+
+ensure_cloud_credential_kubeconfig() {
+  local cloud_cred_kc="${CLUSTER_DIR}/kubeconfig-harvester-cloud-cred.yaml"
+  local harvester_kc="${CLUSTER_DIR}/kubeconfig-harvester.yaml"
+  local harvester_kubectl="kubectl --kubeconfig=${harvester_kc}"
+  local cluster_name
+  cluster_name=$(get_cluster_name)
+  local sa_name="${cluster_name}-cloud-cred"
+
+  # The cloud credential kubeconfig goes through the Rancher proxy URL
+  # (e.g. https://rancher.example.com/k8s/clusters/c-xxxxx), so it must use:
+  #   - The Rancher CA (not the internal RKE2 CA from SA token secrets)
+  #   - A Rancher token (not a raw K8s SA JWT which Rancher won't recognize)
+  # Both of these come from the harvester kubeconfig, which already authenticates
+  # through the Rancher proxy correctly.
+
+  # Extract server, CA, and token from the harvester kubeconfig
+  local server ca_data token
+  server=$($harvester_kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null \
+    || grep 'server:' "$harvester_kc" | head -1 | awk '{print $2}' | tr -d '"')
+  ca_data=$($harvester_kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' 2>/dev/null || true)
+  token=$($harvester_kubectl config view --minify --raw -o jsonpath='{.users[0].user.token}' 2>/dev/null || true)
+
+  if [[ -z "$server" || -z "$token" ]]; then
+    die "Failed to extract server/token from harvester kubeconfig: ${harvester_kc}"
+  fi
+
+  # Check if existing cloud cred kubeconfig matches the current harvester kubeconfig
+  if [[ -f "$cloud_cred_kc" && -s "$cloud_cred_kc" ]]; then
+    local existing_server existing_token
+    existing_server=$(kubectl --kubeconfig="$cloud_cred_kc" config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)
+    existing_token=$(kubectl --kubeconfig="$cloud_cred_kc" config view --minify --raw -o jsonpath='{.users[0].user.token}' 2>/dev/null || true)
+    if [[ "$existing_server" == "$server" && "$existing_token" == "$token" ]]; then
+      log_ok "Cloud credential kubeconfig already exists and is current: ${cloud_cred_kc}"
+      return 0
+    fi
+    log_warn "Cloud credential kubeconfig is stale (server/token mismatch), regenerating..."
+    rm -f "$cloud_cred_kc"
+  fi
+
+  log_info "Generating cloud credential kubeconfig from harvester kubeconfig..."
+  cat > "$cloud_cred_kc" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+- name: harvester
+  cluster:
+    certificate-authority-data: ${ca_data}
+    server: ${server}
+contexts:
+- name: harvester
+  context:
+    cluster: harvester
+    user: ${sa_name}
+current-context: harvester
+users:
+- name: ${sa_name}
+  user:
+    token: ${token}
+EOF
+  chmod 600 "$cloud_cred_kc"
+  log_ok "Cloud credential kubeconfig generated: ${cloud_cred_kc}"
+
+  # Push to Harvester secrets for future use
+  log_info "Storing cloud credential kubeconfig in Harvester secrets..."
+  $harvester_kubectl create secret generic kubeconfig-harvester-cloud-cred \
+    --from-file="kubeconfig-harvester-cloud-cred.yaml=${cloud_cred_kc}" \
+    --namespace=terraform-state \
+    --dry-run=client -o yaml | $harvester_kubectl apply -f - 2>/dev/null || \
+    log_warn "Could not store cloud credential kubeconfig in Harvester secrets (non-fatal)"
 }
 
 ensure_cloud_provider_kubeconfig() {
@@ -355,8 +454,98 @@ ensure_external_files() {
   log_info "Ensuring required external files..."
   ensure_harvester_kubeconfig
   ensure_harvester_vm_namespace
+  ensure_cloud_credential_kubeconfig
   ensure_cloud_provider_kubeconfig
   log_ok "External files ready"
+}
+
+# -----------------------------------------------------------------------------
+# Golden Image Auto-Build
+# -----------------------------------------------------------------------------
+# If use_golden_image = true in tfvars but the image doesn't exist on Harvester,
+# prompt to build it via golden-image/build.sh, then update tfvars with the name.
+ensure_golden_image() {
+  local tfvars="${CLUSTER_DIR}/terraform.tfvars"
+
+  # Check if golden image is enabled (boolean, not quoted)
+  local use_golden
+  use_golden=$(grep '^use_golden_image' "$tfvars" 2>/dev/null | grep -o 'true' || echo "false")
+  if [[ "$use_golden" != "true" ]]; then
+    return 0
+  fi
+
+  log_info "Golden image mode is enabled — checking image availability..."
+
+  local vm_ns
+  vm_ns=$(get_vm_namespace)
+
+  # Read current golden_image_name from tfvars (quoted string)
+  local image_name
+  image_name=$(_get_tfvar golden_image_name)
+
+  # If no name is set, generate today's default
+  local default_prefix="rke2-rocky9-golden"
+  local today_name="${default_prefix}-$(date +%Y%m%d)"
+  if [[ -z "$image_name" ]]; then
+    log_info "golden_image_name not set in tfvars — will use: ${today_name}"
+    image_name="$today_name"
+  fi
+
+  # Query Harvester for the image
+  local harvester_kc="${CLUSTER_DIR}/kubeconfig-harvester.yaml"
+  if [[ ! -f "$harvester_kc" ]]; then
+    log_warn "No Harvester kubeconfig — cannot verify golden image existence (will rely on Terraform)"
+    return 0
+  fi
+
+  local hkctl="kubectl --kubeconfig=${harvester_kc}"
+  if $hkctl get virtualmachineimages.harvesterhci.io "${image_name}" -n "${vm_ns}" &>/dev/null; then
+    log_ok "Golden image '${image_name}' exists in namespace '${vm_ns}'"
+    return 0
+  fi
+
+  # Image doesn't exist — prompt to build
+  echo ""
+  log_warn "Golden image '${image_name}' not found in Harvester namespace '${vm_ns}'"
+  echo ""
+  echo -e "  The golden image build takes ~5-10 minutes and creates a pre-baked"
+  echo -e "  Rocky 9 VM image with all packages pre-installed."
+  echo ""
+  echo -en "  ${BOLD}Build golden image now? [y/N]${NC} "
+  read -r answer
+  if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+    die "Cannot continue with use_golden_image=true when image does not exist.\n  Either build it manually: cd golden-image && ./build.sh build\n  Or set use_golden_image = false in ${tfvars}"
+  fi
+
+  # Run the golden image build
+  log_step "Building golden image..."
+  "${REPO_ROOT}/golden-image/build.sh" build
+
+  # The build produces an image named ${prefix}-${YYYYMMDD}
+  # Re-read what it actually created (always today's date)
+  local built_name="${default_prefix}-$(date +%Y%m%d)"
+
+  # Verify the image now exists
+  if ! $hkctl get virtualmachineimages.harvesterhci.io "${built_name}" -n "${vm_ns}" &>/dev/null; then
+    die "Golden image build completed but '${built_name}' not found in Harvester. Check build output above."
+  fi
+  log_ok "Golden image '${built_name}' verified in Harvester"
+
+  # Update tfvars if the name changed (stale date or was empty)
+  if [[ "$built_name" != "$image_name" ]]; then
+    log_info "Updating golden_image_name in tfvars: ${image_name} -> ${built_name}"
+    if grep -q '^golden_image_name' "$tfvars"; then
+      sed -i "s|^golden_image_name.*|golden_image_name = \"${built_name}\"|" "$tfvars"
+    else
+      # Append after use_golden_image line
+      sed -i "/^use_golden_image/a golden_image_name = \"${built_name}\"" "$tfvars"
+    fi
+    log_ok "terraform.tfvars updated with golden_image_name = \"${built_name}\""
+  elif ! grep -q '^golden_image_name' "$tfvars"; then
+    # Name matches but isn't in tfvars yet — add it
+    sed -i "/^use_golden_image/a golden_image_name = \"${built_name}\"" "$tfvars"
+    log_ok "Added golden_image_name = \"${built_name}\" to terraform.tfvars"
+  fi
 }
 
 # Extract a quoted tfvars value by variable name (BSD/GNU awk compatible)
@@ -804,6 +993,14 @@ generate_or_load_env() {
   : "${GIT_BASE_URL:=}"
   # Argo Rollouts Gateway API plugin URL
   : "${ARGO_ROLLOUTS_PLUGIN_URL:=https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.5.0/gateway-api-plugin-linux-amd64}"
+
+  # Binary/CRD download URL overrides (point to self-hosted GitLab/mirror for airgapped)
+  : "${BINARY_URL_ARGOCD_CLI:=https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64}"
+  : "${BINARY_URL_KUSTOMIZE:=https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.6.0/kustomize_v5.6.0_linux_amd64.tar.gz}"
+  : "${BINARY_URL_KUBECONFORM:=https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz}"
+  : "${CRD_SCHEMA_BASE_URL:=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main}"
+  : "${GATEWAY_API_CRD_URL:=https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml}"
+
   # Per-chart OCI URL overrides (required when AIRGAPPED=true)
   : "${HELM_OCI_CERT_MANAGER:=}"
   : "${HELM_OCI_CNPG:=}"
@@ -815,7 +1012,17 @@ generate_or_load_env() {
   : "${HELM_OCI_ARGOCD:=}"
   : "${HELM_OCI_ARGO_ROLLOUTS:=}"
   : "${HELM_OCI_KASM:=}"
+  : "${HELM_OCI_KPS:=}"
   : "${HELM_OCI_GITLAB_RUNNER:=}"
+  # kube-prometheus-stack chart version
+  : "${KPS_CHART_VERSION:=72.6.2}"
+
+  # CI dependency proxy URLs (used by airgapped CI templates)
+  : "${CI_GOPROXY:=}"
+  : "${CI_GONOSUMDB:=}"
+  : "${CI_NPM_REGISTRY:=}"
+  : "${CI_PIP_INDEX_URL:=}"
+  : "${CI_PIP_TRUSTED_HOST:=}"
 
   # Generate any missing values
   : "${KEYCLOAK_BOOTSTRAP_CLIENT_SECRET:=$(gen_password 32)}"
@@ -928,10 +1135,14 @@ generate_or_load_env() {
   export HARVESTER_CONTEXT
   export USER_DATA_CP_FILE USER_DATA_WORKER_FILE
   export GIT_BASE_URL ARGO_ROLLOUTS_PLUGIN_URL
+  export BINARY_URL_ARGOCD_CLI BINARY_URL_KUSTOMIZE BINARY_URL_KUBECONFORM
+  export CRD_SCHEMA_BASE_URL GATEWAY_API_CRD_URL
   export HELM_OCI_CERT_MANAGER HELM_OCI_CNPG HELM_OCI_CLUSTER_AUTOSCALER
   export HELM_OCI_REDIS_OPERATOR HELM_OCI_MARIADB_OPERATOR HELM_OCI_VAULT
   export HELM_OCI_HARBOR HELM_OCI_ARGOCD HELM_OCI_ARGO_ROLLOUTS HELM_OCI_KASM
+  export HELM_OCI_KPS KPS_CHART_VERSION
   export HELM_OCI_GITLAB_RUNNER
+  export CI_GOPROXY CI_GONOSUMDB CI_NPM_REGISTRY CI_PIP_INDEX_URL CI_PIP_TRUSTED_HOST
 
   # Bridge cloud-init overrides to Terraform via TF_VAR_ env vars
   [[ -n "$USER_DATA_CP_FILE" ]] && export TF_VAR_user_data_cp_file="$USER_DATA_CP_FILE"
@@ -964,6 +1175,14 @@ GIT_BASE_URL="${GIT_BASE_URL}"
 # Argo Rollouts Gateway API plugin URL
 ARGO_ROLLOUTS_PLUGIN_URL="${ARGO_ROLLOUTS_PLUGIN_URL}"
 
+# Binary/CRD download URL overrides (point to self-hosted GitLab/mirror for airgapped)
+# Example: BINARY_URL_ARGOCD_CLI="https://gitlab.example.com/infra/binaries/-/raw/main/argocd-linux-amd64"
+BINARY_URL_ARGOCD_CLI="${BINARY_URL_ARGOCD_CLI}"
+BINARY_URL_KUSTOMIZE="${BINARY_URL_KUSTOMIZE}"
+BINARY_URL_KUBECONFORM="${BINARY_URL_KUBECONFORM}"
+CRD_SCHEMA_BASE_URL="${CRD_SCHEMA_BASE_URL}"
+GATEWAY_API_CRD_URL="${GATEWAY_API_CRD_URL}"
+
 # Per-chart OCI URL overrides (required when AIRGAPPED=true)
 HELM_OCI_CERT_MANAGER="${HELM_OCI_CERT_MANAGER}"
 HELM_OCI_CNPG="${HELM_OCI_CNPG}"
@@ -975,6 +1194,8 @@ HELM_OCI_HARBOR="${HELM_OCI_HARBOR}"
 HELM_OCI_ARGOCD="${HELM_OCI_ARGOCD}"
 HELM_OCI_ARGO_ROLLOUTS="${HELM_OCI_ARGO_ROLLOUTS}"
 HELM_OCI_KASM="${HELM_OCI_KASM}"
+HELM_OCI_KPS="${HELM_OCI_KPS}"
+KPS_CHART_VERSION="${KPS_CHART_VERSION}"
 
 KEYCLOAK_BOOTSTRAP_CLIENT_SECRET="${KEYCLOAK_BOOTSTRAP_CLIENT_SECRET}"
 KEYCLOAK_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD}"
@@ -1019,6 +1240,16 @@ GITLAB_RUNNER_GROUP_TOKEN="${GITLAB_RUNNER_GROUP_TOKEN}"
 
 # GitLab Runner Helm chart OCI override (airgapped)
 HELM_OCI_GITLAB_RUNNER="${HELM_OCI_GITLAB_RUNNER}"
+
+# CI dependency proxy URLs (airgapped mode)
+# Go module proxy (e.g., https://athens.DOMAIN, or "off" for vendor-only)
+CI_GOPROXY="${CI_GOPROXY}"
+CI_GONOSUMDB="${CI_GONOSUMDB}"
+# npm registry URL (e.g., https://nexus.DOMAIN/repository/npm-group/)
+CI_NPM_REGISTRY="${CI_NPM_REGISTRY}"
+# PyPI index URL (e.g., https://nexus.DOMAIN/repository/pypi-group/simple/)
+CI_PIP_INDEX_URL="${CI_PIP_INDEX_URL}"
+CI_PIP_TRUSTED_HOST="${CI_PIP_TRUSTED_HOST}"
 
 # Root domain for all service FQDNs (e.g., vault.DOMAIN, harbor.DOMAIN)
 DOMAIN="${DOMAIN}"
@@ -1101,6 +1332,11 @@ _subst_changeme() {
     -e "s|CHANGEME_TRAEFIK_LB_IP|${TRAEFIK_LB_IP}|g" \
     -e "s|CHANGEME_GIT_REPO_URL|${GIT_REPO_URL}|g" \
     -e "s|CHANGEME_ARGO_ROLLOUTS_PLUGIN_URL|${ARGO_ROLLOUTS_PLUGIN_URL}|g" \
+    -e "s|CHANGEME_BINARY_URL_ARGOCD_CLI|${BINARY_URL_ARGOCD_CLI}|g" \
+    -e "s|CHANGEME_BINARY_URL_KUSTOMIZE|${BINARY_URL_KUSTOMIZE}|g" \
+    -e "s|CHANGEME_BINARY_URL_KUBECONFORM|${BINARY_URL_KUBECONFORM}|g" \
+    -e "s|CHANGEME_CRD_SCHEMA_BASE_URL|${CRD_SCHEMA_BASE_URL}|g" \
+    -e "s|CHANGEME_GATEWAY_API_CRD_URL|${GATEWAY_API_CRD_URL}|g" \
     -e "s|CHANGEME_GIT_BASE_URL|${GIT_BASE_URL}|g" \
     -e "s|CHANGEME_TRAEFIK_FQDN|traefik.${DOMAIN}|g" \
     -e "s|CHANGEME_TRAEFIK_TLS_SECRET|traefik-${DOMAIN_DASHED}-tls|g" \
@@ -1273,6 +1509,11 @@ sync_rancher_agent_ca() {
     return 0
   fi
 
+  # Strip trailing whitespace/newlines from cacerts PEM — a trailing newline
+  # causes checksum mismatch between what install.sh computed and what /cacerts
+  # now serves (the Rancher cacerts setting may include an extra trailing newline)
+  cacerts_pem=$(echo -n "$cacerts_pem" | sed -e 's/[[:space:]]*$//')
+
   # Compute the sha256 of what /cacerts returns (this is what install.sh checks)
   local actual_hash
   actual_hash=$(echo -n "$cacerts_pem" | sha256sum | awk '{print $1}')
@@ -1354,9 +1595,9 @@ configure_rancher_registries() {
   local harvester_kc="${CLUSTER_DIR}/kubeconfig-harvester.yaml"
   local hk="kubectl --kubeconfig=${harvester_kc}"
 
-  # Find the K3K Rancher server pod
+  # Find the Rancher server pod (runs in cattle-system on the Harvester management cluster)
   local rancher_pod
-  rancher_pod=$($hk get pods -n k3k-rancher -l app=k3k-rancher-server \
+  rancher_pod=$($hk get pods -n cattle-system -l app=rancher \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
   if [[ -z "$rancher_pod" ]]; then
     log_warn "Could not find K3K Rancher server pod — trying curl fallback"
@@ -1413,12 +1654,12 @@ configure_rancher_registries() {
 }
 PATCHEOF
 
-  # Copy patch file into K3K pod and apply via kubectl patch --patch-file
-  $hk cp "$patch_file" "k3k-rancher/${rancher_pod}:/tmp/registries-patch.json" 2>/dev/null
+  # Copy patch file into Rancher pod and apply via kubectl patch --patch-file
+  $hk cp "$patch_file" "cattle-system/${rancher_pod}:/tmp/registries-patch.json" 2>/dev/null
   rm -f "$patch_file"
 
   local result
-  result=$($hk exec -n k3k-rancher "$rancher_pod" -- \
+  result=$($hk exec -n cattle-system "$rancher_pod" -- \
     sh -c "kubectl patch clusters.provisioning.cattle.io '${cluster_name}' -n fleet-default --type=merge --patch-file /tmp/registries-patch.json" 2>&1) || true
 
   if echo "$result" | grep -q "patched"; then
@@ -1539,14 +1780,29 @@ push_operator_images() {
 
   # Authenticate crane to Harbor (--insecure skips TLS verify since nodes
   # may not have the Root CA yet at this point in the deploy)
-  kubectl exec "$pod_name" -n default -- \
-    crane auth login "${harbor_fqdn}" -u admin -p "${admin_pass}" --insecure 2>/dev/null || {
-    log_warn "crane auth login failed — skipping operator image push"
+  # Authenticate crane to Harbor — retry with 30s pause for DNS/connectivity
+  local auth_ok=false
+  local auth_attempt=0
+  while [[ $auth_attempt -lt 3 ]]; do
+    if kubectl exec "$pod_name" -n default -- \
+      crane auth login "${harbor_fqdn}" -u admin -p "${admin_pass}" --insecure 2>&1; then
+      auth_ok=true
+      log_ok "crane authenticated to ${harbor_fqdn}"
+      break
+    fi
+    auth_attempt=$((auth_attempt + 1))
+    if [[ $auth_attempt -lt 3 ]]; then
+      log_info "crane auth login failed (attempt ${auth_attempt}/3) — retrying in 30s..."
+      sleep 30
+    fi
+  done
+  if [[ "$auth_ok" != "true" ]]; then
+    log_warn "crane auth login failed after 3 attempts — skipping operator image push"
     kubectl delete pod "$pod_name" -n default --ignore-not-found 2>/dev/null || true
     return 0
-  }
+  fi
 
-  # Copy and push each tarball
+  # Copy and push each tarball (with per-image retry)
   local push_count=0
   for tarball in $tarballs; do
     local filename
@@ -1559,16 +1815,23 @@ push_operator_images() {
     ref="${harbor_fqdn}/library/${name}:${tag}"
 
     log_info "Copying ${filename} to crane pod..."
-    kubectl cp "$tarball" "default/${pod_name}:/tmp/${filename}" 2>/dev/null
+    kubectl cp "$tarball" "default/${pod_name}:/tmp/${filename}"
 
     log_info "Pushing ${ref}..."
     local tarname="${filename%.gz}"
-    if kubectl exec "$pod_name" -n default -- \
-      sh -c "gunzip -kf '/tmp/${filename}' && crane push '/tmp/${tarname}' '${ref}' --insecure && rm -f '/tmp/${tarname}'" 2>/dev/null; then
-      log_ok "Pushed ${ref}"
-      push_count=$((push_count + 1))
-    else
-      log_warn "Failed to push ${ref}"
+    local push_ok=false
+    for _retry in 1 2 3; do
+      if kubectl exec "$pod_name" -n default -- \
+        sh -c "gunzip -kf '/tmp/${filename}' && crane push '/tmp/${tarname}' '${ref}' --insecure 2>&1 && rm -f '/tmp/${tarname}'" 2>&1; then
+        log_ok "Pushed ${ref}"
+        push_count=$((push_count + 1))
+        push_ok=true
+        break
+      fi
+      [[ $_retry -lt 3 ]] && { log_info "Push failed, retrying in 10s..."; sleep 10; }
+    done
+    if [[ "$push_ok" != "true" ]]; then
+      log_warn "Failed to push ${ref} after 3 attempts"
     fi
   done
 
@@ -1579,6 +1842,8 @@ push_operator_images() {
     # Trigger rollout restart so pods pick up the newly available images
     kubectl rollout restart deployment/node-labeler -n node-labeler 2>/dev/null || true
     kubectl rollout restart deployment/storage-autoscaler -n storage-autoscaler 2>/dev/null || true
+    kubectl rollout restart deployment/identity-portal-backend -n identity-portal 2>/dev/null || true
+    kubectl rollout restart deployment/identity-portal-frontend -n identity-portal 2>/dev/null || true
     log_ok "Operator images pushed to Harbor (${push_count} images)"
   else
     log_warn "No operator images were pushed successfully"
@@ -1666,11 +1931,16 @@ GITLAB_HTTP_CODE=""
 gitlab_api() {
   local method="$1" endpoint="$2"
   shift 2
-  local response
-  response=$(curl -sk -w "\n%{http_code}" -X "$method" \
+  local response rc=0
+  response=$(curl -sk --connect-timeout 10 --max-time 90 -w "\n%{http_code}" -X "$method" \
     "${GITLAB_API:-https://gitlab.${DOMAIN}/api/v4}${endpoint}" \
     -H "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" \
-    "$@")
+    "$@") || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    GITLAB_HTTP_CODE="000"
+    log_warn "GitLab API call failed: ${method} ${endpoint} (curl exit ${rc})"
+    return 1
+  fi
   GITLAB_HTTP_CODE=$(echo "$response" | tail -1)
   echo "$response" | sed '$d'
 }
@@ -1712,11 +1982,15 @@ gitlab_protect_branch() {
   # Try to create; if exists (409), update via PUT
   local resp
   resp=$(gitlab_post "/projects/${project_id}/protected_branches" \
-    "{\"name\":\"${branch}\",\"push_access_level\":${push_level},\"merge_access_level\":${merge_level},\"allow_force_push\":false}")
+    "{\"name\":\"${branch}\",\"push_access_level\":${push_level},\"merge_access_level\":${merge_level},\"allow_force_push\":false}") || {
+    log_warn "Failed to protect branch '${branch}' on project ${project_id}"
+    return 1
+  }
   if [[ "$GITLAB_HTTP_CODE" == "409" ]]; then
-    gitlab_delete "/projects/${project_id}/protected_branches/${branch}" >/dev/null 2>&1
+    gitlab_delete "/projects/${project_id}/protected_branches/${branch}" >/dev/null 2>&1 || true
     gitlab_post "/projects/${project_id}/protected_branches" \
-      "{\"name\":\"${branch}\",\"push_access_level\":${push_level},\"merge_access_level\":${merge_level},\"allow_force_push\":false}" >/dev/null
+      "{\"name\":\"${branch}\",\"push_access_level\":${push_level},\"merge_access_level\":${merge_level},\"allow_force_push\":false}" >/dev/null 2>&1 || \
+      log_warn "Failed to re-protect branch '${branch}' on project ${project_id}"
   fi
 }
 
@@ -1731,20 +2005,23 @@ gitlab_add_approval_rule() {
   data="${data}}"
 
   # Check if rule already exists
-  local existing
-  existing=$(gitlab_get "/projects/${project_id}/approval_rules" | \
-    jq -r ".[] | select(.name == \"${rule_name}\") | .id" 2>/dev/null | head -1)
+  local existing=""
+  existing=$(gitlab_get "/projects/${project_id}/approval_rules" 2>/dev/null | \
+    jq -r ".[] | select(.name == \"${rule_name}\") | .id" 2>/dev/null | head -1) || true
   if [[ -n "$existing" && "$existing" != "null" ]]; then
-    gitlab_put "/projects/${project_id}/approval_rules/${existing}" "$data" >/dev/null
+    gitlab_put "/projects/${project_id}/approval_rules/${existing}" "$data" >/dev/null 2>&1 || \
+      log_warn "Failed to update approval rule '${rule_name}' on project ${project_id}"
   else
-    gitlab_post "/projects/${project_id}/approval_rules" "$data" >/dev/null
+    gitlab_post "/projects/${project_id}/approval_rules" "$data" >/dev/null 2>&1 || \
+      log_warn "Failed to create approval rule '${rule_name}' on project ${project_id}"
   fi
 }
 
 # Set a project-level setting
 gitlab_set_project_setting() {
   local project_id="$1" key="$2" value="$3"
-  gitlab_put "/projects/${project_id}" "{\"${key}\":${value}}" >/dev/null
+  gitlab_put "/projects/${project_id}" "{\"${key}\":${value}}" >/dev/null 2>&1 || \
+    log_warn "Failed to set ${key} on project ${project_id}"
 }
 
 # Set or update a group/project CI/CD variable
@@ -1794,4 +2071,846 @@ create_harbor_robot() {
     -H "Content-Type: application/json" \
     -d "{\"name\":\"${robot_name}\",\"duration\":-1,\"level\":\"system\",\"permissions\":${access_json}}" 2>/dev/null) || true
   echo "$resp"
+}
+
+# =============================================================================
+# Keycloak Helpers
+# =============================================================================
+# These functions provide a reusable interface for Keycloak Admin API operations.
+# Used by both deploy-cluster.sh (inline OIDC setup) and setup-keycloak.sh (standalone).
+
+# State variables (set by kc_init)
+KC_URL="${KC_URL:-}"
+KC_REALM="${KC_REALM:-}"
+KC_PORT_FORWARD_PID="${KC_PORT_FORWARD_PID:-}"
+OIDC_SECRETS_FILE="${OIDC_SECRETS_FILE:-${SCRIPTS_DIR}/oidc-client-secrets.json}"
+
+# Auto-detect connectivity: if direct HTTPS fails, use kubectl port-forward
+_kc_ensure_connectivity() {
+  if [[ -n "$KC_PORT_FORWARD_PID" ]]; then
+    return 0  # Already using port-forward
+  fi
+  if curl -sfk --connect-timeout 5 --max-time 10 -o /dev/null \
+      "${KC_URL}/realms/master" 2>/dev/null; then
+    return 0  # Direct access works
+  fi
+  log_warn "Direct HTTPS to Keycloak unreachable — starting kubectl port-forward"
+  kubectl port-forward svc/keycloak -n keycloak 18080:8080 &>/dev/null &
+  KC_PORT_FORWARD_PID=$!
+  sleep 3
+  KC_URL="http://localhost:18080"
+  if curl -sf --connect-timeout 5 --max-time 10 -o /dev/null \
+      "${KC_URL}/realms/master" 2>/dev/null; then
+    log_ok "Port-forward active — using ${KC_URL}"
+  else
+    die "Cannot reach Keycloak via direct HTTPS or port-forward"
+  fi
+}
+
+# Cleanup port-forward on exit (idempotent — safe to register multiple times)
+_kc_cleanup() {
+  if [[ -n "${KC_PORT_FORWARD_PID:-}" ]]; then
+    kill "$KC_PORT_FORWARD_PID" 2>/dev/null || true
+    KC_PORT_FORWARD_PID=""
+  fi
+}
+
+# Get a token via the bootstrap client credentials
+kc_get_token() {
+  local client_id client_secret
+  client_id=$(kubectl -n keycloak get secret keycloak-admin-secret \
+    -o jsonpath='{.data.KC_BOOTSTRAP_ADMIN_CLIENT_ID}' 2>/dev/null | base64 -d || echo "admin-cli-client")
+  client_secret=$(kubectl -n keycloak get secret keycloak-admin-secret \
+    -o jsonpath='{.data.KC_BOOTSTRAP_ADMIN_CLIENT_SECRET}' 2>/dev/null | base64 -d)
+
+  if [[ -z "$client_secret" ]]; then
+    die "Could not retrieve KC_BOOTSTRAP_ADMIN_CLIENT_SECRET from keycloak-admin-secret"
+  fi
+
+  curl -sfk --connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors \
+    -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=client_credentials" \
+    -d "client_id=${client_id}" \
+    -d "client_secret=${client_secret}" | jq -r '.access_token'
+}
+
+# Make an authenticated API call to Keycloak
+kc_api() {
+  local method="$1"
+  local path="$2"
+  shift 2
+  local token
+  token=$(kc_get_token)
+
+  curl -sfk --connect-timeout 10 --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors \
+    -X "$method" "${KC_URL}/admin${path}" \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    "$@"
+}
+
+# Initialize Keycloak connection — sets KC_URL, KC_REALM, OIDC_SECRETS_FILE
+kc_init() {
+  KC_URL="https://keycloak.${DOMAIN}"
+  : "${KC_REALM:=${DOMAIN%%.*}}"
+  OIDC_SECRETS_FILE="${SCRIPTS_DIR}/oidc-client-secrets.json"
+
+  # Register cleanup trap (idempotent)
+  trap _kc_cleanup EXIT
+
+  _kc_ensure_connectivity
+
+  # Verify token works
+  local retries=0
+  while ! kc_get_token &>/dev/null && [[ $retries -lt 10 ]]; do
+    sleep 5
+    retries=$((retries + 1))
+  done
+  [[ $retries -lt 10 ]] || die "Cannot authenticate to Keycloak at ${KC_URL}"
+  log_ok "Keycloak authenticated via bootstrap client credentials"
+}
+
+# Create an OIDC confidential client and return the generated secret
+kc_create_client() {
+  local client_id="$1"
+  local redirect_uri="$2"
+  local name="${3:-$client_id}"
+
+  log_info "Creating OIDC client: ${client_id}" >&2
+
+  # Check if client already exists
+  local existing
+  existing=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" 2>/dev/null || echo "[]")
+  local existing_id
+  existing_id=$(echo "$existing" | jq -r '.[0].id // empty')
+
+  if [[ -n "$existing_id" ]]; then
+    log_info "  Client '${client_id}' already exists (id: ${existing_id}) — updating redirectUris" >&2
+    local client_json
+    client_json=$(kc_api GET "/realms/${KC_REALM}/clients/${existing_id}" 2>/dev/null || echo "{}")
+    if [[ -n "$client_json" && "$client_json" != "{}" ]]; then
+      local updated_json
+      updated_json=$(echo "$client_json" | jq \
+        --arg uri "$redirect_uri" \
+        '.redirectUris = ($uri | split(",")) | .webOrigins = ["+"] | .attributes["post.logout.redirect.uris"] = "+"')
+      echo "$updated_json" | kc_api PUT "/realms/${KC_REALM}/clients/${existing_id}" -d @- 2>/dev/null || \
+        log_warn "  Could not update redirectUris for '${client_id}'" >&2
+    fi
+    # Retrieve secret
+    local secret
+    secret=$(kc_api GET "/realms/${KC_REALM}/clients/${existing_id}/client-secret" 2>/dev/null | jq -r '.value // empty')
+    echo "$secret"
+    return 0
+  fi
+
+  # Create client
+  kc_api POST "/realms/${KC_REALM}/clients" \
+    -d "{
+      \"clientId\": \"${client_id}\",
+      \"name\": \"${name}\",
+      \"enabled\": true,
+      \"protocol\": \"openid-connect\",
+      \"publicClient\": false,
+      \"clientAuthenticatorType\": \"client-secret\",
+      \"standardFlowEnabled\": true,
+      \"directAccessGrantsEnabled\": false,
+      \"serviceAccountsEnabled\": false,
+      \"redirectUris\": $(echo "$redirect_uri" | jq -R 'split(",")'),
+      \"webOrigins\": [\"+\"],
+      \"attributes\": {
+        \"post.logout.redirect.uris\": \"+\"
+      }
+    }"
+
+  # Get the internal UUID
+  local internal_id
+  internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" | jq -r '.[0].id')
+
+  # Generate and retrieve client secret
+  kc_api POST "/realms/${KC_REALM}/clients/${internal_id}/client-secret" >/dev/null
+  local secret
+  secret=$(kc_api GET "/realms/${KC_REALM}/clients/${internal_id}/client-secret" | jq -r '.value')
+
+  log_ok "  Client '${client_id}' created (secret: ${secret:0:8}...)" >&2
+  echo "$secret"
+}
+
+# Create a public OIDC client (PKCE, no secret) — for kubernetes / identity-portal
+kc_create_public_client() {
+  local client_id="$1"
+  local redirect_uri="$2"
+  local name="${3:-$client_id}"
+
+  log_info "Creating OIDC client: ${client_id} (public)" >&2
+
+  local existing
+  existing=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" 2>/dev/null || echo "[]")
+  local existing_id
+  existing_id=$(echo "$existing" | jq -r '.[0].id // empty')
+
+  if [[ -n "$existing_id" ]]; then
+    log_info "  Client '${client_id}' already exists (id: ${existing_id}) — updating" >&2
+    local client_json
+    client_json=$(kc_api GET "/realms/${KC_REALM}/clients/${existing_id}" 2>/dev/null || echo "{}")
+    if [[ -n "$client_json" && "$client_json" != "{}" ]]; then
+      local updated_json
+      updated_json=$(echo "$client_json" | jq \
+        --arg uri "$redirect_uri" \
+        '.publicClient = true |
+         .standardFlowEnabled = true |
+         .directAccessGrantsEnabled = false |
+         .serviceAccountsEnabled = false |
+         .redirectUris = ($uri | split(",")) |
+         .webOrigins = ["+"] |
+         .attributes["post.logout.redirect.uris"] = "+" |
+         .attributes["pkce.code.challenge.method"] = "S256"')
+      echo "$updated_json" | kc_api PUT "/realms/${KC_REALM}/clients/${existing_id}" -d @- 2>/dev/null || \
+        log_warn "  Could not update '${client_id}'" >&2
+    fi
+    return 0
+  fi
+
+  kc_api POST "/realms/${KC_REALM}/clients" \
+    -d "{
+      \"clientId\": \"${client_id}\",
+      \"name\": \"${name}\",
+      \"enabled\": true,
+      \"protocol\": \"openid-connect\",
+      \"publicClient\": true,
+      \"standardFlowEnabled\": true,
+      \"directAccessGrantsEnabled\": false,
+      \"serviceAccountsEnabled\": false,
+      \"redirectUris\": $(echo "$redirect_uri" | jq -R 'split(",")'),
+      \"webOrigins\": [\"+\"],
+      \"attributes\": {
+        \"post.logout.redirect.uris\": \"+\",
+        \"pkce.code.challenge.method\": \"S256\"
+      }
+    }"
+  log_ok "  Client '${client_id}' created (public — no secret)" >&2
+}
+
+# Create a service account OIDC client (machine-to-machine, no browser login)
+kc_create_service_account_client() {
+  local client_id="$1"
+  local name="${2:-$client_id}"
+
+  log_info "Creating service account client: ${client_id}" >&2
+
+  local existing
+  existing=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" 2>/dev/null || echo "[]")
+  local existing_id
+  existing_id=$(echo "$existing" | jq -r '.[0].id // empty')
+
+  if [[ -n "$existing_id" ]]; then
+    log_info "  Service account client '${client_id}' already exists (id: ${existing_id})" >&2
+    local secret
+    secret=$(kc_api GET "/realms/${KC_REALM}/clients/${existing_id}/client-secret" 2>/dev/null | jq -r '.value // empty')
+    echo "$secret"
+    return 0
+  fi
+
+  kc_api POST "/realms/${KC_REALM}/clients" \
+    -d "{
+      \"clientId\": \"${client_id}\",
+      \"name\": \"${name}\",
+      \"enabled\": true,
+      \"protocol\": \"openid-connect\",
+      \"publicClient\": false,
+      \"clientAuthenticatorType\": \"client-secret\",
+      \"standardFlowEnabled\": false,
+      \"directAccessGrantsEnabled\": true,
+      \"serviceAccountsEnabled\": true,
+      \"redirectUris\": [],
+      \"webOrigins\": []
+    }"
+
+  local internal_id
+  internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id}" | jq -r '.[0].id')
+
+  kc_api POST "/realms/${KC_REALM}/clients/${internal_id}/client-secret" >/dev/null
+  local secret
+  secret=$(kc_api GET "/realms/${KC_REALM}/clients/${internal_id}/client-secret" | jq -r '.value')
+
+  log_ok "  Service account client '${client_id}' created (secret: ${secret:0:8}...)" >&2
+  echo "$secret"
+}
+
+# Save a client secret to the OIDC secrets JSON file (idempotent)
+kc_save_secret() {
+  local key="$1" value="$2"
+  local file="${OIDC_SECRETS_FILE:-${SCRIPTS_DIR}/oidc-client-secrets.json}"
+  if [[ ! -f "$file" ]]; then
+    echo "{}" > "$file"
+    chmod 600 "$file"
+  fi
+  local tmp; tmp=$(mktemp)
+  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
+# Create realm + admin/general users + TOTP config
+kc_setup_realm() {
+  log_step "Creating '${KC_REALM}' realm..."
+  local existing_realm
+  existing_realm=$(kc_api GET "/realms/${KC_REALM}" 2>/dev/null | jq -r '.realm // empty' || echo "")
+
+  if [[ "$existing_realm" == "$KC_REALM" ]]; then
+    log_info "Realm '${KC_REALM}' already exists"
+  else
+    kc_api POST "/realms" \
+      -d "{
+        \"realm\": \"${KC_REALM}\",
+        \"enabled\": true,
+        \"displayName\": \"${ORG_NAME}\",
+        \"loginWithEmailAllowed\": true,
+        \"duplicateEmailsAllowed\": false,
+        \"resetPasswordAllowed\": true,
+        \"editUsernameAllowed\": false,
+        \"bruteForceProtected\": true,
+        \"permanentLockout\": false,
+        \"maxFailureWaitSeconds\": 900,
+        \"minimumQuickLoginWaitSeconds\": 60,
+        \"waitIncrementSeconds\": 60,
+        \"quickLoginCheckMilliSeconds\": 1000,
+        \"maxDeltaTimeSeconds\": 43200,
+        \"failureFactor\": 5,
+        \"sslRequired\": \"external\",
+        \"accessTokenLifespan\": 300,
+        \"ssoSessionIdleTimeout\": 120,
+        \"ssoSessionMaxLifespan\": 36000
+      }"
+    log_ok "Realm '${KC_REALM}' created"
+  fi
+
+  # Generated passwords for realm users
+  REALM_ADMIN_PASS=$(openssl rand -base64 24)
+  REALM_USER_PASS=$(openssl rand -base64 24)
+
+  # Create realm admin user
+  log_step "Creating realm admin user..."
+  local existing_user
+  existing_user=$(kc_api GET "/realms/${KC_REALM}/users?username=admin" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+
+  if [[ -n "$existing_user" ]]; then
+    log_info "Admin user already exists (id: ${existing_user})"
+  else
+    kc_api POST "/realms/${KC_REALM}/users" \
+      -d "{
+        \"username\": \"admin\",
+        \"email\": \"admin@${DOMAIN}\",
+        \"enabled\": true,
+        \"emailVerified\": true,
+        \"firstName\": \"Realm\",
+        \"lastName\": \"Admin\",
+        \"requiredActions\": [],
+        \"credentials\": [{
+          \"type\": \"password\",
+          \"value\": \"${REALM_ADMIN_PASS}\",
+          \"temporary\": false
+        }]
+      }"
+    log_ok "Admin user created"
+
+    # Assign realm-admin role
+    local admin_user_id
+    admin_user_id=$(kc_api GET "/realms/${KC_REALM}/users?username=admin" | jq -r '.[0].id')
+    local rm_client_id
+    rm_client_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=realm-management" | jq -r '.[0].id')
+    local realm_admin_role
+    realm_admin_role=$(kc_api GET "/realms/${KC_REALM}/clients/${rm_client_id}/roles/realm-admin")
+    kc_api POST "/realms/${KC_REALM}/users/${admin_user_id}/role-mappings/clients/${rm_client_id}" \
+      -d "[${realm_admin_role}]"
+    log_ok "realm-admin role assigned to admin user"
+  fi
+
+  # Create general user
+  log_step "Creating general user..."
+  local existing_general_user
+  existing_general_user=$(kc_api GET "/realms/${KC_REALM}/users?username=user" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+
+  if [[ -n "$existing_general_user" ]]; then
+    log_info "General user already exists (id: ${existing_general_user})"
+  else
+    kc_api POST "/realms/${KC_REALM}/users" \
+      -d "{
+        \"username\": \"user\",
+        \"email\": \"user@${DOMAIN}\",
+        \"enabled\": true,
+        \"emailVerified\": true,
+        \"firstName\": \"General\",
+        \"lastName\": \"User\",
+        \"requiredActions\": [],
+        \"credentials\": [{
+          \"type\": \"password\",
+          \"value\": \"${REALM_USER_PASS}\",
+          \"temporary\": false
+        }]
+      }"
+    log_ok "General user created"
+  fi
+
+  # Enable TOTP as optional action
+  log_step "Enabling TOTP 2FA..."
+  kc_api PUT "/realms/${KC_REALM}" \
+    -d "{
+      \"realm\": \"${KC_REALM}\",
+      \"otpPolicyType\": \"totp\",
+      \"otpPolicyAlgorithm\": \"HmacSHA1\",
+      \"otpPolicyDigits\": 6,
+      \"otpPolicyPeriod\": 30
+    }" 2>/dev/null || true
+  kc_api PUT "/realms/${KC_REALM}/authentication/required-actions/CONFIGURE_TOTP" \
+    -d '{"alias":"CONFIGURE_TOTP","name":"Configure OTP","defaultAction":false,"enabled":true,"priority":10}' \
+    2>/dev/null || true
+  log_ok "TOTP available as optional action"
+}
+
+# Create 9 standard groups + assign admin to platform-admins, user to developers
+kc_create_groups() {
+  log_step "Creating Keycloak groups..."
+  local groups=("platform-admins" "harvester-admins" "rancher-admins" "infra-engineers" "network-engineers" "senior-developers" "developers" "viewers" "ci-service-accounts")
+
+  for group in "${groups[@]}"; do
+    local existing
+    existing=$(kc_api GET "/realms/${KC_REALM}/groups?search=${group}" 2>/dev/null | jq -r '.[0].name // empty' || echo "")
+    if [[ "$existing" == "$group" ]]; then
+      log_info "  Group '${group}' already exists"
+    else
+      kc_api POST "/realms/${KC_REALM}/groups" -d "{\"name\": \"${group}\"}"
+      log_ok "  Group '${group}' created"
+    fi
+  done
+
+  # Add admin to platform-admins
+  local admin_id group_id
+  admin_id=$(kc_api GET "/realms/${KC_REALM}/users?username=admin" | jq -r '.[0].id')
+  group_id=$(kc_api GET "/realms/${KC_REALM}/groups?search=platform-admins" | jq -r '.[0].id')
+  if [[ -n "$admin_id" && -n "$group_id" ]]; then
+    kc_api PUT "/realms/${KC_REALM}/users/${admin_id}/groups/${group_id}" 2>/dev/null || true
+    log_ok "Admin user added to platform-admins"
+  fi
+
+  # Add general user to developers
+  local user_id dev_group_id
+  user_id=$(kc_api GET "/realms/${KC_REALM}/users?username=user" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+  dev_group_id=$(kc_api GET "/realms/${KC_REALM}/groups?search=developers" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+  if [[ -n "$user_id" && -n "$dev_group_id" ]]; then
+    kc_api PUT "/realms/${KC_REALM}/users/${user_id}/groups/${dev_group_id}" 2>/dev/null || true
+    log_ok "General user added to developers"
+  fi
+}
+
+# Create "groups" client scope with group membership mapper
+kc_create_groups_scope() {
+  log_step "Creating 'groups' client scope..."
+  local groups_scope_exists
+  groups_scope_exists=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
+  if [[ -n "$groups_scope_exists" ]]; then
+    log_info "  Client scope 'groups' already exists (id: ${groups_scope_exists})"
+  else
+    kc_api POST "/realms/${KC_REALM}/client-scopes" \
+      -d '{
+        "name": "groups",
+        "description": "Group membership",
+        "protocol": "openid-connect",
+        "attributes": {
+          "include.in.token.scope": "true",
+          "display.on.consent.screen": "true"
+        },
+        "protocolMappers": [{
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }]
+      }'
+    log_ok "  Client scope 'groups' created with group membership mapper"
+  fi
+}
+
+# Add group membership + audience mappers to a list of clients
+kc_add_group_mappers() {
+  local client_ids=("$@")
+  log_step "Adding group/audience mappers to clients..."
+  for client_id_name in "${client_ids[@]}"; do
+    local internal_id
+    internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${client_id_name}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+    if [[ -n "$internal_id" ]]; then
+      kc_api POST "/realms/${KC_REALM}/clients/${internal_id}/protocol-mappers/models" \
+        -d "{
+          \"name\": \"group-membership\",
+          \"protocol\": \"openid-connect\",
+          \"protocolMapper\": \"oidc-group-membership-mapper\",
+          \"config\": {
+            \"full.path\": \"false\",
+            \"id.token.claim\": \"true\",
+            \"access.token.claim\": \"true\",
+            \"claim.name\": \"groups\",
+            \"userinfo.token.claim\": \"true\"
+          }
+        }" 2>/dev/null || true
+      kc_api POST "/realms/${KC_REALM}/clients/${internal_id}/protocol-mappers/models" \
+        -d "{
+          \"name\": \"audience-${client_id_name}\",
+          \"protocol\": \"openid-connect\",
+          \"protocolMapper\": \"oidc-audience-mapper\",
+          \"config\": {
+            \"included.client.audience\": \"${client_id_name}\",
+            \"id.token.claim\": \"true\",
+            \"access.token.claim\": \"true\"
+          }
+        }" 2>/dev/null || true
+      log_ok "  Mappers added to ${client_id_name}"
+    fi
+  done
+}
+
+# Add "groups" optional scope to a list of clients
+kc_add_groups_scope_to_clients() {
+  local client_ids=("$@")
+  local groups_scope_id
+  groups_scope_id=$(kc_api GET "/realms/${KC_REALM}/client-scopes" 2>/dev/null | jq -r '.[] | select(.name=="groups") | .id // empty' || echo "")
+  if [[ -z "$groups_scope_id" ]]; then
+    log_warn "Could not find 'groups' client scope — skipping"
+    return
+  fi
+  for cid in "${client_ids[@]}"; do
+    local cid_internal
+    cid_internal=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=${cid}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+    if [[ -n "$cid_internal" ]]; then
+      kc_api PUT "/realms/${KC_REALM}/clients/${cid_internal}/optional-client-scopes/${groups_scope_id}" 2>/dev/null || true
+    fi
+  done
+  log_ok "Added 'groups' scope to ${#client_ids[@]} client(s)"
+}
+
+# Create 12 test users across all groups
+kc_create_test_users() {
+  log_step "Creating test users..."
+  local TEST_USER_PASS="TestUser2026!"
+
+  _kc_create_test_user() {
+    local username="$1" email="$2" first="$3" last="$4"
+    shift 4
+    local group_names=("$@")
+
+    local existing_id
+    existing_id=$(kc_api GET "/realms/${KC_REALM}/users?username=${username}" 2>/dev/null \
+      | jq -r '.[0].id // empty' || echo "")
+
+    if [[ -n "$existing_id" ]]; then
+      log_info "  User '${username}' already exists — skipping"
+    else
+      kc_api POST "/realms/${KC_REALM}/users" \
+        -d "{
+          \"username\": \"${username}\",
+          \"email\": \"${email}\",
+          \"enabled\": true,
+          \"emailVerified\": true,
+          \"firstName\": \"${first}\",
+          \"lastName\": \"${last}\",
+          \"requiredActions\": [],
+          \"credentials\": [{
+            \"type\": \"password\",
+            \"value\": \"${TEST_USER_PASS}\",
+            \"temporary\": false
+          }]
+        }"
+      log_ok "  Created user: ${username}"
+    fi
+
+    local user_id
+    user_id=$(kc_api GET "/realms/${KC_REALM}/users?username=${username}" | jq -r '.[0].id')
+    for grp in "${group_names[@]}"; do
+      local grp_id
+      grp_id=$(kc_api GET "/realms/${KC_REALM}/groups?search=${grp}" 2>/dev/null \
+        | jq -r '.[0].id // empty' || echo "")
+      if [[ -n "$grp_id" ]]; then
+        kc_api PUT "/realms/${KC_REALM}/users/${user_id}/groups/${grp_id}" 2>/dev/null || true
+      fi
+    done
+  }
+
+  _kc_create_test_user "alice.morgan" "alice.morgan@${DOMAIN}" "Alice" "Morgan" \
+    platform-admins harvester-admins rancher-admins
+  _kc_create_test_user "bob.chen" "bob.chen@${DOMAIN}" "Bob" "Chen" \
+    platform-admins
+  _kc_create_test_user "carol.silva" "carol.silva@${DOMAIN}" "Carol" "Silva" \
+    infra-engineers harvester-admins
+  _kc_create_test_user "dave.kumar" "dave.kumar@${DOMAIN}" "Dave" "Kumar" \
+    infra-engineers network-engineers
+  _kc_create_test_user "eve.mueller" "eve.mueller@${DOMAIN}" "Eve" "Mueller" \
+    network-engineers
+  _kc_create_test_user "frank.jones" "frank.jones@${DOMAIN}" "Frank" "Jones" \
+    senior-developers developers
+  _kc_create_test_user "grace.park" "grace.park@${DOMAIN}" "Grace" "Park" \
+    senior-developers rancher-admins
+  _kc_create_test_user "henry.wilson" "henry.wilson@${DOMAIN}" "Henry" "Wilson" \
+    developers
+  _kc_create_test_user "iris.tanaka" "iris.tanaka@${DOMAIN}" "Iris" "Tanaka" \
+    developers
+  _kc_create_test_user "jack.brown" "jack.brown@${DOMAIN}" "Jack" "Brown" \
+    developers
+  _kc_create_test_user "kate.lee" "kate.lee@${DOMAIN}" "Kate" "Lee" \
+    viewers
+  _kc_create_test_user "leo.garcia" "leo.garcia@${DOMAIN}" "Leo" "Garcia" \
+    viewers developers
+
+  log_ok "12 test users created (password: ${TEST_USER_PASS})"
+}
+
+# Bind Grafana to Keycloak OIDC
+kc_bind_grafana() {
+  log_step "Binding Grafana to Keycloak..."
+  local oidc_issuer="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+  local grafana_secret
+  grafana_secret=$(jq -r '.grafana' "$OIDC_SECRETS_FILE")
+
+  kubectl -n monitoring set env deployment/grafana \
+    GF_AUTH_GENERIC_OAUTH_ENABLED="true" \
+    GF_AUTH_GENERIC_OAUTH_NAME="Keycloak" \
+    GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP="true" \
+    GF_AUTH_GENERIC_OAUTH_CLIENT_ID="grafana" \
+    GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET="${grafana_secret}" \
+    GF_AUTH_GENERIC_OAUTH_SCOPES="openid profile email" \
+    GF_AUTH_GENERIC_OAUTH_AUTH_URL="${oidc_issuer}/protocol/openid-connect/auth?prompt=login" \
+    GF_AUTH_GENERIC_OAUTH_TOKEN_URL="${oidc_issuer}/protocol/openid-connect/token" \
+    GF_AUTH_GENERIC_OAUTH_API_URL="${oidc_issuer}/protocol/openid-connect/userinfo" \
+    GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH="contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'infra-engineers') && 'Admin' || contains(groups[*], 'network-engineers') && 'Viewer' || contains(groups[*], 'senior-developers') && 'Editor' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'" \
+    GF_AUTH_SIGNOUT_REDIRECT_URL="${oidc_issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=https%3A%2F%2Fgrafana.${DOMAIN}%2Flogin" \
+    GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA="/etc/ssl/certs/vault-root-ca.pem" \
+    2>/dev/null || log_warn "Grafana OIDC binding may need manual configuration"
+  log_ok "Grafana OIDC configured"
+}
+
+# Bind Vault to Keycloak OIDC
+kc_bind_vault() {
+  log_step "Binding Vault to Keycloak..."
+  local oidc_issuer="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+  local vault_secret vault_init_file root_token
+  vault_secret=$(jq -r '.vault' "$OIDC_SECRETS_FILE")
+  vault_init_file="${CLUSTER_DIR}/vault-init.json"
+
+  if [[ ! -f "$vault_init_file" ]]; then
+    log_warn "vault-init.json not found, configure Vault OIDC manually"
+    return 0
+  fi
+
+  root_token=$(jq -r '.root_token' "$vault_init_file")
+  vault_exec "$root_token" auth enable oidc 2>/dev/null || log_info "OIDC auth already enabled"
+
+  local root_ca_pem
+  root_ca_pem=$(extract_root_ca)
+  if [[ -n "$root_ca_pem" ]]; then
+    echo "$root_ca_pem" > /tmp/vault-oidc-ca.pem
+    kubectl cp /tmp/vault-oidc-ca.pem vault/vault-0:/tmp/oidc-ca.pem
+    rm -f /tmp/vault-oidc-ca.pem
+    vault_exec "$root_token" write auth/oidc/config \
+      oidc_discovery_url="${oidc_issuer}" \
+      oidc_client_id="vault" \
+      oidc_client_secret="${vault_secret}" \
+      default_role="default" \
+      oidc_discovery_ca_pem=@/tmp/oidc-ca.pem
+  else
+    log_warn "Could not extract Root CA — Vault OIDC may fail TLS verification"
+    vault_exec "$root_token" write auth/oidc/config \
+      oidc_discovery_url="${oidc_issuer}" \
+      oidc_client_id="vault" \
+      oidc_client_secret="${vault_secret}" \
+      default_role="default"
+  fi
+
+  kubectl exec -n vault vault-0 -- env \
+    VAULT_ADDR=http://127.0.0.1:8200 \
+    VAULT_TOKEN="$root_token" \
+    sh -c 'vault write auth/oidc/role/default - <<VEOF
+{
+  "bound_audiences": ["vault"],
+  "allowed_redirect_uris": [
+    "https://vault.'"${DOMAIN}"'/ui/vault/auth/oidc/oidc/callback",
+    "http://localhost:8250/oidc/callback"
+  ],
+  "user_claim": "preferred_username",
+  "groups_claim": "groups",
+  "policies": ["default"],
+  "token_ttl": "1h"
+}
+VEOF'
+  log_ok "Vault OIDC configured"
+}
+
+# Bind Harbor to Keycloak OIDC
+kc_bind_harbor() {
+  log_step "Binding Harbor to Keycloak..."
+  local oidc_issuer="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+  local harbor_secret harbor_admin_pass harbor_core_pod
+  harbor_secret=$(jq -r '.harbor' "$OIDC_SECRETS_FILE")
+  harbor_admin_pass="${HARBOR_ADMIN_PASSWORD}"
+  harbor_core_pod=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+  if [[ -n "$harbor_core_pod" ]]; then
+    kubectl exec -n harbor "$harbor_core_pod" -- \
+      curl -sf -u "admin:${harbor_admin_pass}" -X PUT \
+      "http://harbor-core.harbor.svc.cluster.local/api/v2.0/configurations" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"auth_mode\": \"oidc_auth\",
+        \"oidc_name\": \"Keycloak\",
+        \"oidc_endpoint\": \"${oidc_issuer}\",
+        \"oidc_client_id\": \"harbor\",
+        \"oidc_client_secret\": \"${harbor_secret}\",
+        \"oidc_scope\": \"openid,profile,email\",
+        \"oidc_auto_onboard\": true,
+        \"oidc_groups_claim\": \"groups\",
+        \"oidc_admin_group\": \"platform-admins\",
+        \"oidc_verify_cert\": true,
+        \"primary_auth_mode\": true
+      }" 2>/dev/null || log_warn "Harbor OIDC binding failed (configure manually in Harbor UI)"
+
+    kubectl -n harbor set env deployment/harbor-core \
+      SSL_CERT_FILE="/etc/ssl/certs/vault-root-ca.pem" 2>/dev/null || true
+    kubectl -n harbor patch deployment harbor-core --type=json -p '[
+      {"op": "add", "path": "/spec/template/spec/volumes/-", "value": {"name": "vault-root-ca", "configMap": {"name": "vault-root-ca"}}},
+      {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-", "value": {"name": "vault-root-ca", "mountPath": "/etc/ssl/certs/vault-root-ca.pem", "subPath": "ca.crt", "readOnly": true}}
+    ]' 2>/dev/null || log_warn "Could not patch harbor-core with Root CA volume (may already exist)"
+    log_ok "Harbor OIDC configured"
+  else
+    log_warn "Harbor core pod not found, configure OIDC manually"
+  fi
+}
+
+# Bind Rancher to Keycloak OIDC (automated via Rancher v3 API)
+kc_bind_rancher() {
+  log_step "Binding Rancher to Keycloak OIDC..."
+  local rancher_url rancher_token rancher_secret
+  rancher_url=$(get_rancher_url)
+  rancher_token=$(get_rancher_token)
+  rancher_secret=$(jq -r '.rancher' "$OIDC_SECRETS_FILE")
+  local oidc_issuer="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+
+  if [[ -z "$rancher_secret" || "$rancher_secret" == "null" ]]; then
+    log_warn "Rancher OIDC secret not found — skipping"
+    return 0
+  fi
+
+  # Enable Keycloak OIDC auth provider via Rancher API
+  local http_code
+  http_code=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
+    "${rancher_url}/v3/keycloakOIDCConfigs/keycloakoidc" \
+    -H "Authorization: Bearer ${rancher_token}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"enabled\": true,
+      \"clientId\": \"rancher\",
+      \"clientSecret\": \"${rancher_secret}\",
+      \"issuer\": \"${oidc_issuer}\",
+      \"rancherUrl\": \"${rancher_url}\",
+      \"authEndpoint\": \"${oidc_issuer}/protocol/openid-connect/auth\",
+      \"accessMode\": \"unrestricted\"
+    }" 2>/dev/null)
+
+  if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+    log_ok "Rancher Keycloak OIDC configured via API"
+  else
+    log_warn "Rancher OIDC API returned HTTP ${http_code} — may need manual configuration"
+    log_info "  Navigate to: Users & Authentication > Auth Provider > Keycloak (OIDC)"
+    log_info "  Client ID: rancher, Issuer: ${oidc_issuer}"
+  fi
+}
+
+# Create K8s secret for an oauth2-proxy instance from oidc-client-secrets.json
+kc_deploy_oauth2_proxy_secret() {
+  local client_id="$1"
+  local ns="$2"
+  local name="$3"
+
+  local client_secret cookie_secret
+  client_secret=$(jq -r ".[\"${client_id}\"] // empty" "$OIDC_SECRETS_FILE")
+  cookie_secret=$(openssl rand -base64 32 | tr -- '+/' '-_')
+
+  if [[ -z "$client_secret" ]]; then
+    log_warn "Client secret for ${client_id} not found — skipping oauth2-proxy-${name}"
+    return 1
+  fi
+
+  kubectl create secret generic "oauth2-proxy-${name}" \
+    --namespace="${ns}" \
+    --from-literal=client-secret="${client_secret}" \
+    --from-literal=cookie-secret="${cookie_secret}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  log_ok "Secret oauth2-proxy-${name} created in ${ns}"
+}
+
+# Bind ArgoCD to Keycloak OIDC (patch ConfigMap + RBAC)
+kc_bind_argocd() {
+  log_step "Binding ArgoCD to Keycloak..."
+  local oidc_issuer="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+  local argocd_secret
+  argocd_secret=$(jq -r '.argocd' "$OIDC_SECRETS_FILE")
+
+  local argocd_root_ca
+  argocd_root_ca=$(extract_root_ca)
+
+  local oidc_yaml
+  oidc_yaml="name: Keycloak
+issuer: ${oidc_issuer}
+clientID: argocd
+clientSecret: \"${argocd_secret}\"
+requestedScopes:
+  - openid
+  - profile
+  - email
+  - groups
+forceAuthRequestParameters:
+  prompt: login"
+
+  if [[ -n "${argocd_root_ca:-}" ]]; then
+    oidc_yaml="${oidc_yaml}
+rootCA: |
+$(echo "$argocd_root_ca" | sed 's/^/  /')"
+  fi
+
+  local patch_json
+  patch_json=$(jq -n --arg config "$oidc_yaml" --arg url "https://argo.${DOMAIN}" \
+    '{"data": {"url": $url, "oidc.config": $config}}')
+  kubectl -n argocd patch configmap argocd-cm --type merge -p "$patch_json" \
+    2>/dev/null || log_warn "ArgoCD OIDC binding may need manual configuration"
+
+  kubectl -n argocd patch configmap argocd-rbac-cm --type merge -p "{
+    \"data\": {
+      \"policy.csv\": \"g, platform-admins, role:admin\ng, developers, role:readonly\np, role:developer, applications, sync, */*, allow\np, role:developer, applications, get, */*, allow\ng, developers, role:developer\n\",
+      \"policy.default\": \"role:readonly\"
+    }
+  }" 2>/dev/null || true
+
+  kubectl -n argocd rollout restart deployment/argocd-server 2>/dev/null || true
+  log_ok "ArgoCD OIDC configured"
+}
+
+# Bind Mattermost to Keycloak OIDC
+kc_bind_mattermost() {
+  log_step "Binding Mattermost to Keycloak..."
+  local oidc_issuer="https://keycloak.${DOMAIN}/realms/${KC_REALM}"
+  local mm_secret
+  mm_secret=$(jq -r '.mattermost' "$OIDC_SECRETS_FILE")
+
+  kubectl -n mattermost set env deployment/mattermost \
+    MM_OPENIDSETTINGS_ENABLE="true" \
+    MM_OPENIDSETTINGS_SECRET="${mm_secret}" \
+    MM_OPENIDSETTINGS_ID="mattermost" \
+    MM_OPENIDSETTINGS_DISCOVERYENDPOINT="${oidc_issuer}/.well-known/openid-configuration" \
+    SSL_CERT_FILE="/etc/ssl/certs/vault-root-ca.pem" \
+    2>/dev/null || log_warn "Mattermost OIDC binding may need manual configuration"
+
+  kubectl -n mattermost patch deployment mattermost --type=json -p '[
+    {"op": "add", "path": "/spec/template/spec/volumes/-", "value": {"name": "vault-root-ca", "configMap": {"name": "vault-root-ca"}}},
+    {"op": "add", "path": "/spec/template/spec/containers/0/volumeMounts/-", "value": {"name": "vault-root-ca", "mountPath": "/etc/ssl/certs/vault-root-ca.pem", "subPath": "ca.crt", "readOnly": true}}
+  ]' 2>/dev/null || log_warn "Could not patch mattermost with Root CA volume (may already exist)"
+  log_ok "Mattermost OIDC configured"
 }

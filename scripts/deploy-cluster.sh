@@ -4,9 +4,12 @@
 # =============================================================================
 # Deploys the entire stack from bare Harvester to fully operational cluster:
 #   Terraform → cert-manager → CNPG → Redis Operator → Node Labeler → Vault
-#   → Monitoring → Harbor → ArgoCD → Keycloak → Mattermost → Kasm
-#   → Uptime Kuma → LibreNMS (optional) → Identity Portal → RBAC
-#   → Validation → Keycloak OIDC Setup → oauth2-proxy ForwardAuth → GitLab
+#   → Monitoring → Harbor → Keycloak + Auth Layer → ArgoCD → Services
+#   → DNS → Validation → GitLab → CI/CD Infrastructure → Demo Apps
+#
+# After Phase 5 you have a minimal viable cluster: RKE2 + monitoring + registry
+# + full Keycloak auth layer protecting Grafana, Prometheus, Vault, Harbor,
+# Rancher, Traefik, Hubble, and Identity Portal.
 #
 # Prerequisites:
 #   1. cluster/terraform.tfvars populated (see terraform.tfvars.example)
@@ -14,9 +17,11 @@
 #   3. Commands: terraform, kubectl, helm, jq, openssl, curl
 #
 # Usage:
-#   ./scripts/deploy-cluster.sh              # Full deployment
+#   ./scripts/deploy-cluster.sh              # Full deployment (all phases)
+#   ./scripts/deploy-cluster.sh --to 5       # Minimal viable cluster (auth layer)
+#   ./scripts/deploy-cluster.sh --from 6     # Resume from ArgoCD
+#   ./scripts/deploy-cluster.sh --from 3 --to 5  # Run phases 3-5 only
 #   ./scripts/deploy-cluster.sh --skip-tf    # Skip Terraform (cluster exists)
-#   ./scripts/deploy-cluster.sh --from 3     # Resume from phase 3
 # =============================================================================
 
 set -euo pipefail
@@ -29,19 +34,43 @@ source "${SCRIPT_DIR}/lib.sh"
 # -----------------------------------------------------------------------------
 SKIP_TERRAFORM=false
 FROM_PHASE=0
+TO_PHASE=17
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-tf)    SKIP_TERRAFORM=true; shift ;;
     --from)       FROM_PHASE="$2"; shift 2 ;;
+    --to)         TO_PHASE="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: $0 [--skip-tf] [--from PHASE_NUMBER]"
+      echo "Usage: $0 [--skip-tf] [--from PHASE_NUMBER] [--to PHASE_NUMBER]"
       echo "  --skip-tf    Skip Terraform (assume cluster already exists)"
-      echo "  --from N     Resume from phase N (0=terraform, 1=foundation, 2=vault,"
-      echo "               3=monitoring, 4=harbor, 5=argocd+dhi, 6=keycloak, 7=services,"
-      echo "               8=dns, 9=validation, 10=keycloak-setup, 11=gitlab,"
-      echo "               12=gitlab-hardening+sop-wiki, 13=vault-cicd, 14=ci-templates,"
-      echo "               15=argocd-delivery, 16=security, 17=observability, 18=demo-apps)"
+      echo "  --from N     Resume from phase N"
+      echo "  --to N       Stop after phase N (default: 17 = all phases)"
+      echo ""
+      echo "  Phases:"
+      echo "    0  terraform         Provision RKE2 cluster via Rancher/Harvester"
+      echo "    1  foundation        Node labels, Traefik, Rancher webhook"
+      echo "    2  vault             Vault, cert-manager, CA distribution"
+      echo "    3  monitoring        Prometheus, Grafana, Loki, Alloy"
+      echo "    4  harbor            Container registry"
+      echo "    5  keycloak+auth     Keycloak + full auth layer (OIDC, oauth2-proxy, Identity Portal)"
+      echo "    6  argocd+dhi        ArgoCD + DHI builder (self-contained OIDC)"
+      echo "    7  services          Mattermost, Kasm, etc. (per-service OIDC)"
+      echo "    8  dns               DNS records"
+      echo "    9  validation        Health checks"
+      echo "   10  gitlab            Git server (with OIDC)"
+      echo "   11  gitlab-hardening  SSH, branches, approvals + SOP wiki"
+      echo "   12  vault-cicd        JWT auth, ESO, ClusterSecretStore"
+      echo "   13  ci-templates      Shared pipeline library, Harbor robots"
+      echo "   14  argocd-delivery   RBAC, AppProjects, AnalysisTemplates"
+      echo "   15  security          Security runners, scanning"
+      echo "   16  observability     DORA dashboard, CI/CD alerts"
+      echo "   17  demo-apps         NetOps Arcade"
+      echo ""
+      echo "  Examples:"
+      echo "    $0 --to 5              # Minimal viable cluster (full auth layer)"
+      echo "    $0 --from 6 --to 6     # Add ArgoCD with OIDC"
+      echo "    $0 --from 7            # Continue with remaining services"
       exit 0
       ;;
     *) die "Unknown argument: $1" ;;
@@ -67,6 +96,7 @@ phase_0_terraform() {
 
   check_tfvars
   ensure_external_files
+  ensure_golden_image
 
   local cluster_name vm_ns
   cluster_name=$(get_cluster_name)
@@ -144,6 +174,28 @@ phase_0_terraform() {
   log_step "Syncing local files to Harvester secrets..."
   cd "${CLUSTER_DIR}"
   ./terraform.sh push-secrets
+
+  # Pre-clean orphaned Rancher SECRETS that survive terraform destroy
+  # (async deletion races leave secrets behind, causing AlreadyExists errors)
+  # NOTE: Do NOT delete the cluster resource here — that's terraform's job.
+  # Use destroy-cluster.sh or terraform.sh destroy for full teardown.
+  log_step "Pre-cleaning orphaned Rancher secrets..."
+  local rancher_url rancher_token
+  rancher_url=$(get_rancher_url)
+  rancher_token=$(get_rancher_token)
+  for res in \
+    "secrets/fleet-default/${cluster_name}-dockerhub-auth"; do
+    local http_code
+    http_code=$(curl -sk -o /dev/null -w "%{http_code}" \
+      "${rancher_url}/v1/${res}" \
+      -H "Authorization: Bearer ${rancher_token}" 2>/dev/null)
+    if [[ "$http_code" == "200" ]]; then
+      log_info "Deleting orphaned secret: ${res}"
+      curl -sk -X DELETE "${rancher_url}/v1/${res}" \
+        -H "Authorization: Bearer ${rancher_token}" >/dev/null 2>&1
+      sleep 5
+    fi
+  done
 
   # Terraform apply (pulls secrets → init → plan with saved file → apply → push secrets)
   log_step "Running terraform apply..."
@@ -256,10 +308,10 @@ phase_1_foundation() {
 
   # 1.3 Gateway API CRDs (required by cert-manager gateway-shim, Traefik, and Cilium)
   log_step "Installing Gateway API standard CRDs..."
-  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+  if [[ -f "${REPO_ROOT}/crds/gateway-api-v1.3.0-standard-install.yaml" ]]; then
     kube_apply -f "${REPO_ROOT}/crds/gateway-api-v1.3.0-standard-install.yaml"
   else
-    kube_apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/standard-install.yaml
+    kube_apply -f "${GATEWAY_API_CRD_URL}"
   fi
   log_ok "Gateway API CRDs installed"
 
@@ -622,7 +674,7 @@ phase_2_vault() {
       "allowed_domains=${DOMAIN}" \
       allow_subdomains=true \
       max_ttl=720h \
-      generate_lease=true \
+      no_store=false \
       require_cn=false
     log_ok "Intermediate CA configured with signing role (signed by external Root CA)"
   else
@@ -839,12 +891,65 @@ POLICY
 phase_3_monitoring() {
   start_phase "PHASE 3: MONITORING STACK"
 
-  log_step "Deploying monitoring stack (Prometheus, Grafana, Loki, Alloy, Alertmanager)..."
+  # 3.1 Non-chart resources (Loki, Alloy, Redis, Gateways, HTTPRoutes, dashboards, oauth2-proxy)
+  log_step "Deploying non-chart monitoring resources (Loki, Alloy, gateways, dashboards)..."
   kube_apply_k_subst "${SERVICES_DIR}/monitoring-stack"
+
+  # 3.2 Create additional-scrape-configs Secret for non-ServiceMonitor scrape jobs
+  log_step "Creating additional scrape configs Secret..."
+  local scrape_configs_file="${SERVICES_DIR}/monitoring-stack/helm/additional-scrape-configs.yaml"
+  local scrape_configs_tmp
+  scrape_configs_tmp=$(mktemp)
+  _subst_changeme < "$scrape_configs_file" > "$scrape_configs_tmp"
+  kubectl create secret generic additional-scrape-configs \
+    --namespace monitoring \
+    --from-file=scrape-configs.yaml="$scrape_configs_tmp" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  rm -f "$scrape_configs_tmp"
+
+  # 3.3 Clean up pre-existing resources that Helm cannot adopt (migration from raw manifests)
+  # These are no-ops on fresh installs; on migration they prevent "invalid ownership metadata" errors
+  if ! helm status kube-prometheus-stack -n monitoring &>/dev/null; then
+    log_step "Removing pre-Helm monitoring resources (migration cleanup)..."
+    kubectl delete statefulset prometheus alertmanager -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete deployment grafana -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete service grafana -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete daemonset node-exporter -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete deployment kube-state-metrics -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete service node-exporter kube-state-metrics -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete serviceaccount prometheus node-exporter kube-state-metrics -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete clusterrole prometheus node-exporter kube-state-metrics --ignore-not-found 2>/dev/null || true
+    kubectl delete clusterrolebinding prometheus node-exporter kube-state-metrics --ignore-not-found 2>/dev/null || true
+    kubectl delete configmap prometheus-config alertmanager-config grafana-datasources grafana-dashboard-provider -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete secret grafana-admin-secret -n monitoring --ignore-not-found 2>/dev/null || true
+    kubectl delete pvc grafana-data data-prometheus-0 data-alertmanager-0 -n monitoring --ignore-not-found 2>/dev/null || true
+  fi
+
+  # 3.4 Install kube-prometheus-stack Helm chart (Prometheus, Alertmanager, Grafana, Operator)
+  log_step "Installing kube-prometheus-stack Helm chart..."
+  helm_repo_add prometheus-community https://prometheus-community.github.io/helm-charts
+  local _chart; _chart=$(resolve_helm_chart "prometheus-community/kube-prometheus-stack" "HELM_OCI_KPS")
+
+  # Substitute domain/credentials in values.yaml
+  local values_tmp
+  values_tmp=$(mktemp)
+  _subst_changeme < "${SERVICES_DIR}/monitoring-stack/helm/values.yaml" > "$values_tmp"
+
+  helm_install_if_needed kube-prometheus-stack "$_chart" monitoring \
+    -f "$values_tmp" --version "${KPS_CHART_VERSION}" --timeout 10m
+  rm -f "$values_tmp"
+
+  # 3.4 Deploy PrometheusRule CRDs (18 custom alert groups)
+  log_step "Deploying PrometheusRule CRDs..."
+  kube_apply_k_subst "${SERVICES_DIR}/monitoring-stack/prometheus-rules"
+
+  # 3.5 Deploy ServiceMonitor CRDs (11 service monitors)
+  log_step "Deploying ServiceMonitor CRDs..."
+  kube_apply_k_subst "${SERVICES_DIR}/monitoring-stack/service-monitors"
 
   # Wait for key deployments
   wait_for_deployment monitoring grafana 300s
-  wait_for_pods_ready monitoring "app=prometheus" 300
+  wait_for_pods_ready monitoring "app.kubernetes.io/name=prometheus" 300
   wait_for_pods_ready monitoring "app=loki" 300
 
   # Verify TLS certs
@@ -857,7 +962,7 @@ phase_3_monitoring() {
   # HTTPS connectivity checks
   check_https_batch "grafana.${DOMAIN}" "prometheus.${DOMAIN}" "alertmanager.${DOMAIN}" "hubble.${DOMAIN}"
 
-  # 3.2 Storage Autoscaler operator (needs Prometheus running)
+  # 3.6 Storage Autoscaler operator (needs Prometheus running)
   # Non-fatal: image may not be built yet on first deploy
   log_step "Deploying Storage Autoscaler operator..."
   kube_apply_k_subst "${SERVICES_DIR}/storage-autoscaler"
@@ -896,6 +1001,7 @@ phase_4_harbor() {
   kube_apply -f "${SERVICES_DIR}/harbor/minio/deployment.yaml"
   kube_apply -f "${SERVICES_DIR}/harbor/minio/service.yaml"
   wait_for_deployment minio minio 300s
+  kubectl -n minio delete job minio-create-buckets --ignore-not-found 2>/dev/null || true
   kube_apply -f "${SERVICES_DIR}/harbor/minio/job-create-buckets.yaml"
   log_ok "MinIO deployed"
 
@@ -962,7 +1068,24 @@ phase_4_harbor() {
   log_step "Configuring Rancher cluster registries (Harbor mirrors + CA)..."
   configure_rancher_registries
 
-  # 4.10 Push pre-built operator images to Harbor
+  # 4.10 Wait for nodes to stabilize after registry mirror rolling update
+  # Rancher distributes registries.yaml + CA via a rolling restart of rke2-agent
+  # on each node. kubectl cp/exec may fail if the node is restarting.
+  log_step "Waiting for nodes to stabilize after registry config update..."
+  local stable_retries=0
+  while [[ $stable_retries -lt 12 ]]; do
+    local not_ready
+    not_ready=$(kubectl get nodes --no-headers 2>/dev/null | grep -cv " Ready " || echo "99")
+    if [[ "$not_ready" -eq 0 ]]; then
+      log_ok "All nodes are Ready"
+      break
+    fi
+    stable_retries=$((stable_retries + 1))
+    log_info "  ${not_ready} node(s) not Ready (${stable_retries}/12)... waiting 15s"
+    sleep 15
+  done
+
+  # 4.11 Push pre-built operator images to Harbor
   log_step "Pushing operator images to Harbor..."
   push_operator_images
 
@@ -1024,24 +1147,27 @@ configure_harbor_projects() {
     i=$((i + 1))
     log_info "Creating proxy cache registry: ${project} → ${endpoint}"
 
-    # Create registry endpoint
+    # Create registry endpoint (409 = already exists → ignore)
     kubectl exec -n harbor "$harbor_core_pod" -- \
-      curl -sf -u "$auth" -X POST "${harbor_api}/registries" \
+      curl -s -u "$auth" -X POST "${harbor_api}/registries" \
       -H "Content-Type: application/json" \
-      -d "{\"name\":\"${project}\",\"type\":\"docker-registry\",\"url\":\"${endpoint}\",\"insecure\":false}" 2>/dev/null || true
+      -d "{\"name\":\"${project}\",\"type\":\"docker-registry\",\"url\":\"${endpoint}\",\"insecure\":false}" >/dev/null 2>&1 || true
 
-    # Get registry ID
+    # Get registry ID (use -s without -f so we always get JSON output)
     local reg_id
     reg_id=$(kubectl exec -n harbor "$harbor_core_pod" -- \
-      curl -sf -u "$auth" "${harbor_api}/registries" 2>/dev/null | \
+      curl -s -u "$auth" "${harbor_api}/registries" 2>/dev/null | \
       jq -r ".[] | select(.name==\"${project}\") | .id" 2>/dev/null || echo "")
 
-    if [[ -n "$reg_id" ]]; then
-      # Create proxy cache project
+    if [[ -n "$reg_id" && "$reg_id" != "null" ]]; then
+      # Create proxy cache project (409 = already exists → ignore)
       kubectl exec -n harbor "$harbor_core_pod" -- \
-        curl -sf -u "$auth" -X POST "${harbor_api}/projects" \
+        curl -s -u "$auth" -X POST "${harbor_api}/projects" \
         -H "Content-Type: application/json" \
-        -d "{\"project_name\":\"${project}\",\"registry_id\":${reg_id},\"public\":true,\"metadata\":{\"public\":\"true\"}}" 2>/dev/null || true
+        -d "{\"project_name\":\"${project}\",\"registry_id\":${reg_id},\"public\":true,\"metadata\":{\"public\":\"true\"}}" >/dev/null 2>&1 || true
+      log_ok "Proxy cache project: ${project} (registry_id=${reg_id})"
+    else
+      log_warn "Could not get registry ID for ${project}, skipping proxy cache project"
     fi
   done
 
@@ -1064,10 +1190,10 @@ configure_harbor_projects() {
 }
 
 # =============================================================================
-# PHASE 5: ARGOCD + ARGO ROLLOUTS
+# PHASE 6: ARGOCD + ARGO ROLLOUTS (self-contained OIDC)
 # =============================================================================
-phase_5_argocd() {
-  start_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
+phase_6_argocd() {
+  start_phase "PHASE 6: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
 
   # Pin Argo chart versions for reproducible deploys
   local ARGO_CD_CHART_VERSION="${ARGO_CD_CHART_VERSION:-7.8.13}"
@@ -1141,42 +1267,81 @@ phase_5_argocd() {
   # HTTPS connectivity checks
   check_https_batch "argo.${DOMAIN}" "rollouts.${DOMAIN}"
 
-  end_phase "PHASE 5: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
+  # ── Self-contained OIDC for ArgoCD + Rollouts ─────────────────────────
+  # Initialize Keycloak connection (Phase 5 already deployed Keycloak)
+  kc_init
+
+  # 6.5 Create argocd + rollouts-oidc OIDC clients
+  log_step "Creating ArgoCD OIDC clients..."
+  local secret
+  secret=$(kc_create_client "argocd" "https://argo.${DOMAIN}/auth/callback" "ArgoCD")
+  kc_save_secret "argocd" "$secret"
+
+  secret=$(kc_create_client "rollouts-oidc" \
+    "https://rollouts.${DOMAIN}/oauth2/callback" "Argo Rollouts")
+  kc_save_secret "rollouts-oidc" "$secret"
+
+  # 6.6 Add groups scope + mappers
+  kc_add_groups_scope_to_clients argocd rollouts-oidc
+  kc_add_group_mappers argocd rollouts-oidc
+
+  # 6.7 Bind ArgoCD to Keycloak
+  kc_bind_argocd
+
+  # 6.8 Deploy oauth2-proxy for Argo Rollouts
+  log_step "Deploying oauth2-proxy for Argo Rollouts..."
+  kc_deploy_oauth2_proxy_secret "rollouts-oidc" "argo-rollouts" "rollouts"
+
+  # Distribute Redis credentials to argo-rollouts namespace
+  kubectl create secret generic oauth2-proxy-redis-credentials \
+    --from-literal=password="${OAUTH2_PROXY_REDIS_PASSWORD}" \
+    -n argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+
+  kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/oauth2-proxy.yaml"
+  kube_apply -f "${SERVICES_DIR}/argo/argo-rollouts/middleware-oauth2-proxy.yaml"
+  log_ok "Argo Rollouts oauth2-proxy configured"
+
+  # 6.9 HTTPS checks (re-verify after OIDC config)
+  check_https_batch "argo.${DOMAIN}" "rollouts.${DOMAIN}"
+
+  end_phase "PHASE 6: ARGOCD + ARGO ROLLOUTS + ARGO WORKFLOWS + ARGO EVENTS"
 }
 
 # =============================================================================
-# PHASE 5b: DHI BUILDER (Docker Hardened Images)
+# PHASE 6b: DHI BUILDER (Docker Hardened Images)
 # =============================================================================
-phase_5b_dhi_builder() {
+phase_6b_dhi_builder() {
   if [[ "${DEPLOY_DHI_BUILDER:-false}" != "true" ]]; then
     log_info "DHI Builder not enabled (set DEPLOY_DHI_BUILDER=true in .env) — skipping"
     return 0
   fi
-  start_phase "PHASE 5b: DHI BUILDER"
+  start_phase "PHASE 6b: DHI BUILDER"
 
-  # 5b.1 Create Harbor 'dhi' project (public, for hardened images)
+  # 6b.1 Create Harbor 'dhi' project (public, for hardened images)
   log_step "Creating Harbor 'dhi' project..."
   create_harbor_project "dhi" "true"
 
-  # 5b.2 Deploy DHI Builder manifests (BuildKit, RBAC, EventSource, Sensor, WorkflowTemplate)
+  # 6b.2 Deploy DHI Builder manifests (BuildKit, RBAC, EventSource, Sensor, WorkflowTemplate)
   log_step "Deploying DHI Builder stack..."
   kube_apply_k_subst "${SERVICES_DIR}/dhi-builder"
   wait_for_pods_ready dhi-builder "app=buildkitd" 120
 
-  end_phase "PHASE 5b: DHI BUILDER"
+  end_phase "PHASE 6b: DHI BUILDER"
 }
 
 # =============================================================================
-# PHASE 6: KEYCLOAK
+# PHASE 5: KEYCLOAK + AUTH LAYER
 # =============================================================================
-phase_6_keycloak() {
-  start_phase "PHASE 6: KEYCLOAK"
+# After this phase you have a fully authenticated cluster: Keycloak protecting
+# Grafana, Prometheus, Alertmanager, Hubble, Traefik, Vault, Harbor, Rancher,
+# and Identity Portal via OIDC + oauth2-proxy ForwardAuth.
+phase_5_keycloak_auth() {
+  start_phase "PHASE 5: KEYCLOAK + AUTH LAYER"
 
-  # 6.1 Ensure namespaces
+  # ── 5.1 Deploy Keycloak (CNPG postgres + Keycloak app) ─────────────────
   ensure_namespace keycloak
   ensure_namespace database
 
-  # 6.2 CNPG keycloak-pg (in database namespace)
   log_step "Deploying CNPG keycloak-pg cluster..."
   kube_apply_subst "${SERVICES_DIR}/keycloak/postgres/secret.yaml"
   kube_apply -f "${SERVICES_DIR}/keycloak/postgres/keycloak-pg-cluster.yaml"
@@ -1184,11 +1349,9 @@ phase_6_keycloak() {
   wait_for_cnpg_primary database keycloak-pg 600
   log_ok "CNPG keycloak-pg deployed"
 
-  # 6.3 Keycloak application
   log_step "Deploying Keycloak HA stack..."
   kube_apply_k_subst "${SERVICES_DIR}/keycloak"
 
-  # Wait for Keycloak deployment (may only get 1 replica on small clusters)
   wait_for_deployment keycloak keycloak 300s || {
     local kc_avail
     kc_avail=$(kubectl -n keycloak get deployment keycloak -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
@@ -1200,8 +1363,6 @@ phase_6_keycloak() {
   }
 
   wait_for_tls_secret keycloak "keycloak-${DOMAIN_DASHED}-tls" 120
-
-  # HTTPS connectivity check
   check_https "keycloak.${DOMAIN}"
 
   # Verify Infinispan cluster formation
@@ -1214,7 +1375,192 @@ phase_6_keycloak() {
     echo "$cluster_log"
   fi
 
-  end_phase "PHASE 6: KEYCLOAK"
+  # ── 5.2 Initialize Keycloak connectivity ────────────────────────────────
+  kc_init
+
+  # ── 5.3 Realm + admin users ────────────────────────────────────────────
+  kc_setup_realm
+
+  # ── 5.4 Groups ─────────────────────────────────────────────────────────
+  kc_create_groups
+
+  # ── 5.5 "groups" client scope ──────────────────────────────────────────
+  kc_create_groups_scope
+
+  # ── 5.6 Create OIDC clients for Phase 0-4 services ────────────────────
+  log_step "Creating OIDC clients for Phase 0-4 services..."
+  local secret
+
+  # kubernetes (public)
+  kc_create_public_client "kubernetes" "http://localhost:8000,http://localhost:18000" "Kubernetes (kubelogin)"
+
+  # Grafana
+  secret=$(kc_create_client "grafana" "https://grafana.${DOMAIN}/*" "Grafana")
+  kc_save_secret "grafana" "$secret"
+
+  # Vault
+  secret=$(kc_create_client "vault" "https://vault.${DOMAIN}/ui/vault/auth/oidc/oidc/callback,http://localhost:8250/oidc/callback" "Vault")
+  kc_save_secret "vault" "$secret"
+
+  # Harbor
+  secret=$(kc_create_client "harbor" "https://harbor.${DOMAIN}/c/oidc/callback" "Harbor Registry")
+  kc_save_secret "harbor" "$secret"
+
+  # Rancher
+  secret=$(kc_create_client "rancher" "https://rancher.${DOMAIN}/verify-auth" "Rancher")
+  kc_save_secret "rancher" "$secret"
+
+  # oauth2-proxy clients (one per protected service)
+  secret=$(kc_create_client "prometheus-oidc" "https://prometheus.${DOMAIN}/oauth2/callback" "Prometheus")
+  kc_save_secret "prometheus-oidc" "$secret"
+
+  secret=$(kc_create_client "alertmanager-oidc" "https://alertmanager.${DOMAIN}/oauth2/callback" "AlertManager")
+  kc_save_secret "alertmanager-oidc" "$secret"
+
+  secret=$(kc_create_client "hubble-oidc" "https://hubble.${DOMAIN}/oauth2/callback" "Hubble")
+  kc_save_secret "hubble-oidc" "$secret"
+
+  secret=$(kc_create_client "traefik-dashboard-oidc" "https://traefik.${DOMAIN}/oauth2/callback" "Traefik Dashboard")
+  kc_save_secret "traefik-dashboard-oidc" "$secret"
+
+  # Identity Portal (public PKCE frontend + confidential backend)
+  kc_create_public_client "identity-portal" "https://identity.${DOMAIN}/*" "Identity Portal (Frontend)"
+
+  secret=$(kc_create_service_account_client "identity-portal-admin" "Identity Portal Admin (Backend)")
+  kc_save_secret "identity-portal-admin" "$secret"
+
+  # Assign realm-admin role to identity-portal-admin service account
+  log_step "Assigning realm-admin role to identity-portal-admin service account..."
+  local ipa_internal_id
+  ipa_internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=identity-portal-admin" | jq -r '.[0].id')
+  if [[ -n "$ipa_internal_id" ]]; then
+    local sa_user_id
+    sa_user_id=$(kc_api GET "/realms/${KC_REALM}/clients/${ipa_internal_id}/service-account-user" 2>/dev/null | jq -r '.id // empty' || echo "")
+    if [[ -n "$sa_user_id" ]]; then
+      local rm_client_id
+      rm_client_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=realm-management" | jq -r '.[0].id')
+      local realm_admin_role
+      realm_admin_role=$(kc_api GET "/realms/${KC_REALM}/clients/${rm_client_id}/roles/realm-admin")
+      kc_api POST "/realms/${KC_REALM}/users/${sa_user_id}/role-mappings/clients/${rm_client_id}" \
+        -d "[${realm_admin_role}]" 2>/dev/null || true
+      log_ok "realm-admin role assigned to identity-portal-admin service account"
+    fi
+  fi
+
+  # ── 5.7 Add groups scope + mappers to all Phase 5 clients ──────────────
+  local phase5_clients=(kubernetes grafana vault harbor rancher prometheus-oidc alertmanager-oidc hubble-oidc traefik-dashboard-oidc identity-portal identity-portal-admin)
+  kc_add_groups_scope_to_clients "${phase5_clients[@]}"
+  kc_add_group_mappers "${phase5_clients[@]}"
+
+  # ── 5.8 Bind services to Keycloak ──────────────────────────────────────
+  kc_bind_grafana
+  kc_bind_vault
+  kc_bind_harbor
+  kc_bind_rancher
+
+  # ── 5.9 Deploy oauth2-proxy Redis ──────────────────────────────────────
+  log_step "Deploying oauth2-proxy Redis session store..."
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/oauth2-proxy-redis/secret.yaml"
+  kube_apply -f "${SERVICES_DIR}/monitoring-stack/oauth2-proxy-redis/replication.yaml"
+  kube_apply -f "${SERVICES_DIR}/monitoring-stack/oauth2-proxy-redis/sentinel.yaml"
+  wait_for_pods_ready monitoring "app=oauth2-proxy-redis" 300 2>/dev/null || \
+    log_warn "oauth2-proxy Redis not fully ready yet — oauth2-proxy may retry"
+  log_ok "oauth2-proxy Redis deployed"
+
+  # ── 5.10 Deploy oauth2-proxy instances ─────────────────────────────────
+  log_step "Deploying oauth2-proxy ForwardAuth instances..."
+
+  # Create K8s secrets for each oauth2-proxy
+  kc_deploy_oauth2_proxy_secret "prometheus-oidc" "monitoring" "prometheus"
+  kc_deploy_oauth2_proxy_secret "alertmanager-oidc" "monitoring" "alertmanager"
+  kc_deploy_oauth2_proxy_secret "hubble-oidc" "kube-system" "hubble"
+  kc_deploy_oauth2_proxy_secret "traefik-dashboard-oidc" "kube-system" "traefik-dashboard"
+
+  # Distribute oauth2-proxy Redis credentials to kube-system
+  log_step "Distributing oauth2-proxy Redis credentials..."
+  kubectl create secret generic oauth2-proxy-redis-credentials \
+    --from-literal=password="${OAUTH2_PROXY_REDIS_PASSWORD}" \
+    -n kube-system --dry-run=client -o yaml | kubectl apply -f -
+
+  # Apply oauth2-proxy deployments + ForwardAuth middlewares
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/oauth2-proxy.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/middleware-oauth2-proxy.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/alertmanager/oauth2-proxy.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/alertmanager/middleware-oauth2-proxy.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/oauth2-proxy-hubble.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-oauth2-proxy-hubble.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/oauth2-proxy-traefik-dashboard.yaml"
+  kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-oauth2-proxy-traefik-dashboard.yaml"
+  log_ok "oauth2-proxy ForwardAuth configured for Prometheus, Alertmanager, Hubble, Traefik"
+
+  # ── 5.11 Deploy Identity Portal ────────────────────────────────────────
+  log_step "Deploying Identity Portal..."
+  kube_apply_k_subst "${SERVICES_DIR}/identity-portal"
+
+  # Inject identity-portal-admin OIDC secret
+  local IDENTITY_PORTAL_OIDC_SECRET
+  IDENTITY_PORTAL_OIDC_SECRET=$(jq -r '.["identity-portal-admin"] // empty' "$OIDC_SECRETS_FILE")
+  if [[ -n "$IDENTITY_PORTAL_OIDC_SECRET" ]]; then
+    kubectl -n identity-portal create secret generic identity-portal-secret \
+      --from-literal=KEYCLOAK_CLIENT_SECRET="${IDENTITY_PORTAL_OIDC_SECRET}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    kubectl -n identity-portal rollout restart deployment/identity-portal-backend 2>/dev/null || true
+  fi
+
+  # Wait for frontend + backend
+  if ! wait_for_deployment identity-portal identity-portal-frontend 120s; then
+    log_warn "Identity Portal frontend not ready (image may still be pulling)"
+  fi
+  wait_for_deployment identity-portal identity-portal-backend 120s 2>/dev/null || \
+    log_warn "Identity Portal backend not ready yet — may need more time"
+  log_ok "Identity Portal deployed"
+
+  # ── 5.12 Test users ────────────────────────────────────────────────────
+  kc_create_test_users
+
+  # ── 5.13 Credentials summary ───────────────────────────────────────────
+  echo ""
+  echo -e "${BOLD}============================================================${NC}"
+  echo -e "${BOLD}  KEYCLOAK + AUTH LAYER SUMMARY${NC}"
+  echo -e "${BOLD}============================================================${NC}"
+  echo ""
+  echo "  Realm:     ${KC_REALM}"
+  echo "  Admin URL: ${KC_URL}/admin/${KC_REALM}/console"
+  echo ""
+  echo "  Realm Admin:  admin / ${REALM_ADMIN_PASS}"
+  echo "  General User: user / ${REALM_USER_PASS}"
+  echo ""
+  echo "  OIDC-protected services:"
+  echo "    Grafana, Vault, Harbor, Rancher (direct OIDC)"
+  echo "    Prometheus, Alertmanager, Hubble, Traefik (oauth2-proxy ForwardAuth)"
+  echo "    Identity Portal (PKCE frontend + service account backend)"
+  echo ""
+  echo "  Test users: 12 users (password: TestUser2026!)"
+  echo "  Client secrets: ${OIDC_SECRETS_FILE}"
+  echo ""
+
+  # Append to credentials file
+  local creds_file="${CLUSTER_DIR}/credentials.txt"
+  if [[ -f "$creds_file" ]]; then
+    cat >> "$creds_file" <<EOF
+
+# Keycloak OIDC (Phase 5 — $(date -u +%Y-%m-%dT%H:%M:%SZ))
+Keycloak Realm  https://keycloak.${DOMAIN}/admin/${KC_REALM}/console
+  Realm Admin:   admin / ${REALM_ADMIN_PASS}
+  General User:  user / ${REALM_USER_PASS}  (developers group)
+  Master admin (admin/CHANGEME_KC_ADMIN_PASSWORD) is break-glass only — use realm admin console
+
+OIDC Client Secrets:
+$(jq -r 'to_entries[] | "  \(.key): \(.value)"' "$OIDC_SECRETS_FILE" 2>/dev/null || echo "  (see ${OIDC_SECRETS_FILE})")
+
+Test Users (password: TestUser2026!, MFA optional):
+  alice.morgan, bob.chen, carol.silva, dave.kumar, eve.mueller, frank.jones,
+  grace.park, henry.wilson, iris.tanaka, jack.brown, kate.lee, leo.garcia
+EOF
+    log_ok "Keycloak credentials appended to ${creds_file}"
+  fi
+
+  end_phase "PHASE 5: KEYCLOAK + AUTH LAYER"
 }
 
 # =============================================================================
@@ -1307,6 +1653,16 @@ EOF
 
   # HTTPS connectivity check for Mattermost
   check_https "mattermost.${DOMAIN}"
+
+  # Mattermost OIDC (self-contained — register client + bind)
+  log_step "Registering Mattermost OIDC client..."
+  kc_init
+  local secret
+  secret=$(kc_create_client "mattermost" "https://mattermost.${DOMAIN}/signup/openid/complete" "Mattermost")
+  kc_save_secret "mattermost" "$secret"
+  kc_add_groups_scope_to_clients mattermost
+  kc_add_group_mappers mattermost
+  kc_bind_mattermost
 
   # 7.2 Kasm Workspaces
   log_step "Deploying Kasm Workspaces..."
@@ -1404,12 +1760,7 @@ EOF
     log_info "Skipping LibreNMS (DEPLOY_LIBRENMS=false)"
   fi
 
-  # ── Identity Portal ────────────────────────────────────────────────────
-  log_step "Deploying Identity Portal"
-  kube_apply_k_subst "${SERVICES_DIR}/identity-portal"
-  wait_for_deployment identity-portal identity-portal-backend 120s
-  wait_for_deployment identity-portal identity-portal-frontend 120s
-  log_ok "Identity Portal deployed"
+  # Identity Portal is deployed in Phase 5 (Keycloak + Auth Layer)
 
   end_phase "PHASE 7: REMAINING SERVICES"
 }
@@ -1643,7 +1994,7 @@ phase_9_validation() {
   echo "    Harbor admin:      admin / ${harbor_pass}"
   echo "    Grafana admin:     admin / ${GRAFANA_ADMIN_PASSWORD:-N/A}"
   echo "    Kasm admin:        admin@kasm.local / ${kasm_pass}"
-  echo "    Keycloak bootstrap: admin / CHANGEME_KC_ADMIN_PASSWORD (temporary — run setup-keycloak.sh)"
+  echo "    Keycloak:          Realm admin configured in Phase 5 (see credentials.txt)"
   echo "    Auth (prom/alertmanager/hubble/rollouts/traefik): via oauth2-proxy ForwardAuth"
   echo ""
   echo "  Vault PKI (External Root CA):"
@@ -1663,10 +2014,9 @@ phase_9_validation() {
   fi
 
   echo -e "  ${YELLOW}Next steps:${NC}"
-  echo "    1. Run: ./scripts/setup-gitlab.sh      (GitLab deployment)"
-  echo "    2. Run: ./scripts/setup-cicd.sh        (ArgoCD + Rollouts integration)"
-  echo "    3. Create DNS A records (see Phase 8 output above)"
-  echo "    4. Import Root CA certificate above into your browser/OS trust store"
+  echo "    1. Continue with: ./scripts/deploy-cluster.sh --from 10  (GitLab + CI/CD)"
+  echo "    2. Create DNS A records (see Phase 8 output above)"
+  echo "    3. Import Root CA certificate above into your browser/OS trust store"
   echo ""
 
   # Write credentials file (includes Root CA)
@@ -1685,112 +2035,57 @@ phase_9_validation() {
 }
 
 # =============================================================================
-# PHASE 10: KEYCLOAK OIDC SETUP
+# PHASE 10: GITLAB (with self-contained OIDC)
 # =============================================================================
-phase_10_keycloak_setup() {
-  start_phase "PHASE 10: KEYCLOAK OIDC SETUP"
-
-  log_step "Running Keycloak OIDC setup..."
-  "${SCRIPT_DIR}/setup-keycloak.sh"
-
-  # Deploy oauth2-proxy instances with per-service OIDC client secrets
-  log_step "Configuring oauth2-proxy ForwardAuth..."
-  local oidc_secrets_file="${SCRIPTS_DIR}/oidc-client-secrets.json"
-
-  if [[ -f "$oidc_secrets_file" ]]; then
-    local services=("prometheus-oidc" "alertmanager-oidc" "hubble-oidc" "traefik-dashboard-oidc" "rollouts-oidc")
-    local namespaces=("monitoring" "monitoring" "kube-system" "kube-system" "argo-rollouts")
-    local names=("prometheus" "alertmanager" "hubble" "traefik-dashboard" "rollouts")
-
-    for i in "${!services[@]}"; do
-      local client_id="${services[$i]}"
-      local ns="${namespaces[$i]}"
-      local name="${names[$i]}"
-      local client_secret cookie_secret
-
-      client_secret=$(jq -r ".[\"${client_id}\"] // empty" "$oidc_secrets_file")
-      cookie_secret=$(openssl rand -base64 32 | tr -- '+/' '-_')
-
-      if [[ -z "$client_secret" ]]; then
-        log_warn "Client secret for ${client_id} not found — skipping oauth2-proxy-${name}"
-        continue
-      fi
-
-      kubectl create secret generic "oauth2-proxy-${name}" \
-        --namespace="${ns}" \
-        --from-literal=client-secret="${client_secret}" \
-        --from-literal=cookie-secret="${cookie_secret}" \
-        --dry-run=client -o yaml | kubectl apply -f -
-      log_ok "Secret oauth2-proxy-${name} created in ${ns}"
-    done
-
-    # Distribute oauth2-proxy Redis credentials to cross-namespace consumers
-    # (monitoring namespace gets it via kustomize; kube-system and argo-rollouts need copies)
-    log_step "Distributing oauth2-proxy Redis credentials to kube-system and argo-rollouts..."
-    for ns in kube-system argo-rollouts; do
-      kubectl create secret generic oauth2-proxy-redis-credentials \
-        --from-literal=password="${OAUTH2_PROXY_REDIS_PASSWORD}" \
-        -n "$ns" --dry-run=client -o yaml | kubectl apply -f -
-    done
-    log_ok "oauth2-proxy Redis credentials distributed"
-
-    # Apply oauth2-proxy deployments + ForwardAuth middlewares
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/oauth2-proxy.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/prometheus/middleware-oauth2-proxy.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/alertmanager/oauth2-proxy.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/alertmanager/middleware-oauth2-proxy.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/oauth2-proxy-hubble.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-oauth2-proxy-hubble.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/oauth2-proxy-traefik-dashboard.yaml"
-    kube_apply_subst "${SERVICES_DIR}/monitoring-stack/kube-system/middleware-oauth2-proxy-traefik-dashboard.yaml"
-    kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/oauth2-proxy.yaml"
-    kube_apply_subst "${SERVICES_DIR}/argo/argo-rollouts/middleware-oauth2-proxy.yaml"
-    log_ok "oauth2-proxy ForwardAuth configured for all protected services"
-  else
-    log_warn "oidc-client-secrets.json not found — oauth2-proxy auth will not work"
-  fi
-
-  # Inject identity-portal-admin OIDC secret (confidential backend client)
-  # The identity-portal uses two Keycloak clients:
-  #   - identity-portal:       PUBLIC client for frontend PKCE OIDC flow (no secret)
-  #   - identity-portal-admin: CONFIDENTIAL service account client for backend Admin API
-  # Read the secret from oidc-client-secrets.json (setup-keycloak.sh runs as a child process
-  # so its exported env vars are not available here).
-  local IDENTITY_PORTAL_OIDC_SECRET
-  IDENTITY_PORTAL_OIDC_SECRET=$(jq -r '.["identity-portal-admin"] // empty' "$oidc_secrets_file")
-  if [[ -z "$IDENTITY_PORTAL_OIDC_SECRET" ]]; then
-    log_warn "identity-portal-admin secret not found in oidc-client-secrets.json — skipping"
-    end_phase "PHASE 10: KEYCLOAK OIDC SETUP"
-    return
-  fi
-  log_step "Injecting Identity Portal Admin OIDC secret"
-  kubectl -n identity-portal create secret generic identity-portal-secret \
-    --from-literal=KEYCLOAK_CLIENT_SECRET="${IDENTITY_PORTAL_OIDC_SECRET}" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  kubectl -n identity-portal rollout restart deployment/identity-portal-backend
-  wait_for_deployment identity-portal identity-portal-backend 120s
-  log_ok "Identity Portal Admin OIDC secret injected (identity-portal-admin client)"
-
-  end_phase "PHASE 10: KEYCLOAK OIDC SETUP"
-}
-
-# =============================================================================
-# PHASE 11: GITLAB
-# =============================================================================
-phase_11_gitlab() {
-  start_phase "PHASE 11: GITLAB"
+phase_10_gitlab() {
+  start_phase "PHASE 10: GITLAB"
 
   log_step "Running GitLab deployment..."
   "${SCRIPT_DIR}/setup-gitlab.sh"
 
-  end_phase "PHASE 11: GITLAB"
+  # Self-contained OIDC: create gitlab + gitlab-ci clients
+  log_step "Creating GitLab OIDC clients..."
+  kc_init
+
+  local secret
+  secret=$(kc_create_client "gitlab" "https://gitlab.${DOMAIN}/users/auth/openid_connect/callback" "GitLab")
+  kc_save_secret "gitlab" "$secret"
+
+  secret=$(kc_create_service_account_client "gitlab-ci" "GitLab CI Service Account")
+  kc_save_secret "gitlab-ci" "$secret"
+
+  # Add gitlab-ci service account to groups
+  local gitlab_ci_internal_id gitlab_ci_sa_user_id
+  gitlab_ci_internal_id=$(kc_api GET "/realms/${KC_REALM}/clients?clientId=gitlab-ci" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+  if [[ -n "$gitlab_ci_internal_id" ]]; then
+    gitlab_ci_sa_user_id=$(kc_api GET "/realms/${KC_REALM}/clients/${gitlab_ci_internal_id}/service-account-user" 2>/dev/null | jq -r '.id // empty' || echo "")
+    if [[ -n "$gitlab_ci_sa_user_id" ]]; then
+      for sa_group in ci-service-accounts infra-engineers; do
+        local sa_group_id
+        sa_group_id=$(kc_api GET "/realms/${KC_REALM}/groups?search=${sa_group}" 2>/dev/null | jq -r '.[0].id // empty' || echo "")
+        if [[ -n "$sa_group_id" ]]; then
+          kc_api PUT "/realms/${KC_REALM}/users/${gitlab_ci_sa_user_id}/groups/${sa_group_id}" 2>/dev/null || true
+          log_ok "service-account-gitlab-ci added to ${sa_group}"
+        fi
+      done
+    fi
+  fi
+
+  kc_add_groups_scope_to_clients gitlab gitlab-ci
+  kc_add_group_mappers gitlab gitlab-ci
+
+  log_info "GitLab OIDC clients created (gitlab + gitlab-ci)"
+  log_info "  Client ID: gitlab, Secret: see ${OIDC_SECRETS_FILE}"
+  log_info "  OIDC secret will be created automatically by setup-gitlab.sh"
+
+  end_phase "PHASE 10: GITLAB"
 }
 
 # =============================================================================
-# PHASE 12: GITLAB HARDENING (SSH, Registry Disable, Protected Branches)
+# PHASE 11: GITLAB HARDENING (SSH, Registry Disable, Protected Branches)
 # =============================================================================
-phase_12_gitlab_hardening() {
-  start_phase "PHASE 12: GITLAB HARDENING"
+phase_11_gitlab_hardening() {
+  start_phase "PHASE 11: GITLAB HARDENING"
 
   # 12.1 Disable GitLab container registry (Harbor is the platform registry)
   log_step "Disabling GitLab container registry (Harbor is the platform registry)..."
@@ -1827,23 +2122,52 @@ phase_12_gitlab_hardening() {
     log_ok "GitLab SSH IngressRouteTCP deployed"
   fi
 
-  # 12.3 Load GitLab API token
+  # 12.3 Load or create GitLab API token
   local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
   if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
-    local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
     if [[ -f "$token_file" ]]; then
       GITLAB_API_TOKEN=$(cat "$token_file")
+    fi
+  fi
+
+  # Validate existing token — create a fresh one if missing or stale
+  if [[ -n "${GITLAB_API_TOKEN:-}" ]]; then
+    local token_check
+    token_check=$(curl -sk -H "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" \
+      "https://gitlab.${DOMAIN}/api/v4/user" 2>/dev/null | jq -r '.username // empty' 2>/dev/null)
+    if [[ -z "$token_check" ]]; then
+      log_warn "GitLab API token is stale — regenerating"
+      GITLAB_API_TOKEN=""
+    fi
+  fi
+
+  if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
+    log_step "Creating GitLab API token via rails runner..."
+    local toolbox_pod
+    toolbox_pod=$(kubectl get pods -n gitlab -l app=toolbox -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [[ -n "$toolbox_pod" ]]; then
+      GITLAB_API_TOKEN=$(kubectl exec -n gitlab "$toolbox_pod" -- \
+        gitlab-rails runner "token = User.find_by_username('root').personal_access_tokens.create!(name: 'deploy-bot', scopes: [:api, :read_api, :sudo], expires_at: 365.days.from_now); puts token.token" 2>/dev/null | tail -1)
+      if [[ -n "$GITLAB_API_TOKEN" && "$GITLAB_API_TOKEN" == glpat-* ]]; then
+        echo -n "$GITLAB_API_TOKEN" > "$token_file"
+        log_ok "GitLab API token created and saved to .gitlab-api-token"
+      else
+        log_warn "Failed to create GitLab API token — skipping API-based hardening"
+        end_phase "PHASE 11: GITLAB HARDENING"
+        return 0
+      fi
     else
-      log_warn "No GITLAB_API_TOKEN set and no .gitlab-api-token file — skipping API-based hardening"
-      end_phase "PHASE 12: GITLAB HARDENING"
+      log_warn "GitLab toolbox pod not found — skipping API-based hardening"
+      end_phase "PHASE 11: GITLAB HARDENING"
       return 0
     fi
   fi
 
   # 12.4 Look up platform_services group ID
   log_step "Looking up GitLab platform_services group..."
-  local PS_GROUP_ID
-  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  local PS_GROUP_ID=""
+  PS_GROUP_ID=$(gitlab_group_id "platform_services" 2>/dev/null) || true
   if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
     log_warn "platform_services group not found — create it first with setup-gitlab-services.sh"
     PS_GROUP_ID=""
@@ -1854,36 +2178,40 @@ phase_12_gitlab_hardening() {
   # 12.5 Configure protected branches on all platform_services projects
   log_step "Configuring protected branches..."
   if [[ -n "$PS_GROUP_ID" ]]; then
-    local projects_json
-    projects_json=$(gitlab_get "/groups/${PS_GROUP_ID}/projects?per_page=100&include_subgroups=true")
+    local projects_json=""
+    projects_json=$(gitlab_get "/groups/${PS_GROUP_ID}/projects?per_page=100&include_subgroups=true" 2>/dev/null) || true
     local project_ids
-    project_ids=$(echo "$projects_json" | jq -r '.[].id' 2>/dev/null)
+    project_ids=$(echo "$projects_json" | jq -r '.[].id' 2>/dev/null) || true
 
-    for pid in $project_ids; do
-      local pname
-      pname=$(echo "$projects_json" | jq -r ".[] | select(.id == ${pid}) | .path" 2>/dev/null)
-      log_info "  Protecting main branch on ${pname} (ID: ${pid})..."
+    if [[ -z "$project_ids" ]]; then
+      log_warn "Could not list projects in group ${PS_GROUP_ID} — GitLab API may be slow"
+    else
+      for pid in $project_ids; do
+        local pname
+        pname=$(echo "$projects_json" | jq -r ".[] | select(.id == ${pid}) | .path" 2>/dev/null)
+        log_info "  Protecting main branch on ${pname} (ID: ${pid})..."
 
-      # Protect main: Maintainer push, Maintainer merge
-      gitlab_protect_branch "$pid" "main" 40 40
+        # Protect main: Maintainer push, Maintainer merge
+        gitlab_protect_branch "$pid" "main" 40 40 || true
 
-      # Project settings: require pipeline success, require discussions resolved, no author approval
-      gitlab_set_project_setting "$pid" "only_allow_merge_if_pipeline_succeeds" "true"
-      gitlab_set_project_setting "$pid" "only_allow_merge_if_all_discussions_are_resolved" "true"
-      gitlab_set_project_setting "$pid" "merge_requests_author_approval" "false"
+        # Project settings: require pipeline success, require discussions resolved, no author approval
+        gitlab_set_project_setting "$pid" "only_allow_merge_if_pipeline_succeeds" "true"
+        gitlab_set_project_setting "$pid" "only_allow_merge_if_all_discussions_are_resolved" "true"
+        gitlab_set_project_setting "$pid" "merge_requests_author_approval" "false"
 
-      log_ok "  ${pname}: protected branch + merge settings configured"
-    done
+        log_ok "  ${pname}: protected branch + merge settings configured"
+      done
+    fi
   fi
 
   # 12.6 Configure merge request approval rules
   log_step "Configuring MR approval rules..."
-  if [[ -n "$PS_GROUP_ID" ]]; then
+  if [[ -n "$PS_GROUP_ID" && -n "${project_ids:-}" ]]; then
     for pid in $project_ids; do
       local pname
       pname=$(echo "$projects_json" | jq -r ".[] | select(.id == ${pid}) | .path" 2>/dev/null)
       # Senior Review Required: 2 approvals
-      gitlab_add_approval_rule "$pid" "Senior Review Required" 2
+      gitlab_add_approval_rule "$pid" "Senior Review Required" 2 || true
       log_ok "  ${pname}: approval rule 'Senior Review Required' (2 approvals)"
     done
   fi
@@ -1905,56 +2233,55 @@ phase_12_gitlab_hardening() {
     done
   fi
 
-  end_phase "PHASE 12: GITLAB HARDENING"
+  end_phase "PHASE 11: GITLAB HARDENING"
 }
 
 # =============================================================================
-# PHASE 12b: ENGINEERING SOPs WIKI
+# PHASE 11b: ENGINEERING SOPs WIKI
 # =============================================================================
-phase_12b_sop_wiki() {
+phase_11b_sop_wiki() {
   local docs_dir="${REPO_ROOT}/docs/engineering"
   if [[ ! -d "$docs_dir" ]]; then
     log_info "No docs/engineering directory — skipping SOP wiki"
     return 0
   fi
 
-  start_phase "PHASE 12b: SOP WIKI"
+  start_phase "PHASE 11b: SOP WIKI"
 
-  # 12b.1 Load GitLab API token (same pattern as phase_12/14)
-  local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
+  # 11b.1 Load GitLab API token (same pattern as phase_11/13)
   if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
     local token_file="${SCRIPTS_DIR}/.gitlab-api-token"
     [[ -f "$token_file" ]] && GITLAB_API_TOKEN=$(cat "$token_file")
   fi
   if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
     log_warn "No GITLAB_API_TOKEN — skipping SOP wiki"
-    end_phase "PHASE 12b: SOP WIKI"
+    end_phase "PHASE 11b: SOP WIKI"
     return 0
   fi
 
   # 12b.2 Look up platform_services group
   log_step "Looking up platform_services group..."
-  local PS_GROUP_ID
-  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  local PS_GROUP_ID=""
+  PS_GROUP_ID=$(gitlab_group_id "platform_services" 2>/dev/null) || true
   if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
     log_warn "platform_services group not found — run setup-gitlab-services.sh first"
-    end_phase "PHASE 12b: SOP WIKI"
+    end_phase "PHASE 11b: SOP WIKI"
     return 0
   fi
 
   # 12b.3 Create sop-wiki project if it doesn't exist
   log_step "Creating sop-wiki project..."
-  local wiki_project_id
-  wiki_project_id=$(gitlab_project_id "platform_services/sop-wiki")
+  local wiki_project_id=""
+  wiki_project_id=$(gitlab_project_id "platform_services/sop-wiki" 2>/dev/null) || true
 
   if [[ -z "$wiki_project_id" || "$wiki_project_id" == "null" ]]; then
     local resp
     resp=$(gitlab_post "/projects" \
-      "{\"name\":\"sop-wiki\",\"path\":\"sop-wiki\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"internal\",\"wiki_enabled\":true,\"initialize_with_readme\":true}")
+      "{\"name\":\"sop-wiki\",\"path\":\"sop-wiki\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"internal\",\"wiki_enabled\":true,\"initialize_with_readme\":true}") || true
     wiki_project_id=$(echo "$resp" | jq -r '.id // empty' 2>/dev/null)
     if [[ -z "$wiki_project_id" ]]; then
       log_error "Failed to create sop-wiki project"
-      end_phase "PHASE 12b: SOP WIKI"
+      end_phase "PHASE 11b: SOP WIKI"
       return 0
     fi
     log_ok "Created sop-wiki project (ID: ${wiki_project_id})"
@@ -1999,8 +2326,7 @@ phase_12b_sop_wiki() {
   # 12b.7 Split troubleshooting-sop.md into sub-pages by ## headers
   log_step "Splitting troubleshooting SOP into sub-pages..."
   local ts_src="${docs_dir}/troubleshooting-sop.md"
-  local section_num="" section_title="" section_slug="" section_file=""
-  local in_intro=true
+  local section_num="" section_title="" section_slug=""
   local index_links=""
 
   # First pass: extract intro (everything before first ## N.) as the index page
@@ -2143,14 +2469,14 @@ SIDEBAREOF
   fi
   rm -rf "${tmp_dir}"
 
-  end_phase "PHASE 12b: SOP WIKI"
+  end_phase "PHASE 11b: SOP WIKI"
 }
 
 # =============================================================================
-# PHASE 13: VAULT CI/CD INTEGRATION
+# PHASE 12: VAULT CI/CD INTEGRATION
 # =============================================================================
-phase_13_vault_cicd() {
-  start_phase "PHASE 13: VAULT CI/CD INTEGRATION"
+phase_12_vault_cicd() {
+  start_phase "PHASE 12: VAULT CI/CD INTEGRATION"
 
   # Load Vault root token
   local VAULT_ROOT_TOKEN
@@ -2158,7 +2484,7 @@ phase_13_vault_cicd() {
     VAULT_ROOT_TOKEN=$(jq -r '.root_token' "${CLUSTER_DIR}/vault-init.json")
   else
     log_warn "vault-init.json not found — skipping Vault CI/CD setup"
-    end_phase "PHASE 13: VAULT CI/CD"
+    end_phase "PHASE 12: VAULT CI/CD"
     return 0
   fi
 
@@ -2260,7 +2586,20 @@ path "kv/data/services/*" { capabilities = ["read","list"] }' | \
   # 13.7 Create ClusterSecretStore
   log_step "Creating ClusterSecretStore..."
   wait_for_deployment external-secrets external-secrets 120s
-  sleep 5  # Wait for CRDs to register
+  # Wait for CRDs to register with API server
+  log_info "Waiting for ClusterSecretStore CRD to register..."
+  local crd_wait=0
+  while ! kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1; do
+    sleep 5
+    crd_wait=$((crd_wait + 5))
+    if [[ $crd_wait -ge 120 ]]; then
+      log_warn "ClusterSecretStore CRD not registered after 120s — skipping"
+      end_phase "PHASE 12: VAULT CI/CD"
+      return 0
+    fi
+  done
+  log_ok "ClusterSecretStore CRD registered"
+  sleep 3  # Brief settle time
   kube_apply -f "${SERVICES_DIR}/external-secrets/cluster-secret-store.yaml"
   log_ok "ClusterSecretStore vault-backend created"
 
@@ -2270,14 +2609,14 @@ path "kv/data/services/*" { capabilities = ["read","list"] }' | \
   kube_apply -f "${SERVICES_DIR}/external-secrets/external-secret-harbor-push.yaml"
   log_ok "ExternalSecret harbor-ci-push created in gitlab-runners namespace"
 
-  end_phase "PHASE 13: VAULT CI/CD"
+  end_phase "PHASE 12: VAULT CI/CD"
 }
 
 # =============================================================================
-# PHASE 14: CI PIPELINE TEMPLATES & HARBOR POLICIES
+# PHASE 13: CI PIPELINE TEMPLATES & HARBOR POLICIES
 # =============================================================================
-phase_14_ci_templates() {
-  start_phase "PHASE 14: CI TEMPLATES & HARBOR POLICIES"
+phase_13_ci_templates() {
+  start_phase "PHASE 13: CI TEMPLATES & HARBOR POLICIES"
 
   # Load GitLab API token
   local GITLAB_API="https://gitlab.${DOMAIN}/api/v4"
@@ -2288,32 +2627,40 @@ phase_14_ci_templates() {
 
   if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
     log_warn "No GITLAB_API_TOKEN — skipping CI template push"
-    end_phase "PHASE 14: CI TEMPLATES"
+    end_phase "PHASE 13: CI TEMPLATES"
     return 0
   fi
 
-  # 14.1 Look up platform_services group
-  local PS_GROUP_ID
-  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  # 14.1 Ensure platform_services group exists (create if needed)
+  local PS_GROUP_ID=""
+  PS_GROUP_ID=$(gitlab_group_id "platform_services" 2>/dev/null) || true
   if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
-    log_warn "platform_services group not found — run setup-gitlab-services.sh first"
-    end_phase "PHASE 14: CI TEMPLATES"
-    return 0
+    log_step "Creating platform_services group..."
+    local group_resp
+    group_resp=$(gitlab_post "/groups" \
+      '{"name":"Platform Services","path":"platform_services","visibility":"internal","description":"Shared platform infrastructure and CI/CD templates"}') || true
+    PS_GROUP_ID=$(echo "$group_resp" | jq -r '.id // empty' 2>/dev/null)
+    if [[ -z "$PS_GROUP_ID" ]]; then
+      log_error "Failed to create platform_services group — skipping CI templates"
+      end_phase "PHASE 13: CI TEMPLATES"
+      return 0
+    fi
+    log_ok "Created platform_services group (ID: ${PS_GROUP_ID})"
   fi
 
   # 14.2 Create gitlab-ci-templates project
   log_step "Creating gitlab-ci-templates project..."
-  local tmpl_project_id
-  tmpl_project_id=$(gitlab_project_id "platform_services/gitlab-ci-templates")
+  local tmpl_project_id=""
+  tmpl_project_id=$(gitlab_project_id "platform_services/gitlab-ci-templates" 2>/dev/null) || true
 
   if [[ -z "$tmpl_project_id" || "$tmpl_project_id" == "null" ]]; then
     local resp
     resp=$(gitlab_post "/projects" \
-      "{\"name\":\"gitlab-ci-templates\",\"path\":\"gitlab-ci-templates\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"internal\",\"initialize_with_readme\":false}")
+      "{\"name\":\"gitlab-ci-templates\",\"path\":\"gitlab-ci-templates\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"internal\",\"initialize_with_readme\":false}") || true
     tmpl_project_id=$(echo "$resp" | jq -r '.id // empty' 2>/dev/null)
     if [[ -z "$tmpl_project_id" ]]; then
       log_error "Failed to create gitlab-ci-templates project"
-      end_phase "PHASE 14: CI TEMPLATES"
+      end_phase "PHASE 13: CI TEMPLATES"
       return 0
     fi
     log_ok "Created gitlab-ci-templates project (ID: ${tmpl_project_id})"
@@ -2365,6 +2712,12 @@ phase_14_ci_templates() {
   create_harbor_project "ci-cache" "false"
   log_ok "Harbor projects created (platform-services, ci-cache)"
 
+  # 14.4b Prefetch CI tool images (airgapped only)
+  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    log_step "Prefetching CI tool images into Harbor proxy cache..."
+    "${SCRIPTS_DIR}/prefetch-ci-images.sh" || log_warn "Some CI images failed to prefetch (non-fatal)"
+  fi
+
   # Create Harbor robot accounts
   log_step "Creating Harbor robot accounts..."
   local ci_push_resp
@@ -2409,16 +2762,32 @@ phase_14_ci_templates() {
   gitlab_set_variable "groups" "$PS_GROUP_ID" "VAULT_ROLE" "gitlab-ci" "false" "false"
   gitlab_set_variable "groups" "$PS_GROUP_ID" "DOMAIN" "${DOMAIN}" "false" "false"
   gitlab_set_variable "groups" "$PS_GROUP_ID" "ARGOCD_SERVER" "argo.${DOMAIN}" "false" "false"
+
+  # Airgapped CI/CD variables
+  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    log_step "Setting airgapped CI/CD variables..."
+    gitlab_set_variable "groups" "$PS_GROUP_ID" "CI_AIRGAPPED" "true" "false" "false"
+    gitlab_set_variable "groups" "$PS_GROUP_ID" "CI_GOPROXY" "${CI_GOPROXY:-off}" "false" "false"
+    gitlab_set_variable "groups" "$PS_GROUP_ID" "CI_GONOSUMDB" "${CI_GONOSUMDB:-*}" "false" "false"
+    [[ -n "${CI_NPM_REGISTRY:-}" ]] && \
+      gitlab_set_variable "groups" "$PS_GROUP_ID" "CI_NPM_REGISTRY" "${CI_NPM_REGISTRY}" "false" "false"
+    if [[ -n "${CI_PIP_INDEX_URL:-}" ]]; then
+      gitlab_set_variable "groups" "$PS_GROUP_ID" "CI_PIP_INDEX_URL" "${CI_PIP_INDEX_URL}" "false" "false"
+      gitlab_set_variable "groups" "$PS_GROUP_ID" "CI_PIP_TRUSTED_HOST" "${CI_PIP_TRUSTED_HOST:-}" "false" "false"
+    fi
+    log_ok "Airgapped CI/CD variables configured"
+  fi
+
   log_ok "Group-level CI/CD variables set"
 
-  end_phase "PHASE 14: CI TEMPLATES"
+  end_phase "PHASE 13: CI TEMPLATES"
 }
 
 # =============================================================================
-# PHASE 15: ARGOCD RBAC & PROGRESSIVE DELIVERY
+# PHASE 14: ARGOCD RBAC & PROGRESSIVE DELIVERY
 # =============================================================================
-phase_15_argocd_delivery() {
-  start_phase "PHASE 15: ARGOCD RBAC & PROGRESSIVE DELIVERY"
+phase_14_argocd_delivery() {
+  start_phase "PHASE 14: ARGOCD RBAC & PROGRESSIVE DELIVERY"
 
   # 15.1 Update ArgoCD RBAC
   log_step "Updating ArgoCD RBAC with CI/CD roles..."
@@ -2628,18 +2997,18 @@ spec:
 APPSET_EOF
   log_ok "ApplicationSet ephemeral-mr-envs created"
 
-  end_phase "PHASE 15: ARGOCD DELIVERY"
+  end_phase "PHASE 14: ARGOCD DELIVERY"
 }
 
 # =============================================================================
-# PHASE 16: SECURITY SCANNING & SBOM
+# PHASE 15: SECURITY SCANNING & SBOM
 # =============================================================================
-phase_16_security() {
-  start_phase "PHASE 16: SECURITY SCANNING"
+phase_15_security() {
+  start_phase "PHASE 15: SECURITY SCANNING"
 
   if [[ "${DEPLOY_CICD_SECURITY_RUNNERS:-true}" != "true" ]]; then
     log_info "DEPLOY_CICD_SECURITY_RUNNERS=false — skipping security runner deployment"
-    end_phase "PHASE 16: SECURITY"
+    end_phase "PHASE 15: SECURITY"
     return 0
   fi
 
@@ -2654,15 +3023,24 @@ phase_16_security() {
   local sec_runner_token=""
   if [[ -n "${GITLAB_API_TOKEN:-}" ]]; then
     log_step "Creating security runner via GitLab API..."
-    local sec_response
-    sec_response=$(gitlab_post "/user/runners" \
-      '{"runner_type":"instance_type","description":"security-scanner-runner","tag_list":"security,trivy,semgrep,gitleaks","run_untagged":false}')
-    sec_runner_token=$(echo "$sec_response" | jq -r '.token // empty' 2>/dev/null)
-    if [[ -n "$sec_runner_token" ]]; then
-      log_ok "Security runner created (token: ${sec_runner_token:0:8}...)"
-    else
-      log_warn "Failed to create security runner — may already exist"
-    fi
+    local attempt=0
+    while [[ $attempt -lt 3 ]]; do
+      local sec_response
+      sec_response=$(gitlab_post "/user/runners" \
+        '{"runner_type":"instance_type","description":"security-scanner-runner","tag_list":"security,trivy,semgrep,gitleaks","run_untagged":false}') || true
+      sec_runner_token=$(echo "$sec_response" | jq -r '.token // empty' 2>/dev/null)
+      if [[ -n "$sec_runner_token" ]]; then
+        log_ok "Security runner created (token: ${sec_runner_token:0:8}...)"
+        break
+      fi
+      attempt=$((attempt + 1))
+      if [[ $attempt -lt 3 ]]; then
+        log_info "Runner token creation failed (attempt ${attempt}/3) — retrying in 30s..."
+        sleep 30
+      else
+        log_warn "Failed to create security runner after 3 attempts"
+      fi
+    done
   fi
 
   if [[ -n "$sec_runner_token" ]]; then
@@ -2696,22 +3074,24 @@ runners:
   tags: "security,trivy,semgrep,gitleaks"
   runUntagged: false
   locked: false
-  secret: gitlab-runner-certs
-certsSecretName: gitlab-runner-certs
+  secret: gitlab-runner-security-certs
+certsSecretName: gitlab-runner-security-certs
 SECVAL_EOF
     fi
 
     helm_install_if_needed gitlab-runner-security "$runner_chart" gitlab-runners \
       -f "$sec_values" \
       --set runnerToken="${sec_runner_token}" \
-      --set gitlabUrl="https://gitlab.${DOMAIN}"
+      --set gitlabUrl="https://gitlab.${DOMAIN}" || {
+      log_warn "Security runner Helm install failed — continuing"
+    }
     log_ok "Security runner deployed"
   else
     log_warn "No security runner token — skipping Helm install"
   fi
 
   # 16.2 Push updated security templates to gitlab-ci-templates project
-  log_step "Security scan templates are included in the CI template library (Phase 14)"
+  log_step "Security scan templates are included in the CI template library (Phase 13)"
   log_info "Templates: gitleaks, semgrep, trivy-fs, trivy-image, sbom, license"
   log_ok "Security templates available via shared CI library"
 
@@ -2735,14 +3115,14 @@ SECVAL_EOF
     log_warn "Harbor core pod not found — skipping auto-scan configuration"
   fi
 
-  end_phase "PHASE 16: SECURITY"
+  end_phase "PHASE 15: SECURITY"
 }
 
 # =============================================================================
-# PHASE 17: DORA METRICS & CI/CD OBSERVABILITY
+# PHASE 16: DORA METRICS & CI/CD OBSERVABILITY
 # =============================================================================
-phase_17_observability() {
-  start_phase "PHASE 17: DORA METRICS & OBSERVABILITY"
+phase_16_observability() {
+  start_phase "PHASE 16: DORA METRICS & OBSERVABILITY"
 
   # 17.1 Import DORA Grafana dashboard
   log_step "Deploying DORA metrics Grafana dashboard..."
@@ -2754,7 +3134,7 @@ phase_17_observability() {
     log_warn "DORA dashboard file not found at ${dashboard_file}"
   fi
 
-  # 17.2 Deploy CI/CD alerting rules
+  # 17.2 Deploy CI/CD alerting rules (Prometheus Operator CRDs guaranteed by Phase 3)
   log_step "Deploying CI/CD alerting rules..."
   local alerts_file="${SERVICES_DIR}/monitoring-stack/prometheus/rules/cicd-alerts.yaml"
   if [[ -f "$alerts_file" ]]; then
@@ -2802,18 +3182,18 @@ phase_17_observability() {
   echo "                        developers=Developer, viewers=Reporter"
   echo ""
 
-  end_phase "PHASE 17: OBSERVABILITY"
+  end_phase "PHASE 16: OBSERVABILITY"
 }
 
 # =============================================================================
-# PHASE 18: DEMO APPLICATIONS — "NETOPS ARCADE"
+# PHASE 17: DEMO APPLICATIONS — "NETOPS ARCADE"
 # =============================================================================
-phase_18_demo_apps() {
-  start_phase "PHASE 18: DEMO APPS — NETOPS ARCADE"
+phase_17_demo_apps() {
+  start_phase "PHASE 17: DEMO APPS — NETOPS ARCADE"
 
   if [[ "${DEPLOY_DEMO_APPS:-true}" != "true" ]]; then
     log_info "DEPLOY_DEMO_APPS=false — skipping demo app deployment"
-    end_phase "PHASE 18: DEMO APPS"
+    end_phase "PHASE 17: DEMO APPS"
     return 0
   fi
 
@@ -2825,16 +3205,16 @@ phase_18_demo_apps() {
 
   if [[ -z "${GITLAB_API_TOKEN:-}" ]]; then
     log_warn "No GITLAB_API_TOKEN — skipping demo app push to GitLab"
-    end_phase "PHASE 18: DEMO APPS"
+    end_phase "PHASE 17: DEMO APPS"
     return 0
   fi
 
   # 18.1 Look up platform_services group
-  local PS_GROUP_ID
-  PS_GROUP_ID=$(gitlab_group_id "platform_services")
+  local PS_GROUP_ID=""
+  PS_GROUP_ID=$(gitlab_group_id "platform_services" 2>/dev/null) || true
   if [[ -z "$PS_GROUP_ID" || "$PS_GROUP_ID" == "null" ]]; then
     log_warn "platform_services group not found — skipping demo apps"
-    end_phase "PHASE 18: DEMO APPS"
+    end_phase "PHASE 17: DEMO APPS"
     return 0
   fi
 
@@ -2850,7 +3230,7 @@ phase_18_demo_apps() {
   local demo_dir="${SCRIPTS_DIR}/samples/demo-apps"
   if [[ ! -d "$demo_dir" ]]; then
     log_warn "Demo apps directory not found at ${demo_dir}"
-    end_phase "PHASE 18: DEMO APPS"
+    end_phase "PHASE 17: DEMO APPS"
     return 0
   fi
 
@@ -2864,12 +3244,12 @@ phase_18_demo_apps() {
 
     # Create project if needed
     local existing_id
-    existing_id=$(gitlab_project_id "platform_services/${project_name}")
+    existing_id=$(gitlab_project_id "platform_services/${project_name}" 2>/dev/null) || true
 
     if [[ -z "$existing_id" || "$existing_id" == "null" ]]; then
       local resp
       resp=$(gitlab_post "/projects" \
-        "{\"name\":\"${project_name}\",\"path\":\"${project_name}\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"private\",\"initialize_with_readme\":false}")
+        "{\"name\":\"${project_name}\",\"path\":\"${project_name}\",\"namespace_id\":${PS_GROUP_ID},\"visibility\":\"private\",\"initialize_with_readme\":false}") || true
       existing_id=$(echo "$resp" | jq -r '.id // empty' 2>/dev/null)
       if [[ -z "$existing_id" ]]; then
         log_warn "Failed to create project ${project_name} — skipping"
@@ -2980,7 +3360,7 @@ TRAFFIC_EOF
   echo "    in the packet-relay GitLab project (platform_services/packet-relay)"
   echo ""
 
-  end_phase "PHASE 18: DEMO APPS"
+  end_phase "PHASE 17: DEMO APPS"
 }
 
 # =============================================================================
@@ -3006,31 +3386,30 @@ main() {
   # Generate or load credentials (replaces CHANGEME at apply time)
   generate_or_load_env
 
-  # Execute phases
-  if [[ "$SKIP_TERRAFORM" == "false" && $FROM_PHASE -le 0 ]]; then
+  # Execute phases (FROM_PHASE..TO_PHASE inclusive)
+  if [[ "$SKIP_TERRAFORM" == "false" && $FROM_PHASE -le 0 && $TO_PHASE -ge 0 ]]; then
     phase_0_terraform
   fi
 
-  [[ $FROM_PHASE -le 1 ]] && phase_1_foundation
-  [[ $FROM_PHASE -le 2 ]] && phase_2_vault
-  [[ $FROM_PHASE -le 3 ]] && phase_3_monitoring
-  [[ $FROM_PHASE -le 4 ]] && phase_4_harbor
-  [[ $FROM_PHASE -le 5 ]] && phase_5_argocd
-  [[ $FROM_PHASE -le 5 ]] && phase_5b_dhi_builder
-  [[ $FROM_PHASE -le 6 ]] && phase_6_keycloak
-  [[ $FROM_PHASE -le 7 ]] && phase_7_remaining
-  [[ $FROM_PHASE -le 8 ]] && phase_8_dns
-  [[ $FROM_PHASE -le 9 ]] && phase_9_validation
-  [[ $FROM_PHASE -le 10 ]] && phase_10_keycloak_setup
-  [[ $FROM_PHASE -le 11 ]] && phase_11_gitlab
-  [[ $FROM_PHASE -le 12 ]] && phase_12_gitlab_hardening
-  [[ $FROM_PHASE -le 12 ]] && phase_12b_sop_wiki
-  [[ $FROM_PHASE -le 13 ]] && phase_13_vault_cicd
-  [[ $FROM_PHASE -le 14 ]] && phase_14_ci_templates
-  [[ $FROM_PHASE -le 15 ]] && phase_15_argocd_delivery
-  [[ $FROM_PHASE -le 16 ]] && phase_16_security
-  [[ $FROM_PHASE -le 17 ]] && phase_17_observability
-  [[ $FROM_PHASE -le 18 ]] && phase_18_demo_apps
+  [[ $FROM_PHASE -le 1  && $TO_PHASE -ge 1  ]] && phase_1_foundation
+  [[ $FROM_PHASE -le 2  && $TO_PHASE -ge 2  ]] && phase_2_vault
+  [[ $FROM_PHASE -le 3  && $TO_PHASE -ge 3  ]] && phase_3_monitoring
+  [[ $FROM_PHASE -le 4  && $TO_PHASE -ge 4  ]] && phase_4_harbor
+  [[ $FROM_PHASE -le 5  && $TO_PHASE -ge 5  ]] && phase_5_keycloak_auth
+  [[ $FROM_PHASE -le 6  && $TO_PHASE -ge 6  ]] && phase_6_argocd
+  [[ $FROM_PHASE -le 6  && $TO_PHASE -ge 6  ]] && phase_6b_dhi_builder
+  [[ $FROM_PHASE -le 7  && $TO_PHASE -ge 7  ]] && phase_7_remaining
+  [[ $FROM_PHASE -le 8  && $TO_PHASE -ge 8  ]] && phase_8_dns
+  [[ $FROM_PHASE -le 9  && $TO_PHASE -ge 9  ]] && phase_9_validation
+  [[ $FROM_PHASE -le 10 && $TO_PHASE -ge 10 ]] && phase_10_gitlab
+  [[ $FROM_PHASE -le 11 && $TO_PHASE -ge 11 ]] && phase_11_gitlab_hardening
+  [[ $FROM_PHASE -le 11 && $TO_PHASE -ge 11 ]] && phase_11b_sop_wiki
+  [[ $FROM_PHASE -le 12 && $TO_PHASE -ge 12 ]] && phase_12_vault_cicd
+  [[ $FROM_PHASE -le 13 && $TO_PHASE -ge 13 ]] && phase_13_ci_templates
+  [[ $FROM_PHASE -le 14 && $TO_PHASE -ge 14 ]] && phase_14_argocd_delivery
+  [[ $FROM_PHASE -le 15 && $TO_PHASE -ge 15 ]] && phase_15_security
+  [[ $FROM_PHASE -le 16 && $TO_PHASE -ge 16 ]] && phase_16_observability
+  [[ $FROM_PHASE -le 17 && $TO_PHASE -ge 17 ]] && phase_17_demo_apps
 
   print_total_time
 }

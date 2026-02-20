@@ -50,7 +50,7 @@ Comprehensive visual reference for all deployment, operational, and controller f
 
 ### 1. Complete Cluster Deployment
 
-The full `deploy-cluster.sh` pipeline across all 12 phases (0 through 11). Each phase is idempotent and supports resumption via `--from N`.
+The full `deploy-cluster.sh` pipeline across all 19 phases (0 through 18, plus sub-phases 5b and 12b). Each phase is idempotent and supports resumption via `--from N`.
 
 ```mermaid
 flowchart TD
@@ -153,15 +153,27 @@ flowchart TD
 
     P5{Phase 5?} -->|FROM_PHASE <= 5| Phase5
 
-    subgraph Phase5 [Phase 5: ArgoCD + Argo Rollouts]
+    subgraph Phase5 [Phase 5: ArgoCD + Argo Stack]
         P5_Argo[Helm install ArgoCD HA] --> P5_ArgoGW[Apply ArgoCD Gateway + HTTPRoute]
         P5_ArgoGW --> P5_Rollouts[Helm install Argo Rollouts]
         P5_Rollouts --> P5_RolloutsGW[Apply Rollouts Gateway + HTTPRoute]
-        P5_RolloutsGW --> P5_HTTPS[HTTPS checks: argo, rollouts]
+        P5_RolloutsGW --> P5_Workflows[Helm install Argo Workflows]
+        P5_Workflows --> P5_Events[Helm install Argo Events]
+        P5_Events --> P5_HTTPS[HTTPS checks: argo, rollouts]
     end
 
-    Phase5 --> P6
-    P5 -->|skip| P6
+    Phase5 --> P5b{Phase 5b?}
+    P5 -->|skip| P5b
+
+    P5b -->|DEPLOY_DHI_BUILDER=true| Phase5b
+    P5b -->|skip| P6
+
+    subgraph Phase5b [Phase 5b: DHI Builder]
+        P5b_Harbor[Create Harbor dhi project] --> P5b_Deploy[Apply DHI Builder stack<br/>BuildKit, RBAC, EventSource, Sensor, WorkflowTemplate]
+        P5b_Deploy --> P5b_Wait[Wait for BuildKit pods ready]
+    end
+
+    Phase5b --> P6
 
     P6{Phase 6?} -->|FROM_PHASE <= 6| Phase6
 
@@ -215,14 +227,100 @@ flowchart TD
     Phase9 --> P10
     P9 -->|skip| P10
 
-    P10{Phase 10?} -->|FROM_PHASE <= 10| Phase10[Phase 10: Keycloak OIDC Setup<br/>Runs setup-keycloak.sh<br/>Realm, users, TOTP, clients, bindings, groups]
+    P10{Phase 10?} -->|FROM_PHASE <= 10| Phase10
+
+    subgraph Phase10 [Phase 10: Keycloak OIDC + ForwardAuth]
+        P10_KC[Run setup-keycloak.sh<br/>Realm, users, TOTP, clients, groups] --> P10_OAuth[Deploy oauth2-proxy ForwardAuth<br/>Prometheus, Alertmanager, Hubble,<br/>Traefik Dashboard, Rollouts]
+        P10_OAuth --> P10_Identity[Inject Identity Portal OIDC secret<br/>Rollout restart backend]
+    end
 
     Phase10 --> P11
     P10 -->|skip| P11
 
-    P11{Phase 11?} -->|FROM_PHASE <= 11| Phase11[Phase 11: GitLab]
+    P11{Phase 11?} -->|FROM_PHASE <= 11| Phase11[Phase 11: GitLab<br/>Runs setup-gitlab.sh]
 
-    Phase11 --> Done([Deployment Complete])
+    Phase11 --> P12
+    P11 -->|skip| P12
+
+    P12{Phase 12?} -->|FROM_PHASE <= 12| Phase12
+
+    subgraph Phase12 [Phase 12: GitLab Hardening]
+        P12_Registry[Disable GitLab container registry] --> P12_SSH[Verify GitLab SSH route]
+        P12_SSH --> P12_Branch[Protect main branches<br/>Require pipeline success + resolved discussions]
+        P12_Branch --> P12_Approve[Add MR approval rules<br/>Senior Review Required: 2 approvals]
+        P12_Approve --> P12_Groups[Sync Keycloak groups to GitLab roles<br/>platform-admins=Owner, infra=Maintainer,<br/>senior-dev=Maintainer, dev=Developer]
+    end
+
+    Phase12 --> P12b{Phase 12b?}
+    P12 -->|skip| P12b
+
+    P12b -->|docs/engineering/ exists| Phase12b
+    P12b -->|skip| P13
+
+    subgraph Phase12b [Phase 12b: SOP Wiki]
+        P12b_Create[Create sop-wiki project in GitLab] --> P12b_Clone[Clone wiki repo]
+        P12b_Clone --> P12b_Copy[Copy engineering docs + split troubleshooting SOP]
+        P12b_Copy --> P12b_Sidebar[Generate Home.md + _sidebar.md]
+        P12b_Sidebar --> P12b_Push[Commit and push wiki]
+    end
+
+    Phase12b --> P13
+
+    P13{Phase 13?} -->|FROM_PHASE <= 13| Phase13
+
+    subgraph Phase13 [Phase 13: Vault CI/CD Integration]
+        P13_JWT[Enable JWT auth for GitLab CI<br/>JWKS endpoint + bound issuer] --> P13_Policies[Create CI policies + roles<br/>ci-read-secrets, ci-sign-images]
+        P13_Policies --> P13_KV[Enable KV v2 engine<br/>Store CI credentials]
+        P13_KV --> P13_ESO[Deploy External Secrets Operator]
+        P13_ESO --> P13_CSS[Apply ClusterSecretStore<br/>Wait for CRD registration]
+    end
+
+    Phase13 --> P14
+    P13 -->|skip| P14
+
+    P14{Phase 14?} -->|FROM_PHASE <= 14| Phase14
+
+    subgraph Phase14 [Phase 14: CI Templates + Harbor Policies]
+        P14_Project[Create gitlab-ci-templates project] --> P14_Push[Push 11-file template library<br/>gitleaks, semgrep, trivy, sbom, license]
+        P14_Push --> P14_Harbor[Create Harbor CI projects<br/>platform-services, ci-cache]
+        P14_Harbor --> P14_Robots[Create Harbor robot accounts<br/>ci-push, argocd-pull + store in Vault KV]
+        P14_Robots --> P14_Vars[Set GitLab group CI/CD variables<br/>HARBOR_REGISTRY, VAULT_ADDR, DOMAIN]
+    end
+
+    Phase14 --> P15
+    P14 -->|skip| P15
+
+    P15{Phase 15?} -->|FROM_PHASE <= 15| Phase15
+
+    subgraph Phase15 [Phase 15: ArgoCD RBAC + Progressive Delivery]
+        P15_RBAC[Update ArgoCD RBAC ConfigMap<br/>admin, infra-ops, senior-dev, ci-sync, readonly] --> P15_Projects[Create AppProjects<br/>production, staging, ephemeral]
+        P15_Projects --> P15_Analysis[Deploy AnalysisTemplates<br/>success-rate, latency, error-rate]
+        P15_Analysis --> P15_Cleaner[Deploy ephemeral namespace cleaner<br/>CronJob: delete namespaces older than 4h]
+        P15_Cleaner --> P15_AppSet[Create ApplicationSet<br/>Ephemeral MR environments via SCM polling]
+    end
+
+    Phase15 --> P16
+    P15 -->|skip| P16
+
+    P16{Phase 16?} -->|FROM_PHASE <= 16| Phase16[Phase 16: Security Scanning<br/>Deploy security runner pool<br/>Configure Harbor auto-scan on push]
+
+    Phase16 --> P17
+    P16 -->|skip| P17
+
+    P17{Phase 17?} -->|FROM_PHASE <= 17| Phase17[Phase 17: DORA Observability<br/>Deploy Grafana DORA dashboard<br/>Deploy CI/CD alerting rules]
+
+    Phase17 --> P18
+    P17 -->|skip| P18
+
+    P18{Phase 18?} -->|FROM_PHASE <= 18| Phase18
+
+    subgraph Phase18 [Phase 18: Demo Apps — NetOps Arcade]
+        P18_NS[Create demo-apps namespace] --> P18_Push[Push demo apps to GitLab<br/>packet-relay + netops-dashboard]
+        P18_Push --> P18_Traffic[Deploy traffic generator CronJob<br/>20 requests/min to router-west]
+    end
+
+    Phase18 --> Done([Deployment Complete])
+    P18 -->|skip| Done
 ```
 
 ---
@@ -366,7 +464,7 @@ flowchart TD
 
 ### 5. Cluster Destruction Flow
 
-The full `destroy-cluster.sh` pipeline with confirmation, Terraform destroy, Harvester cleanup, and local file removal.
+The full `destroy-cluster.sh` pipeline across 5 phases (0 through 4): pre-flight confirmation, K8S workload cleanup, Terraform destroy, Harvester orphan cleanup, and local file removal.
 
 ```mermaid
 flowchart TD
@@ -390,17 +488,30 @@ flowchart TD
         PF_Confirm -->|yes| PF_Done
     end
 
-    Phase0 --> TFCheck{SKIP_TERRAFORM?}
-    TFCheck -->|no| Phase1
+    Phase0 --> Phase1
 
-    subgraph Phase1 [Phase 1: Terraform Destroy]
+    subgraph Phase1 [Phase 1: K8S Workload Cleanup]
+        WC_Check{RKE2 kubeconfig<br/>exists?} -->|no| WC_Skip[Skip — cluster unreachable]
+        WC_Check -->|yes| WC_GitLab{GitLab Helm<br/>release exists?}
+        WC_GitLab -->|yes| WC_Uninstall[Helm uninstall GitLab]
+        WC_GitLab -->|no| WC_Redis
+        WC_Uninstall --> WC_Redis[Delete Redis CRs<br/>RedisReplication + RedisSentinel]
+        WC_Redis --> WC_CNPG[Delete CNPG PostgreSQL cluster]
+        WC_CNPG --> WC_NS[Delete gitlab namespace]
+    end
+
+    Phase1 --> TFCheck{SKIP_TERRAFORM?}
+    WC_Skip --> TFCheck
+    TFCheck -->|no| Phase2
+
+    subgraph Phase2 [Phase 2: Terraform Destroy]
         TF_Push[Push secrets to Harvester backup] --> TF_Destroy[terraform.sh destroy<br/>with -auto-approve if --auto]
     end
 
-    TFCheck -->|yes| Phase2
-    Phase1 --> Phase2
+    TFCheck -->|yes| Phase3
+    Phase2 --> Phase3
 
-    subgraph Phase2 [Phase 2: Harvester Cleanup]
+    subgraph Phase3 [Phase 3: Harvester Cleanup]
         HC_Wait[Wait up to 300s for VM deletion<br/>by CAPI async teardown] --> HC_VMs[Remove stuck VM finalizers]
         HC_VMs --> HC_VMIs[Remove stuck VMI finalizers + delete]
         HC_VMIs --> HC_DVs[Delete orphaned DataVolumes]
@@ -408,14 +519,14 @@ flowchart TD
         HC_PVCs --> HC_Verify[Verify: 0 VMs + 0 PVCs remaining]
     end
 
-    Phase2 --> Phase3
+    Phase3 --> Phase4
 
-    subgraph Phase3 [Phase 3: Local Cleanup]
+    subgraph Phase4 [Phase 4: Local Cleanup]
         LC_KC[Remove kubeconfig-rke2.yaml] --> LC_Creds[Remove credentials.txt]
-        LC_Creds --> LC_Preserved[Preserved files:<br/>terraform.tfvars<br/>kubeconfig-harvester.yaml<br/>scripts/.env]
+        LC_Creds --> LC_Preserved[Preserved files:<br/>terraform.tfvars<br/>kubeconfig-harvester.yaml<br/>kubeconfig-harvester-cloud-cred.yaml<br/>harvester-cloud-provider-kubeconfig<br/>scripts/.env]
     end
 
-    Phase3 --> Done([Cluster Destroyed Successfully])
+    Phase4 --> Done([Cluster Destroyed Successfully])
 ```
 
 ---

@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: oauth2-proxy-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: oauth2-proxy-alerts
+      rules:
+        - alert: OAuth2ProxyDown
+          expr: up{job="oauth2-proxy"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "oauth2-proxy {{ $labels.service }} is down"
+            description: "oauth2-proxy for {{ $labels.service }} in {{ $labels.namespace }} has been unreachable for more than 2 minutes. ForwardAuth will fail and users cannot access the protected service."
+
+        - alert: OAuth2ProxyHighMemory
+          expr: process_resident_memory_bytes{job="oauth2-proxy"} > 100 * 1024 * 1024
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "oauth2-proxy {{ $labels.service }} high memory usage"
+            description: "oauth2-proxy for {{ $labels.service }} is using {{ $value | humanize }}B of memory (>100MB for 10min). Pod limit is 64Mi."

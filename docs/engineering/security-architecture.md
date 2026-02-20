@@ -100,22 +100,22 @@ graph TD
     CertManager["cert-manager<br/>ClusterIssuer: vault-issuer<br/>Authenticates via K8s SA token"]
 
     subgraph LeafCerts["Leaf Certificates (max 30 days / 720h)"]
-        Grafana["grafana.<DOMAIN>"]
-        Prometheus["prometheus.<DOMAIN>"]
-        VaultCert["vault.<DOMAIN>"]
-        Hubble["hubble.<DOMAIN>"]
-        TraefikCert["traefik.<DOMAIN>"]
-        Harbor["harbor.<DOMAIN>"]
-        KeycloakCert["keycloak.<DOMAIN>"]
-        ArgoCD["argo.<DOMAIN>"]
-        Rollouts["rollouts.<DOMAIN>"]
-        MM["mattermost.<DOMAIN>"]
-        Kasm["kasm.<DOMAIN>"]
-        GitLabCert["gitlab.<DOMAIN>"]
+        Grafana["grafana.&lt;DOMAIN&gt;"]
+        Prometheus["prometheus.&lt;DOMAIN&gt;"]
+        VaultCert["vault.&lt;DOMAIN&gt;"]
+        Hubble["hubble.&lt;DOMAIN&gt;"]
+        TraefikCert["traefik.&lt;DOMAIN&gt;"]
+        Harbor["harbor.&lt;DOMAIN&gt;"]
+        KeycloakCert["keycloak.&lt;DOMAIN&gt;"]
+        ArgoCD["argo.&lt;DOMAIN&gt;"]
+        Rollouts["rollouts.&lt;DOMAIN&gt;"]
+        MM["mattermost.&lt;DOMAIN&gt;"]
+        Kasm["kasm.&lt;DOMAIN&gt;"]
+        GitLabCert["gitlab.&lt;DOMAIN&gt;"]
     end
 
     RootCA -->|"signs CSR (offline, local openssl)"| IntermediateCA
-    IntermediateCA -->|"pki_int/sign/<DOMAIN_DOT>"| CertManager
+    IntermediateCA -->|"pki_int/sign/&lt;DOMAIN_DOT&gt;"| CertManager
     CertManager -->|auto-renew at ~20 days| LeafCerts
 ```
 
@@ -233,7 +233,7 @@ graph TB
     end
 
     subgraph Ingress["External Access"]
-        GW["Gateway + HTTPRoute<br/>vault.<DOMAIN><br/>TLS via cert-manager"]
+        GW["Gateway + HTTPRoute<br/>vault.&lt;DOMAIN&gt;<br/>TLS via cert-manager"]
     end
 
     V0 <-->|"Raft consensus :8201"| V1
@@ -392,7 +392,7 @@ sequenceDiagram
     CM->>VI: Create SA token
     VI->>V: Authenticate via K8s auth
     V->>VI: Return Vault token
-    CM->>V: POST pki_int/sign/<DOMAIN_DOT><br/>(CSR with SAN)
+    CM->>V: POST pki_int/sign/&lt;DOMAIN_DOT&gt;<br/>(CSR with SAN)
     V->>CM: Return signed certificate<br/>(+ CA chain)
     CM->>GW: Store cert + key in Secret
     T->>GW: Load Secret for TLS termination
@@ -505,10 +505,10 @@ sequenceDiagram
     participant KC as Keycloak
     participant DB as Keycloak PostgreSQL
 
-    User->>Traefik: HTTPS request to service.<DOMAIN>
+    User->>Traefik: HTTPS request to service.&lt;DOMAIN&gt;
     Traefik->>Service: Forward (HTTP, after TLS termination)
     Service->>User: 302 Redirect to Keycloak login
-    User->>KC: GET /realms/<REALM>/protocol/openid-connect/auth
+    User->>KC: GET /realms/&lt;REALM&gt;/protocol/openid-connect/auth
     KC->>DB: Validate credentials
     DB->>KC: User record + groups
     KC->>User: 302 Redirect with authorization code

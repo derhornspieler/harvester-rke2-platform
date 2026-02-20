@@ -28,6 +28,6 @@ runners:
   tags: "security,trivy,semgrep,gitleaks"
   runUntagged: false
   locked: false
-  secret: gitlab-runner-certs
+  secret: gitlab-runner-security-certs
 
-certsSecretName: gitlab-runner-certs
+certsSecretName: gitlab-runner-security-certs

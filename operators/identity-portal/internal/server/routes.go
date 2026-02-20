@@ -23,6 +23,9 @@ func NewRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) http.
 	// --- Public config (no auth needed, used by frontend) ---
 	mux.HandleFunc("GET /api/v1/config", h.GetPublicConfig)
 
+	// --- CLI downloads (no auth needed, script contains no secrets) ---
+	mux.HandleFunc("GET /api/v1/cli/identity-ssh-sign", h.GetCLIScript)
+
 	// --- Self-service routes (require valid OIDC token) ---
 	selfMux := http.NewServeMux()
 	selfMux.HandleFunc("GET /api/v1/self/profile", h.GetSelfProfile)

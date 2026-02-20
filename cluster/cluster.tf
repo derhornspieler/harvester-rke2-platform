@@ -12,6 +12,7 @@ resource "rancher2_secret_v2" "dockerhub_auth" {
     username = var.dockerhub_username
     password = var.dockerhub_token
   }
+
 }
 
 resource "rancher2_cluster_v2" "rke2" {
@@ -344,6 +345,6 @@ resource "rancher2_cluster_v2" "rke2" {
   }
 
   timeouts {
-    create = "45m"
+    create = "90m"
   }
 }

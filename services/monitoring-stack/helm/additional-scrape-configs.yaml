@@ -1,0 +1,211 @@
+# Additional scrape configs for kube-prometheus-stack
+# These jobs use node/pod SD patterns that don't map cleanly to ServiceMonitors.
+# Created as a Secret (key: scrape-configs.yaml) by deploy-cluster.sh phase 3.
+# Domain substitution: _subst_changeme replaces example.com before Secret creation.
+
+# 1. etcd (non-standard HTTP metrics port 2381 on control-plane nodes)
+- job_name: "etcd"
+  scheme: http
+  kubernetes_sd_configs:
+    - role: node
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_node_labelpresent_node_role_kubernetes_io_control_plane]
+      action: keep
+      regex: "true"
+    - source_labels: [__meta_kubernetes_node_address_InternalIP]
+      action: replace
+      target_label: __address__
+      replacement: $1:2381
+    - source_labels: [__meta_kubernetes_node_name]
+      target_label: instance
+
+# 2. Cilium agent (hostNetwork, port 9962)
+- job_name: "cilium-agent"
+  kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: ["kube-system"]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+      action: keep
+      regex: cilium
+    - source_labels: [__meta_kubernetes_pod_ip]
+      action: replace
+      target_label: __address__
+      replacement: $1:9962
+    - source_labels: [__meta_kubernetes_pod_node_name]
+      target_label: node
+
+# 3. CoreDNS (RKE2 uses rke2-coredns label, not standard coredns)
+- job_name: "coredns"
+  kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: ["kube-system"]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+      action: keep
+      regex: rke2-coredns
+    - source_labels: [__meta_kubernetes_pod_ip]
+      action: replace
+      target_label: __address__
+      replacement: $1:9153
+
+# 4. Annotation-based service endpoint discovery
+- job_name: "kubernetes-service-endpoints"
+  kubernetes_sd_configs:
+    - role: endpoints
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+      action: keep
+      regex: "true"
+    - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+      action: replace
+      target_label: __scheme__
+      regex: (https?)
+    - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+      action: replace
+      target_label: __metrics_path__
+      regex: (.+)
+    - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+      action: replace
+      regex: ([^:]+)(?::\d+)?;(\d+)
+      replacement: $1:$2
+      target_label: __address__
+    - action: labelmap
+      regex: __meta_kubernetes_service_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      action: replace
+      target_label: namespace
+    - source_labels: [__meta_kubernetes_service_name]
+      action: replace
+      target_label: service
+    # Drop node-exporter endpoints (scraped correctly by the chart's own ServiceMonitor)
+    - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+      action: drop
+      regex: .*node-exporter.*;.*
+    - source_labels: [__address__]
+      action: drop
+      regex: .*:9100
+    # Drop Redis exporter stale targets (sentinel/replication pods without exporter)
+    - source_labels: [__address__]
+      action: drop
+      regex: .*:9121
+
+# 5. Annotation-based pod discovery
+- job_name: "kubernetes-pods"
+  kubernetes_sd_configs:
+    - role: pod
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+      action: keep
+      regex: "true"
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+      action: replace
+      target_label: __scheme__
+      regex: (https?)
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+      action: replace
+      target_label: __metrics_path__
+      regex: (.+)
+    - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+      action: replace
+      regex: ([^:]+)(?::\d+)?;(\d+)
+      replacement: $1:$2
+      target_label: __address__
+    - action: labelmap
+      regex: __meta_kubernetes_pod_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      action: replace
+      target_label: namespace
+    - source_labels: [__meta_kubernetes_pod_name]
+      action: replace
+      target_label: pod
+    - source_labels: [__meta_kubernetes_pod_node_name]
+      action: replace
+      target_label: node
+
+# 6. Traefik (hostNetwork, port 9100, RKE2 label)
+- job_name: "traefik"
+  kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: ["kube-system"]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+      action: keep
+      regex: rke2-traefik
+    - source_labels: [__meta_kubernetes_pod_container_port_number]
+      action: keep
+      regex: "9100"
+    - source_labels: [__meta_kubernetes_pod_node_name]
+      target_label: node
+
+# 7. CNPG PostgreSQL instances (pod SD + label filter)
+- job_name: "cnpg-postgresql"
+  kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: ["database"]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+      action: keep
+      regex: .+
+    - source_labels: [__meta_kubernetes_pod_container_port_number]
+      action: keep
+      regex: "9187"
+    - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+      target_label: cnpg_cluster
+    - source_labels: [__meta_kubernetes_pod_label_role]
+      target_label: role
+
+# 8. Keycloak (metrics on management port 9000)
+- job_name: "keycloak"
+  metrics_path: /metrics
+  kubernetes_sd_configs:
+    - role: pod
+      namespaces:
+        names: ["keycloak"]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_label_app]
+      action: keep
+      regex: keycloak
+    - source_labels: [__meta_kubernetes_pod_container_port_number]
+      action: keep
+      regex: "9000"
+
+# 9. oauth2-proxy (cross-namespace pod SD, ForwardAuth proxies)
+- job_name: "oauth2-proxy"
+  metrics_path: /metrics
+  kubernetes_sd_configs:
+    - role: pod
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+      action: keep
+      regex: oauth2-proxy
+    - source_labels: [__meta_kubernetes_pod_container_port_number]
+      action: keep
+      regex: "4180"
+    - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_instance]
+      target_label: service
+    - source_labels: [__meta_kubernetes_namespace]
+      target_label: namespace
+    - source_labels: [__meta_kubernetes_pod_name]
+      target_label: pod
+
+# 10. Vault (custom metrics_path + params)
+- job_name: "vault"
+  metrics_path: /v1/sys/metrics
+  params:
+    format: ["prometheus"]
+  kubernetes_sd_configs:
+    - role: endpoints
+      namespaces:
+        names: ["vault"]
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_service_name]
+      action: keep
+      regex: vault-internal
+    - source_labels: [__meta_kubernetes_endpoint_port_name]
+      action: keep
+      regex: http

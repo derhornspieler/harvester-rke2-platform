@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cilium-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: cilium-alerts
+      rules:
+        - alert: CiliumAgentDown
+          expr: up{job="hubble-relay"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cilium networking is down (via hubble-relay)"
+            description: "Hubble relay has been unreachable for more than 2 minutes. Direct cilium-agent scraping is blocked by host firewall on port 9962."
+
+        - alert: CiliumEndpointNotReady
+          expr: cilium_endpoint_state{endpoint_state="not-ready"} > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cilium endpoints not ready on {{ $labels.node }}"
+            description: "{{ $value }} Cilium endpoints are in not-ready state on {{ $labels.node }}."

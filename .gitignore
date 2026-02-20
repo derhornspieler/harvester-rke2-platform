@@ -29,6 +29,7 @@ scripts/.env
 scripts/oidc-client-secrets.json
 scripts/.deploy-keys/
 scripts/harbor-robot-credentials.json
+scripts/.gitlab-api-token
 
 # Kube cache
 .kube/

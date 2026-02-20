@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: argocd-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: argocd-alerts
+      rules:
+        - alert: ArgoCDDown
+          expr: up{job="argocd"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ArgoCD component {{ $labels.component }} is down"
+            description: "ArgoCD {{ $labels.component }} ({{ $labels.instance }}) has been unreachable for more than 5 minutes."
+
+        - alert: ArgoCDAppOutOfSync
+          expr: argocd_app_info{sync_status!="Synced"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD app {{ $labels.name }} is out of sync"
+            description: "Application {{ $labels.name }} in project {{ $labels.project }} has been out of sync for more than 15 minutes."
+
+        - alert: ArgoCDAppDegraded
+          expr: argocd_app_info{health_status=~"Degraded|Missing"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD app {{ $labels.name }} is {{ $labels.health_status }}"
+            description: "Application {{ $labels.name }} health status is {{ $labels.health_status }} for more than 10 minutes."

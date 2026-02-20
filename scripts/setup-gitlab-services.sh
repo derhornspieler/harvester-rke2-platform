@@ -701,6 +701,9 @@ stages:
 variables:
   KUSTOMIZE_VERSION: "5.6.0"
   KUBECONFORM_VERSION: "0.6.7"
+  KUSTOMIZE_URL: "CHANGEME_BINARY_URL_KUSTOMIZE"
+  KUBECONFORM_URL: "CHANGEME_BINARY_URL_KUBECONFORM"
+  CRD_SCHEMA_BASE: "CHANGEME_CRD_SCHEMA_BASE_URL"
 
 # ---------------------------------------------------------------------------
 # Stage 1: YAML Lint
@@ -722,9 +725,8 @@ kustomize-validate:
   image: alpine:3.21
   before_script:
     - apk add --no-cache curl
-    - curl -sLo /usr/local/bin/kustomize
-        "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
-        | tar xz -C /usr/local/bin/
+    - curl -sLo /tmp/kustomize.tar.gz "${KUSTOMIZE_URL}"
+    - tar xzf /tmp/kustomize.tar.gz -C /usr/local/bin/
     - chmod +x /usr/local/bin/kustomize
   script:
     - echo "=== Validating base/ ==="
@@ -749,13 +751,11 @@ schema-validate:
   allow_failure: true
   before_script:
     - apk add --no-cache curl
-    - curl -sLo /tmp/kubeconform.tar.gz
-        "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+    - curl -sLo /tmp/kubeconform.tar.gz "${KUBECONFORM_URL}"
     - tar xzf /tmp/kubeconform.tar.gz -C /usr/local/bin/
     - chmod +x /usr/local/bin/kubeconform
-    - curl -sLo /usr/local/bin/kustomize
-        "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
-        | tar xz -C /usr/local/bin/
+    - curl -sLo /tmp/kustomize.tar.gz "${KUSTOMIZE_URL}"
+    - tar xzf /tmp/kustomize.tar.gz -C /usr/local/bin/
     - chmod +x /usr/local/bin/kustomize
   script:
     - |
@@ -764,7 +764,7 @@ schema-validate:
         -summary \
         -output json \
         -schema-location default \
-        -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+        -schema-location '${CRD_SCHEMA_BASE}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
         || true
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -796,6 +796,13 @@ build-image:
     HARBOR_CI_USER: ""      # Set in GitLab CI/CD Settings > Variables
     HARBOR_CI_PASSWORD: ""  # Set in GitLab CI/CD Settings > Variables (masked)
 CIEOF
+
+  # Substitute binary URL placeholders with actual values from .env
+  sed -i \
+    -e "s|CHANGEME_BINARY_URL_KUSTOMIZE|${BINARY_URL_KUSTOMIZE}|g" \
+    -e "s|CHANGEME_BINARY_URL_KUBECONFORM|${BINARY_URL_KUBECONFORM}|g" \
+    -e "s|CHANGEME_CRD_SCHEMA_BASE_URL|${CRD_SCHEMA_BASE_URL}|g" \
+    "${samples_dir}/sample-gitlab-ci.yml"
 
   log_ok "Sample GitLab CI saved to: ${samples_dir}/sample-gitlab-ci.yml"
 

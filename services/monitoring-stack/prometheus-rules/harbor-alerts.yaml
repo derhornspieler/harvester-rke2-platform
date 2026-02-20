@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: harbor-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: harbor-alerts
+      rules:
+        - alert: HarborDown
+          expr: up{job="harbor"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Harbor {{ $labels.component }} is down"
+            description: "Harbor {{ $labels.component }} has been unreachable for more than 5 minutes."

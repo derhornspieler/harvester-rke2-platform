@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mattermost-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: mattermost-alerts
+      rules:
+        - alert: MattermostDown
+          expr: up{job="mattermost"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Mattermost is down"
+            description: "Mattermost instance {{ $labels.instance }} has been unreachable for more than 5 minutes."

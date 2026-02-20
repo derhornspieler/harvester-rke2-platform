@@ -21,6 +21,24 @@
 #   ./scripts/destroy-cluster.sh              # Full destroy (prompts for confirmation)
 #   ./scripts/destroy-cluster.sh --auto       # Skip confirmation prompt
 #   ./scripts/destroy-cluster.sh --skip-tf    # Skip Terraform (only Harvester cleanup)
+#   ./scripts/destroy-cluster.sh --dirty      # Recover from a cancelled/failed deploy
+#
+# Flags:
+#   --auto       Skip the interactive confirmation prompt. Passes -auto-approve
+#                to terraform destroy.
+#   --skip-tf    Skip the Terraform destroy phase entirely. Useful when Terraform
+#                state is already empty and you only need Harvester orphan cleanup.
+#   --dirty      Clean up after a cancelled or failed deploy/destroy. In addition
+#                to the normal teardown, this purges orphaned CAPI resources
+#                (machines, clusters, control planes) and stale cloud credentials
+#                from the vcluster Rancher that Terraform doesn't know about.
+#                Use this when: a deploy was Ctrl-C'd mid-Terraform, a previous
+#                destroy failed to save state, or the Rancher UI still shows a
+#                ghost cluster after a normal destroy.
+#
+# Combining flags:
+#   ./scripts/destroy-cluster.sh --auto --dirty   # Non-interactive dirty cleanup
+#   ./scripts/destroy-cluster.sh --skip-tf --dirty # Skip TF, clean CAPI + Harvester
 # =============================================================================
 
 set -euo pipefail
@@ -33,15 +51,28 @@ source "${SCRIPT_DIR}/lib.sh"
 # -----------------------------------------------------------------------------
 SKIP_TERRAFORM=false
 AUTO_APPROVE=false
+DIRTY_MODE=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-tf)    SKIP_TERRAFORM=true; shift ;;
     --auto)       AUTO_APPROVE=true; shift ;;
+    --dirty)      DIRTY_MODE=true; shift ;;
     -h|--help)
-      echo "Usage: $0 [--auto] [--skip-tf]"
+      echo "Usage: $0 [--auto] [--skip-tf] [--dirty]"
+      echo ""
+      echo "Flags:"
       echo "  --auto       Skip confirmation prompt (add -auto-approve to terraform)"
       echo "  --skip-tf    Skip Terraform destroy (only clean up Harvester orphans)"
+      echo "  --dirty      Recover from a cancelled/failed deploy. Cleans up orphaned"
+      echo "               CAPI resources and stale cloud credentials from vcluster"
+      echo "               Rancher that a normal destroy can't reach."
+      echo ""
+      echo "Examples:"
+      echo "  $0                        # Normal destroy (interactive)"
+      echo "  $0 --auto                 # Normal destroy (non-interactive)"
+      echo "  $0 --auto --dirty         # Recover from failed deploy"
+      echo "  $0 --skip-tf --dirty      # Skip Terraform, clean CAPI + Harvester"
       exit 0
       ;;
     *) die "Unknown argument: $1" ;;
@@ -71,6 +102,7 @@ phase_0_preflight() {
   log_info "VM namespace:    ${vm_ns}"
   log_info "Skip Terraform:  ${SKIP_TERRAFORM}"
   log_info "Auto approve:    ${AUTO_APPROVE}"
+  log_info "Dirty mode:      ${DIRTY_MODE}"
 
   if [[ "$AUTO_APPROVE" != "true" ]]; then
     echo ""
@@ -283,6 +315,119 @@ phase_3_harvester_cleanup() {
     if [[ "$remaining_pvcs" -gt 0 ]]; then
       log_warn "${remaining_pvcs} PVC(s) still present:"
       $hk get pvc -n "$vm_ns" 2>/dev/null || true
+    fi
+  fi
+
+  local rancher_url rancher_token
+  rancher_url=$(get_rancher_url)
+  rancher_token=$(get_rancher_token)
+
+  # --- 2.7 Clean up stuck CAPI resources in vcluster Rancher (--dirty only) ---
+  # When a deploy is cancelled mid-Terraform or the destroy can't save state,
+  # CAPI resources (machines, clusters, control planes) get orphaned in the
+  # vcluster Rancher's fleet-default namespace with stuck finalizers. These
+  # block the next deploy from creating a cluster with the same name.
+  if [[ "$DIRTY_MODE" == "true" ]]; then
+    log_step "Cleaning up stuck CAPI resources in Rancher (--dirty)..."
+
+    local capi_types=(
+      "rke-machine.cattle.io.harvestermachines"
+      "cluster.x-k8s.io.machines"
+      "rke.cattle.io.rkecontrolplanes"
+      "cluster.x-k8s.io.clusters"
+    )
+    local capi_total=0
+    for rtype in "${capi_types[@]}"; do
+      local items
+      items=$(curl -sk -H "Authorization: Bearer ${rancher_token}" \
+        "${rancher_url}/v1/${rtype}/fleet-default" 2>/dev/null \
+        | jq -r ".data[]? | select(.metadata.name | test(\"${cluster_name}\")) | .id" 2>/dev/null || true)
+      [[ -z "$items" ]] && continue
+      while IFS= read -r item_id; do
+        [[ -z "$item_id" ]] && continue
+        # Remove finalizers first
+        curl -sk -X PUT -H "Authorization: Bearer ${rancher_token}" \
+          -H "Content-Type: application/json" \
+          "${rancher_url}/v1/${rtype}/${item_id}" \
+          -d "$(curl -sk -H "Authorization: Bearer ${rancher_token}" \
+            "${rancher_url}/v1/${rtype}/${item_id}" 2>/dev/null \
+            | jq '.metadata.finalizers = []')" >/dev/null 2>&1 || true
+        # Then delete
+        curl -sk -X DELETE -H "Authorization: Bearer ${rancher_token}" \
+          "${rancher_url}/v1/${rtype}/${item_id}" >/dev/null 2>&1 || true
+        log_info "  Cleaned: ${rtype}/${item_id##*/}"
+        capi_total=$((capi_total + 1))
+      done <<< "$items"
+    done
+    if [[ "$capi_total" -gt 0 ]]; then
+      log_ok "Cleaned up ${capi_total} stuck CAPI resource(s)"
+      sleep 5
+    else
+      log_ok "No stuck CAPI resources found"
+    fi
+  fi
+
+  # --- 2.8 Clean up stale Rancher machine secrets in fleet-default ---
+  # terraform destroy removes the cluster resource but machine-plan, machine-state,
+  # and machine-driver-secret objects linger in the Rancher Steve API.  These stale
+  # secrets block Rancher from provisioning a new cluster with the same name.
+  log_step "Cleaning up stale Rancher machine secrets..."
+
+  local stale_count=0
+  for _pass in 1 2 3; do
+    local stale_secrets
+    stale_secrets=$(curl -sk -H "Authorization: Bearer ${rancher_token}" \
+      "${rancher_url}/v1/secrets/fleet-default" 2>/dev/null \
+      | jq -r ".data[]? | select(.metadata.name | test(\"${cluster_name}\")) | .metadata.name" 2>/dev/null)
+    [[ -z "$stale_secrets" ]] && break
+    while IFS= read -r s; do
+      [[ -z "$s" ]] && continue
+      curl -sk -X DELETE -H "Authorization: Bearer ${rancher_token}" \
+        "${rancher_url}/v1/secrets/fleet-default/${s}" >/dev/null 2>&1 || true
+      stale_count=$((stale_count + 1))
+    done <<< "$stale_secrets"
+    sleep 2
+  done
+  if [[ "$stale_count" -gt 0 ]]; then
+    log_ok "Cleaned up ${stale_count} stale Rancher machine secret(s)"
+  else
+    log_ok "No stale Rancher machine secrets found"
+  fi
+
+  # --- 2.9 Clean up orphaned cloud credential secrets (--dirty only) ---
+  # When a deploy fails mid-way or terraform destroy can't save state, old
+  # cloud credential secrets (cc-*) linger in cattle-global-data. If they
+  # reference the same Rancher token as the harvester kubeconfig, the next
+  # terraform apply fails with "token is already in use by secret".
+  if [[ "$DIRTY_MODE" == "true" ]]; then
+    log_step "Cleaning up orphaned cloud credential secrets (--dirty)..."
+    local cc_secrets
+    cc_secrets=$(curl -sk -H "Authorization: Bearer ${rancher_token}" \
+      "${rancher_url}/v1/secrets/cattle-global-data" 2>/dev/null \
+      | jq -r '.data[]? | select(.metadata.name | test("^cc-")) | .metadata.name' 2>/dev/null || true)
+
+    local cc_count=0
+    if [[ -n "$cc_secrets" ]]; then
+      while IFS= read -r cc; do
+        [[ -z "$cc" ]] && continue
+        # Check if this cloud credential references our cluster
+        local cc_cluster_id
+        cc_cluster_id=$(curl -sk -H "Authorization: Bearer ${rancher_token}" \
+          "${rancher_url}/v1/secrets/cattle-global-data/${cc}" 2>/dev/null \
+          | jq -r '.data["harvestercredentialConfig-clusterId"] // empty' 2>/dev/null \
+          | base64 -d 2>/dev/null || true)
+        if [[ -n "$cc_cluster_id" ]]; then
+          curl -sk -X DELETE -H "Authorization: Bearer ${rancher_token}" \
+            "${rancher_url}/v1/secrets/cattle-global-data/${cc}" >/dev/null 2>&1 || true
+          log_info "  Deleted orphaned cloud credential: ${cc} (cluster: ${cc_cluster_id})"
+          cc_count=$((cc_count + 1))
+        fi
+      done <<< "$cc_secrets"
+    fi
+    if [[ "$cc_count" -gt 0 ]]; then
+      log_ok "Cleaned up ${cc_count} orphaned cloud credential(s)"
+    else
+      log_ok "No orphaned cloud credentials found"
     fi
   fi
 

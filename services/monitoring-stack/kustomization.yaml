@@ -3,45 +3,30 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
-  # Node Exporter
-  - node-exporter/rbac.yaml
-  - node-exporter/daemonset.yaml
-  - node-exporter/service.yaml
-  # kube-state-metrics
-  - kube-state-metrics/rbac.yaml
-  - kube-state-metrics/deployment.yaml
-  - kube-state-metrics/service.yaml
-  # Loki
+  # Loki (not managed by kube-prometheus-stack)
   - loki/rbac.yaml
   - loki/configmap.yaml
   - loki/statefulset.yaml
   - loki/service.yaml
-  # Prometheus
-  - prometheus/rbac.yaml
-  - prometheus/configmap.yaml
-  - prometheus/statefulset.yaml
-  - prometheus/service.yaml
-  - prometheus/oauth2-proxy.yaml
-  - prometheus/middleware-oauth2-proxy.yaml
-  - prometheus/gateway.yaml
-  - prometheus/httproute.yaml
-  # Alloy
+  # Alloy (not managed by kube-prometheus-stack)
   - alloy/rbac.yaml
   - alloy/configmap.yaml
   - alloy/daemonset.yaml
   - alloy/service.yaml
-  # AlertManager
-  - alertmanager/configmap.yaml
-  - alertmanager/statefulset.yaml
-  - alertmanager/service.yaml
+  # Prometheus Gateway/HTTPRoute/oauth2-proxy (chart doesn't manage Gateway API)
+  - prometheus/oauth2-proxy.yaml
+  - prometheus/middleware-oauth2-proxy.yaml
+  - prometheus/gateway.yaml
+  - prometheus/httproute.yaml
+  # Alertmanager Gateway/HTTPRoute/oauth2-proxy
   - alertmanager/oauth2-proxy.yaml
   - alertmanager/middleware-oauth2-proxy.yaml
   - alertmanager/gateway.yaml
   - alertmanager/httproute.yaml
-  # Grafana
-  - grafana/pvc.yaml
-  - grafana/configmap-datasources.yaml
-  - grafana/configmap-dashboard-provider.yaml
+  # Grafana Gateway/HTTPRoute
+  - grafana/gateway.yaml
+  - grafana/httproute.yaml
+  # Grafana dashboard ConfigMaps (sidecar discovers via grafana_dashboard: "1")
   - grafana/configmap-dashboard-etcd.yaml
   - grafana/configmap-dashboard-loki.yaml
   - grafana/configmap-dashboard-loki-stack.yaml
@@ -68,15 +53,15 @@ resources:
   - grafana/configmap-dashboard-security-advanced.yaml
   - grafana/configmap-dashboard-oauth2-proxy.yaml
   - grafana/configmap-dashboard-identity-portal.yaml
-  - grafana/secret-admin.yaml
-  - grafana/deployment.yaml
-  - grafana/service.yaml
-  - grafana/gateway.yaml
-  - grafana/httproute.yaml
-  # oauth2-proxy Redis session store
-  - oauth2-proxy-redis/secret.yaml
-  - oauth2-proxy-redis/replication.yaml
-  - oauth2-proxy-redis/sentinel.yaml
+  # Service aliases (backwards-compat for HTTPRoutes, datasources, AnalysisTemplates)
+  - prometheus-service-alias.yaml
+  - alertmanager-service-alias.yaml
+  # oauth2-proxy Redis session store — deployed explicitly in Phase 5 (Keycloak+Auth)
+  # to co-locate with oauth2-proxy instances. Removed from kustomize to avoid
+  # deploying unused Redis in Phase 3 before any oauth2-proxy consumers exist.
+  # - oauth2-proxy-redis/secret.yaml
+  # - oauth2-proxy-redis/replication.yaml
+  # - oauth2-proxy-redis/sentinel.yaml
   # kube-system resources
   - kube-system/oauth2-proxy-hubble.yaml
   - kube-system/middleware-oauth2-proxy-hubble.yaml

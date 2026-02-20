@@ -57,7 +57,7 @@ variable "cni" {
 variable "traefik_lb_ip" {
   description = "Static LoadBalancer IP for Traefik ingress"
   type        = string
-  default     = "203.0.113.202"
+  default     = "198.51.100.2"
 }
 
 variable "domain" {

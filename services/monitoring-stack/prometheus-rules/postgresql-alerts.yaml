@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: postgresql-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: postgresql-alerts
+      rules:
+        - alert: PostgreSQLDown
+          expr: up{job="cnpg-postgresql"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PostgreSQL instance is down"
+            description: "PostgreSQL instance {{ $labels.instance }} (cluster: {{ $labels.cnpg_cluster }}) has been unreachable for more than 2 minutes."
+
+        - alert: ReplicationLag
+          expr: cnpg_pg_replication_lag > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PostgreSQL replication lag is high"
+            description: 'Replication lag for {{ $labels.cnpg_cluster }} is {{ $value | printf "%.1f" }}s (threshold: 30s).'
+
+        - alert: HighConnections
+          expr: sum by (cnpg_cluster) (cnpg_backends_total) / sum by (cnpg_cluster) (cnpg_pg_settings_setting{name="max_connections"}) * 100 > 80
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PostgreSQL connections are high"
+            description: 'Connection usage for cluster {{ $labels.cnpg_cluster }} is at {{ $value | printf "%.1f" }}%.'
+
+        - alert: CNPGControllerDown
+          expr: up{job="cnpg-controller"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CNPG controller is down"
+            description: "CloudNativePG controller has been unreachable for more than 5 minutes."

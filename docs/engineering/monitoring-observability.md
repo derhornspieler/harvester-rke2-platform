@@ -835,11 +835,11 @@ graph TD
     IntermediateCA["Example Org Intermediate CA<br/>Vault pki_int/<br/>10yr TTL"]
     CertManager["cert-manager<br/>ClusterIssuer: vault-issuer"]
 
-    GrafanaCert["grafana.<DOMAIN><br/>auto-cert via Gateway annotation"]
-    PrometheusCert["prometheus.<DOMAIN><br/>auto-cert via Gateway annotation"]
-    AlertmanagerCert["alertmanager.<DOMAIN><br/>auto-cert via Gateway annotation"]
-    HubbleCert["hubble.<DOMAIN><br/>auto-cert via Gateway annotation"]
-    TraefikCert["traefik.<DOMAIN><br/>explicit Certificate resource"]
+    GrafanaCert["grafana.&lt;DOMAIN&gt;<br/>auto-cert via Gateway annotation"]
+    PrometheusCert["prometheus.&lt;DOMAIN&gt;<br/>auto-cert via Gateway annotation"]
+    AlertmanagerCert["alertmanager.&lt;DOMAIN&gt;<br/>auto-cert via Gateway annotation"]
+    HubbleCert["hubble.&lt;DOMAIN&gt;<br/>auto-cert via Gateway annotation"]
+    TraefikCert["traefik.&lt;DOMAIN&gt;<br/>explicit Certificate resource"]
 
     RootCA --> IntermediateCA
     IntermediateCA --> CertManager

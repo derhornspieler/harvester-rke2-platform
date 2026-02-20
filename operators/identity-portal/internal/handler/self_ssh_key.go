@@ -58,7 +58,7 @@ func (h *Handler) GetSelfSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 	fingerprint := sshFingerprint(pubKey)
 
 	writeJSON(w, http.StatusOK, model.SSHPublicKeyResponse{
-		PublicKey:     pubKey,
+		PublicKey:    pubKey,
 		Fingerprint:  fingerprint,
 		RegisteredAt: registeredAt,
 	})
@@ -147,7 +147,7 @@ func (h *Handler) RegisterSelfSSHPublicKey(w http.ResponseWriter, r *http.Reques
 		zap.String("request_id", middleware.GetRequestID(ctx)))
 
 	writeJSON(w, http.StatusOK, model.SSHPublicKeyResponse{
-		PublicKey:     req.PublicKey,
+		PublicKey:    req.PublicKey,
 		Fingerprint:  fingerprint,
 		RegisteredAt: now,
 	})

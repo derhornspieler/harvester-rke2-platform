@@ -42,6 +42,7 @@ spec:
             - --skip-jwt-bearer-tokens=true
             - --code-challenge-method=S256
             - --reverse-proxy=true
+            - --prompt=login
             - --session-store-type=redis
             - --redis-use-sentinel=true
             - --redis-sentinel-master-name=mymaster

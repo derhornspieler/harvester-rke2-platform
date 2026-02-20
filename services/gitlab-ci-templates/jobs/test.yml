@@ -5,6 +5,28 @@
   image: golang:1.23-alpine
   variables:
     CGO_ENABLED: "0"
+    GOPATH: ${CI_PROJECT_DIR}/.go
+  cache:
+    key: go-${CI_PROJECT_PATH_SLUG}
+    paths:
+      - .go/pkg/mod/
+    policy: pull-push
+  before_script:
+    - mkdir -p "${GOPATH}/pkg/mod"
+    - |
+      if [ "${CI_AIRGAPPED}" = "true" ]; then
+        export GOPROXY="${CI_GOPROXY:-off}"
+        export GONOSUMDB="${CI_GONOSUMDB:-*}"
+        export GONOSUMCHECK="*"
+        if [ -d vendor/ ]; then
+          echo "Airgapped: using vendor/ directory"
+          export GOFLAGS="-mod=vendor"
+        fi
+      fi
+    - |
+      if [ ! -d vendor/ ]; then
+        go mod download
+      fi
   script:
     - go test -v -race -coverprofile=coverage.out ./...
     - go tool cover -func=coverage.out
@@ -18,6 +40,18 @@
 .test:node:
   stage: test
   image: node:22-alpine
+  cache:
+    key: node-${CI_PROJECT_PATH_SLUG}
+    paths:
+      - .npm/
+    policy: pull-push
+  before_script:
+    - npm config set cache ${CI_PROJECT_DIR}/.npm
+    - |
+      if [ "${CI_AIRGAPPED}" = "true" ] && [ -n "${CI_NPM_REGISTRY}" ]; then
+        echo "Airgapped: using private npm registry ${CI_NPM_REGISTRY}"
+        npm config set registry "${CI_NPM_REGISTRY}"
+      fi
   script:
     - npm ci --prefer-offline
     - npm test
@@ -31,6 +65,23 @@
 .test:python:
   stage: test
   image: python:3.12-slim
+  variables:
+    PIP_CACHE_DIR: ${CI_PROJECT_DIR}/.pip-cache
+  cache:
+    key: pip-${CI_PROJECT_PATH_SLUG}
+    paths:
+      - .pip-cache/
+    policy: pull-push
+  before_script:
+    - mkdir -p "${PIP_CACHE_DIR}"
+    - |
+      if [ "${CI_AIRGAPPED}" = "true" ] && [ -n "${CI_PIP_INDEX_URL}" ]; then
+        echo "Airgapped: using private PyPI index ${CI_PIP_INDEX_URL}"
+        export PIP_INDEX_URL="${CI_PIP_INDEX_URL}"
+        if [ -n "${CI_PIP_TRUSTED_HOST}" ]; then
+          export PIP_TRUSTED_HOST="${CI_PIP_TRUSTED_HOST}"
+        fi
+      fi
   script:
     - pip install -r requirements.txt
     - pytest --junitxml=junit.xml --cov --cov-report=xml

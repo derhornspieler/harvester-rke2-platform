@@ -122,37 +122,35 @@ block storage.
 ### Network Topology
 
 ```mermaid
-graph TD
+graph LR
+    Client(["External Client"]) -->|"DNS: *.&lt;DOMAIN&gt;<br/>resolves to LB IP"| FW["Firewall / Router<br/>(access policy managed<br/>outside this project)"]
+
+    FW -->|"TCP 443 / 80"| LB
+
     subgraph Harvester["Harvester HCI Cluster"]
-        subgraph VMNet["vm-network (untagged)"]
-            CP1["CP-1<br/>eth0"]
-            CP2["CP-2<br/>eth0"]
-            CP3["CP-3<br/>eth0"]
-            W1_e0["General-1<br/>eth0"]
-            W2_e0["General-2<br/>eth0"]
-            W3_e0["General-3<br/>eth0"]
-            W4_e0["General-4<br/>eth0"]
-            DB1_e0["Database-1<br/>eth0"]
-            DB2_e0["Database-2<br/>eth0"]
-            DB3_e0["Database-3<br/>eth0"]
-            DB4_e0["Database-4<br/>eth0"]
+        subgraph SvcNet["services-network · VLAN 5"]
+            LB["Cilium L2 Announcer<br/>LB pool: 198.51.100.2-20<br/>worker eth1 interfaces"]
+            Traefik["Traefik DaemonSet<br/>TLS termination<br/>Gateway API routing"]
+            LB --> Traefik
         end
 
-        subgraph SvcNet["services-network (VLAN 5)"]
-            W1_e1["General-1<br/>eth1"]
-            W2_e1["General-2<br/>eth1"]
-            W3_e1["General-3<br/>eth1"]
-            W4_e1["General-4<br/>eth1"]
-            DB1_e1["Database-1<br/>eth1"]
-            DB2_e1["Database-2<br/>eth1"]
-            DB3_e1["Database-3<br/>eth1"]
-            DB4_e1["Database-4<br/>eth1"]
+        subgraph VMNet["vm-network · untagged"]
+            subgraph CP["Control Plane (3 nodes · eth0 only)"]
+                CPAPI["etcd + kube-apiserver<br/>8 CPU / 32 GiB"]
+            end
+            subgraph Workers["Worker Pools (eth0 + eth1)"]
+                Gen["General Pool (4-10 nodes)<br/>Platform + app services"]
+                DB["Database Pool (4 nodes)<br/>CNPG · Redis · MariaDB"]
+                Compute["Compute Pool (0-10 nodes)<br/>CI runners · batch jobs"]
+            end
         end
     end
 
-    Client["External Client<br/>(via VPN)"] -->|"DNS: *.<DOMAIN><br/>-> Traefik LB IP"| SvcNet
-    VMNet <-->|"Cluster traffic<br/>(API, etcd, VXLAN)"| VMNet
-    SvcNet <-->|"Ingress traffic<br/>(HTTP/HTTPS)"| SvcNet
+    Traefik -->|"HTTP/HTTPS routing"| Gen
+    Gen <-->|"Pod network (VXLAN)"| DB
+    Gen <-->|"Pod network (VXLAN)"| Compute
+    Gen <-->|"K8s API"| CPAPI
+    DB <-->|"K8s API"| CPAPI
 ```
 
 ### Networks
@@ -355,7 +353,7 @@ are scheduled.
 
 ```mermaid
 graph TD
-    DNS["DNS: *.<DOMAIN><br/>-> LoadBalancer IP"]
+    DNS["DNS: *.&lt;DOMAIN&gt;<br/>-> LoadBalancer IP"]
     LB["Traefik LoadBalancer Service<br/>(kube-system namespace)<br/>:80 -> :8000 (web, HTTP->HTTPS redirect)<br/>:443 -> :8443 (websecure)<br/>readTimeout=1800s<br/>writeTimeout=1800s<br/>Vault CA trust via initContainer"]
     L2A["Cilium L2 Announcement<br/>ARP on worker eth1"]
 
@@ -366,21 +364,21 @@ graph TD
 
     subgraph GWAPI["Gateway API Routes"]
         direction LR
-        Grafana["grafana.<DOMAIN><br/>-> grafana:3000"]
-        Prometheus["prometheus.<DOMAIN><br/>-> prometheus:9090"]
-        Hubble["hubble.<DOMAIN><br/>-> hubble-ui:80"]
-        TraefikR["traefik.<DOMAIN><br/>-> traefik-api:8080"]
-        VaultR["vault.<DOMAIN><br/>-> vault:8200"]
-        HarborR["harbor.<DOMAIN><br/>-> harbor-core/portal"]
-        KeycloakR["keycloak.<DOMAIN><br/>-> keycloak:8080"]
-        ArgoR["argo.<DOMAIN><br/>-> argocd-server:80"]
-        RolloutsR["rollouts.<DOMAIN><br/>-> rollouts-dash:3100"]
-        MMR["mattermost.<DOMAIN><br/>-> mattermost:8065"]
+        Grafana["grafana.&lt;DOMAIN&gt;<br/>-> grafana:3000"]
+        Prometheus["prometheus.&lt;DOMAIN&gt;<br/>-> prometheus:9090"]
+        Hubble["hubble.&lt;DOMAIN&gt;<br/>-> hubble-ui:80"]
+        TraefikR["traefik.&lt;DOMAIN&gt;<br/>-> traefik-api:8080"]
+        VaultR["vault.&lt;DOMAIN&gt;<br/>-> vault:8200"]
+        HarborR["harbor.&lt;DOMAIN&gt;<br/>-> harbor-core/portal"]
+        KeycloakR["keycloak.&lt;DOMAIN&gt;<br/>-> keycloak:8080"]
+        ArgoR["argo.&lt;DOMAIN&gt;<br/>-> argocd-server:80"]
+        RolloutsR["rollouts.&lt;DOMAIN&gt;<br/>-> rollouts-dash:3100"]
+        MMR["mattermost.&lt;DOMAIN&gt;<br/>-> mattermost:8065"]
     end
 
     subgraph IRRoutes["IngressRoute Routes"]
         direction LR
-        KasmR["kasm.<DOMAIN><br/>-> kasm-proxy:8443<br/>(backend HTTPS)"]
+        KasmR["kasm.&lt;DOMAIN&gt;<br/>-> kasm-proxy:8443<br/>(backend HTTPS)"]
     end
 
     DNS --> LB
@@ -494,7 +492,7 @@ sequenceDiagram
     participant Svc as Backend Service
     participant Pod as Application Pod
 
-    Client->>DNS: Resolve app.<DOMAIN>
+    Client->>DNS: Resolve app.&lt;DOMAIN&gt;
     DNS-->>Client: LoadBalancer IP
     Client->>L2: TCP SYN to LB IP:443
     L2->>Traefik: Forward to Traefik pod<br/>(eBPF load balancing)
@@ -618,14 +616,14 @@ graph BT
 ```mermaid
 graph LR
     subgraph External["External Access (HTTPS via Traefik)"]
-        G_ext["grafana.<DOMAIN>"]
-        P_ext["prometheus.<DOMAIN>"]
-        V_ext["vault.<DOMAIN>"]
-        H_ext["harbor.<DOMAIN>"]
-        KC_ext["keycloak.<DOMAIN>"]
-        A_ext["argo.<DOMAIN>"]
-        MM_ext["mattermost.<DOMAIN>"]
-        K_ext["kasm.<DOMAIN>"]
+        G_ext["grafana.&lt;DOMAIN&gt;"]
+        P_ext["prometheus.&lt;DOMAIN&gt;"]
+        V_ext["vault.&lt;DOMAIN&gt;"]
+        H_ext["harbor.&lt;DOMAIN&gt;"]
+        KC_ext["keycloak.&lt;DOMAIN&gt;"]
+        A_ext["argo.&lt;DOMAIN&gt;"]
+        MM_ext["mattermost.&lt;DOMAIN&gt;"]
+        K_ext["kasm.&lt;DOMAIN&gt;"]
     end
 
     subgraph Internal["Internal Communication (ClusterIP, HTTP)"]
@@ -725,18 +723,18 @@ graph TD
 
     subgraph LeafCerts["Leaf Certificates (30-day TTL, auto-renewed)"]
         direction LR
-        C1["grafana.<DOMAIN>"]
-        C2["prometheus.<DOMAIN>"]
-        C3["hubble.<DOMAIN>"]
-        C4["traefik.<DOMAIN>"]
-        C5["vault.<DOMAIN>"]
-        C6["harbor.<DOMAIN>"]
-        C7["keycloak.<DOMAIN>"]
-        C8["argo.<DOMAIN>"]
-        C9["rollouts.<DOMAIN>"]
-        C10["mattermost.<DOMAIN>"]
-        C11["kasm.<DOMAIN>"]
-        C12["gitlab.<DOMAIN>"]
+        C1["grafana.&lt;DOMAIN&gt;"]
+        C2["prometheus.&lt;DOMAIN&gt;"]
+        C3["hubble.&lt;DOMAIN&gt;"]
+        C4["traefik.&lt;DOMAIN&gt;"]
+        C5["vault.&lt;DOMAIN&gt;"]
+        C6["harbor.&lt;DOMAIN&gt;"]
+        C7["keycloak.&lt;DOMAIN&gt;"]
+        C8["argo.&lt;DOMAIN&gt;"]
+        C9["rollouts.&lt;DOMAIN&gt;"]
+        C10["mattermost.&lt;DOMAIN&gt;"]
+        C11["kasm.&lt;DOMAIN&gt;"]
+        C12["gitlab.&lt;DOMAIN&gt;"]
     end
 
     Root -->|"signs"| Intermediate
@@ -766,7 +764,7 @@ sequenceDiagram
 
     App->>CM: Certificate CR created<br/>(or Gateway annotation<br/>via gateway-shim)
     CM->>CM: Generate CertificateRequest
-    CM->>Vault: Sign CSR via<br/>pki_int/sign/<DOMAIN_DOT><br/>(K8s auth: cert-manager-issuer role)
+    CM->>Vault: Sign CSR via<br/>pki_int/sign/&lt;DOMAIN_DOT&gt;<br/>(K8s auth: cert-manager-issuer role)
     Vault-->>CM: Signed leaf cert + CA chain
     CM->>Secret: Store cert + key in<br/>kubernetes.io/tls Secret
     Traefik->>Secret: Watch for changes<br/>(hot-reload)
@@ -802,7 +800,7 @@ graph LR
     subgraph VaultNS["vault namespace"]
         VaultSvc["Vault :8200<br/>(ClusterIP)"]
         K8sAuth["K8s Auth Backend<br/>Role: cert-manager-issuer<br/>Bound SA: vault-issuer<br/>Bound NS: cert-manager"]
-        PKI["PKI Engine: pki_int/<br/>Role: <DOMAIN_DOT><br/>Allowed: *.<DOMAIN><br/>Max TTL: 720h"]
+        PKI["PKI Engine: pki_int/<br/>Role: &lt;DOMAIN_DOT&gt;<br/>Allowed: *.&lt;DOMAIN&gt;<br/>Max TTL: 720h"]
     end
 
     SA -->|"JWT token"| K8sAuth
@@ -1106,7 +1104,7 @@ graph TD
 ```mermaid
 graph TD
     subgraph GitLab["GitLab Repository"]
-        Repo["git@gitlab.<DOMAIN>:infrastructure/rke2-cluster.git<br/>Branch: main<br/>Path: services/argo/bootstrap/apps/"]
+        Repo["git@gitlab.&lt;DOMAIN&gt;:infrastructure/rke2-cluster.git<br/>Branch: main<br/>Path: services/argo/bootstrap/apps/"]
     end
 
     subgraph ArgoCD["ArgoCD (argocd namespace)"]

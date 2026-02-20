@@ -1,0 +1,55 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: operator-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: operator-alerts
+      rules:
+        - alert: StorageAutoscalerDown
+          expr: absent(up{job="kubernetes-pods",namespace="storage-autoscaler"} == 1)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Storage autoscaler is down"
+            description: "Storage autoscaler has been unreachable for more than 5 minutes."
+
+        - alert: StorageAutoscalerPollErrors
+          expr: increase(volume_autoscaler_poll_errors_total[15m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Storage autoscaler poll errors"
+            description: 'Storage autoscaler has had {{ $value | printf "%.0f" }} poll errors in the last 15 minutes.'
+
+        - alert: NodeLabelerDown
+          expr: absent(up{job="kubernetes-pods",namespace="node-labeler"} == 1)
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node labeler is down"
+            description: "Node labeler has been unreachable for more than 5 minutes."
+
+        - alert: NodeLabelerErrors
+          expr: increase(node_labeler_errors_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node labeler errors detected"
+            description: 'Node labeler has had {{ $value | printf "%.0f" }} errors in the last 15 minutes.'
+
+        - alert: ArgoRolloutsDown
+          expr: up{job="argo-rollouts"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Argo Rollouts is down"
+            description: "Argo Rollouts controller has been unreachable for more than 5 minutes."

@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - hubble-relay.yaml
+  - cert-manager.yaml
+  - cnpg-controller.yaml
+  - alloy.yaml
+  - loki.yaml
+  - gitlab-exporter.yaml
+  - argocd.yaml
+  - argo-rollouts.yaml
+  - harbor.yaml
+  - mattermost.yaml
+  - redis-exporter.yaml

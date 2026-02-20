@@ -8,6 +8,13 @@ variables:
   IMAGE_TAG: ${CI_COMMIT_SHORT_SHA}
   IMAGE_FULL: ${IMAGE_NAME}:${IMAGE_TAG}
   VAULT_ADDR: https://vault.${DOMAIN}
+  # Airgap mode — overridden by group-level CI/CD variables when AIRGAPPED=true
+  CI_AIRGAPPED: "false"
+  CI_GOPROXY: ""
+  CI_GONOSUMDB: ""
+  CI_NPM_REGISTRY: ""
+  CI_PIP_INDEX_URL: ""
+  CI_PIP_TRUSTED_HOST: ""
 
 default:
   tags:

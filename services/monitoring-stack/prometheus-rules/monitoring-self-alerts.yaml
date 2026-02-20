@@ -1,0 +1,64 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: monitoring-self-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: monitoring-self-alerts
+      rules:
+        - alert: PrometheusTargetDown
+          expr: up == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus target {{ $labels.job }} is down"
+            description: "Target {{ $labels.instance }} in job {{ $labels.job }} has been down for more than 5 minutes."
+
+        - alert: PrometheusTSDBCompactionsFailing
+          expr: increase(prometheus_tsdb_compactions_failed_total[3h]) > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus TSDB compactions are failing"
+            description: "Prometheus TSDB has had {{ $value }} failed compactions in the last 3 hours."
+
+        - alert: PrometheusStorageAlmostFull
+          expr: (prometheus_tsdb_storage_blocks_bytes / (40 * 1024 * 1024 * 1024)) * 100 > 80
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus storage is almost full"
+            description: 'Prometheus TSDB storage is at {{ $value | printf "%.1f" }}% of 40GB retention limit.'
+
+        - alert: LokiDown
+          expr: up{job=~".*loki.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Loki is down"
+            description: "Loki has been unreachable for more than 5 minutes."
+
+        - alert: AlloyDown
+          expr: up{job="alloy"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy is down"
+            description: "Alloy instance {{ $labels.instance }} has been unreachable for more than 5 minutes."
+
+        - alert: GrafanaDown
+          expr: up{job="grafana"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Grafana is down"
+            description: "Grafana has been unreachable for more than 5 minutes."

@@ -857,11 +857,11 @@ sequenceDiagram
     participant H as Harbor
 
     Note over D,K: Phase 1: Foundation
-    D->>K: Deploy Node Labeler (image: harbor.<DOMAIN>/library/node-labeler:v0.2.0)
+    D->>K: Deploy Node Labeler (image: harbor.&lt;DOMAIN&gt;/library/node-labeler:v0.2.0)
     K-->>K: Pod enters ErrImagePull (Harbor does not exist yet)
 
     Note over D,K: Phase 3: Monitoring
-    D->>K: Deploy Storage Autoscaler (image: harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0)
+    D->>K: Deploy Storage Autoscaler (image: harbor.&lt;DOMAIN&gt;/library/storage-autoscaler:v0.2.0)
     K-->>K: Pod enters ErrImagePull (Harbor does not exist yet)
 
     Note over D,H: Phase 4: Harbor
@@ -871,8 +871,8 @@ sequenceDiagram
     Note over D,H: Post-Phase 4: push_operator_images()
     D->>D: docker load < node-labeler-v0.2.0-amd64.tar.gz
     D->>D: docker load < storage-autoscaler-v0.2.0-amd64.tar.gz
-    D->>H: docker push harbor.<DOMAIN>/library/node-labeler:v0.2.0
-    D->>H: docker push harbor.<DOMAIN>/library/storage-autoscaler:v0.2.0
+    D->>H: docker push harbor.&lt;DOMAIN&gt;/library/node-labeler:v0.2.0
+    D->>H: docker push harbor.&lt;DOMAIN&gt;/library/storage-autoscaler:v0.2.0
     D->>K: kubectl rollout restart deployment (both operators)
     K-->>K: Pods pull from Harbor successfully
 ```

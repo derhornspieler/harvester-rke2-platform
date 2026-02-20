@@ -17,7 +17,9 @@ harvester_cloud_credential_name = "my-harvester-credential"
 cluster_name       = "rke2-prod"
 kubernetes_version = "v1.34.2+rke2r1"
 cni                = "cilium"
-traefik_lb_ip      = "203.0.113.202"
+traefik_lb_ip      = "198.51.100.2"
+domain             = "example.com"
+keycloak_realm     = "example"
 
 # -----------------------------------------------------------------------------
 # Harvester Networking
@@ -25,11 +27,21 @@ traefik_lb_ip      = "203.0.113.202"
 vm_namespace                = "rke2-prod"    # Dedicated Harvester namespace for cluster VMs (auto-created by deploy script)
 harvester_network_name      = "vm-network"
 harvester_network_namespace = "default"
+# harvester_services_network_name      = "services-network"   # eth1 ingress NIC (default: services-network)
+# harvester_services_network_namespace = "default"            # (default: default)
 
 # -----------------------------------------------------------------------------
 # Rocky 9 Image (optional — defaults to latest GenericCloud)
 # -----------------------------------------------------------------------------
 # rocky_image_url = "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"
+
+# -----------------------------------------------------------------------------
+# Golden Image (optional — pre-baked Rocky 9 with packages pre-installed)
+# -----------------------------------------------------------------------------
+# Skips the ~600MB qcow2 download and speeds up node provisioning.
+# The image must already exist on Harvester (uploaded manually or by a previous deploy).
+# use_golden_image  = true
+# golden_image_name = "rke2-rocky9-golden-20260214"
 
 # -----------------------------------------------------------------------------
 # Control Plane Pool

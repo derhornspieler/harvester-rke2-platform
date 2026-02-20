@@ -12,7 +12,7 @@ type SSHPublicKeyRequest struct {
 
 // SSHPublicKeyResponse is the response for a registered SSH public key.
 type SSHPublicKeyResponse struct {
-	PublicKey     string `json:"publicKey"`
+	PublicKey    string `json:"publicKey"`
 	Fingerprint  string `json:"fingerprint"`
 	RegisteredAt string `json:"registeredAt,omitempty"`
 }

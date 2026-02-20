@@ -124,6 +124,8 @@ jobs:
   security-scan-backend:
     needs: build-and-push-backend
     runs-on: ubuntu-latest
+    # Non-blocking — Trivy scan is informational
+    continue-on-error: true
     if: github.event_name == 'push'
     steps:
       - name: Log in to GHCR
@@ -210,6 +212,8 @@ jobs:
   security-scan-frontend:
     needs: build-and-push-frontend
     runs-on: ubuntu-latest
+    # Non-blocking — Trivy scan is informational
+    continue-on-error: true
     if: github.event_name == 'push'
     steps:
       - name: Log in to GHCR

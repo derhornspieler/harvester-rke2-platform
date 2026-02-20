@@ -41,6 +41,7 @@ HARVESTER_KUBECONFIG="${SCRIPT_DIR}/kubeconfig-harvester.yaml"
 KUBECTL="kubectl --kubeconfig=${HARVESTER_KUBECONFIG}"
 IMAGE_DATE=$(date +%Y%m%d)
 CHECK_POD_NAME="golden-build-check"
+_BUILD_VM_NAMESPACE=""   # set by cmd_build(), used by EXIT trap
 
 # --- Helper Functions ---
 
@@ -141,9 +142,11 @@ cmd_build() {
   ensure_kubeconfig
   check_connectivity
 
-  local image_name vm_namespace
+  local image_name
   image_name=$(get_image_name)
-  vm_namespace=$(get_vm_namespace)
+  # Use global so the EXIT trap can reference it after cmd_build() returns
+  _BUILD_VM_NAMESPACE=$(get_vm_namespace)
+  local vm_namespace="$_BUILD_VM_NAMESPACE"
 
   # Check for existing image with same name
   if $KUBECTL get virtualmachineimages.harvesterhci.io "${image_name}" -n "${vm_namespace}" &>/dev/null; then
@@ -151,7 +154,7 @@ cmd_build() {
   fi
 
   # Ensure cleanup on exit
-  trap 'cleanup_check_pod "${vm_namespace}" 2>/dev/null || true' EXIT
+  trap 'cleanup_check_pod "${_BUILD_VM_NAMESPACE}" 2>/dev/null || true' EXIT
 
   # -----------------------------------------------------------------------
   # Step 1/5: Terraform Apply
@@ -159,9 +162,7 @@ cmd_build() {
   log_step "Step 1/5: Creating base image + utility VM..."
   cd "$SCRIPT_DIR"
 
-  if [[ ! -d .terraform ]]; then
-    terraform init -input=false
-  fi
+  terraform init -reconfigure -input=false
 
   terraform apply -auto-approve
 
@@ -333,9 +334,7 @@ cmd_destroy() {
   ensure_kubeconfig
 
   cd "$SCRIPT_DIR"
-  if [[ ! -d .terraform ]]; then
-    terraform init -input=false
-  fi
+  terraform init -reconfigure -input=false
 
   terraform destroy "$@"
   log_ok "Cleanup complete"

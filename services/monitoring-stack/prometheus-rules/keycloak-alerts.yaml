@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: keycloak-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: keycloak-alerts
+      rules:
+        - alert: KeycloakDown
+          expr: up{job="keycloak"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Keycloak is down"
+            description: "Keycloak instance {{ $labels.instance }} has been unreachable for more than 5 minutes."

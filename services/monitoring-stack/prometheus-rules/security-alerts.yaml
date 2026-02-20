@@ -1,0 +1,64 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: security-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: security-alerts
+      rules:
+        - alert: KeycloakBruteForceDetected
+          expr: increase(keycloak_login_errors_total{error="user_not_found"}[5m]) > 10
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Potential brute force attack on Keycloak"
+            description: "More than 10 failed login attempts (user not found) in 5 minutes on {{ $labels.instance }}."
+
+        - alert: KeycloakHighLoginFailures
+          expr: rate(keycloak_login_errors_total[5m]) / (rate(keycloak_logins_total[5m]) + rate(keycloak_login_errors_total[5m])) > 0.3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High Keycloak login failure rate"
+            description: 'Login failure rate is {{ $value | printf "%.1f" }}% for more than 10 minutes.'
+
+        - alert: UnusualPodNetworkTraffic
+          expr: sum by (namespace, pod) (rate(container_network_transmit_bytes_total[5m])) > 50000000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Unusual outbound network traffic from {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is transmitting {{ $value | humanize }}B/s outbound (>50MB/s for 15min)."
+
+        - alert: APIServerUnusualRequestRate
+          expr: sum(rate(apiserver_request_total{verb!~"GET|LIST|WATCH"}[5m])) > 100
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Unusual Kubernetes API write request rate"
+            description: 'API server is receiving {{ $value | printf "%.0f" }} non-read requests/s (>100 for 10min). Possible automated attack or misconfigured controller.'
+
+        - alert: HighDNSQueryRate
+          expr: sum(rate(coredns_dns_requests_total[5m])) by (server) > 5000
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Unusually high DNS query rate"
+            description: 'CoreDNS server {{ $labels.server }} receiving {{ $value | printf "%.0f" }} queries/s. Possible DNS tunneling or exfiltration.'
+
+        - alert: SecretAccessSpike
+          expr: sum(rate(apiserver_request_total{resource="secrets", verb=~"get|list"}[5m])) > 50
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Spike in Kubernetes secret access"
+            description: '{{ $value | printf "%.0f" }} secret access requests/s detected. Possible credential harvesting.'

@@ -74,6 +74,28 @@ ensure_namespace() {
   fi
 }
 
+clear_stale_lock() {
+  cd "$SCRIPT_DIR"
+  # Try a quick plan to see if the state is locked
+  local output
+  output=$(terraform plan -input=false -no-color 2>&1 || true)
+  if echo "$output" | grep -q "Error acquiring the state lock"; then
+    local lock_id
+    lock_id=$(echo "$output" | grep 'ID:' | head -1 | awk '{print $2}')
+    if [[ -n "$lock_id" ]]; then
+      log_warn "Terraform state is locked (stale lock from a previous run)"
+      log_info "Lock ID: ${lock_id}"
+      log_info "Auto-unlocking..."
+      if terraform force-unlock -force "$lock_id" 2>/dev/null; then
+        log_ok "State lock cleared"
+      else
+        log_error "Failed to clear state lock. Run: terraform force-unlock -force ${lock_id}"
+        return 1
+      fi
+    fi
+  fi
+}
+
 check_rbac() {
   local ok=true
   for action in "create secrets" "create leases"; do
@@ -181,6 +203,8 @@ cmd_apply() {
     echo
   fi
 
+  clear_stale_lock
+
   # Generate dated plan file
   local plan_file="tfplan_$(date +%Y%m%d_%H%M%S)"
   log_info "Running: terraform plan -out=${plan_file}"
@@ -188,8 +212,21 @@ cmd_apply() {
   echo
 
   log_info "Running: terraform apply ${plan_file}"
-  terraform apply "$plan_file"
+  local tf_exit=0
+  terraform apply "$plan_file" || tf_exit=$?
   rm -f "$plan_file"
+
+  # Terraform may exit 1 with "Error releasing the state lock" even when
+  # apply succeeds (K8s backend lock timeout during long cluster creation).
+  # Check if resources were actually created before failing.
+  if [[ $tf_exit -ne 0 ]]; then
+    if terraform state list 2>/dev/null | grep -q "rancher2_cluster_v2"; then
+      log_warn "Terraform exited $tf_exit but resources were created — continuing"
+    else
+      log_error "Terraform apply failed (exit $tf_exit)"
+      return $tf_exit
+    fi
+  fi
   echo
 
   # Always push secrets after successful apply
@@ -410,6 +447,8 @@ cmd_destroy() {
     fi
     echo
   fi
+
+  clear_stale_lock
 
   # Capture VM namespace and cluster name BEFORE destroy removes Terraform state
   local vm_namespace cluster_name

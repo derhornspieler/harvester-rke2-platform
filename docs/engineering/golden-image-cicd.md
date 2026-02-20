@@ -1093,7 +1093,7 @@ sequenceDiagram
     LIB->>LIB: Read Harbor admin password from values
     LIB->>K8S: kubectl run image-pusher<br/>gcr.io/go-containerregistry/crane:debug
 
-    LIB->>CRANE: crane auth login harbor.<DOMAIN><br/>-u admin -p <password> --insecure
+    LIB->>CRANE: crane auth login harbor.&lt;DOMAIN&gt;<br/>-u admin -p <password> --insecure
 
     loop For each tarball
         LIB->>K8S: kubectl cp tarball → crane pod /tmp/
@@ -1155,7 +1155,7 @@ graph LR
 
     subgraph "Cluster Deployment"
         E --> F["push_operator_images()<br/>Phase 4.10"]
-        F --> G["harbor.<DOMAIN>/library/*"]
+        F --> G["harbor.&lt;DOMAIN&gt;/library/*"]
     end
 
     subgraph "RKE2 Nodes"
@@ -1390,7 +1390,7 @@ graph TB
         P1 --> P2["Phase 2: Vault + PKI"]
         P2 --> P3["Phase 3: Monitoring<br/>Storage Autoscaler deploys"]
         P3 --> P4["Phase 4: Harbor<br/>Registry + push_operator_images()"]
-        P4 --> HARBOR["harbor.<DOMAIN>"]
+        P4 --> HARBOR["harbor.&lt;DOMAIN&gt;"]
         TARBALL --> P4
     end
 
