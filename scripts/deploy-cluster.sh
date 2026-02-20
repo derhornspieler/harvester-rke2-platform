@@ -1434,7 +1434,7 @@ phase_5_keycloak_auth() {
   kc_save_secret "harbor" "$secret"
 
   # Rancher
-  secret=$(kc_create_client "rancher" "https://rancher.${DOMAIN}/verify-auth" "Rancher")
+  secret=$(kc_create_client "rancher" "https://${RANCHER_FQDN}/verify-auth" "Rancher")
   kc_save_secret "rancher" "$secret"
 
   # oauth2-proxy clients (one per protected service)
