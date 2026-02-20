@@ -1169,21 +1169,32 @@ configure_harbor_projects() {
       -H "Content-Type: application/json" \
       -d "{\"name\":\"${project}\",\"type\":\"docker-registry\",\"url\":\"${endpoint}\",\"insecure\":false}" >/dev/null 2>&1 || true
 
-    # Get registry ID (use -s without -f so we always get JSON output)
-    local reg_id
-    reg_id=$(kubectl exec -n harbor "$harbor_core_pod" -- \
-      curl -s -u "$auth" "${harbor_api}/registries" 2>/dev/null | \
-      jq -r ".[] | select(.name==\"${project}\") | .id" 2>/dev/null || echo "")
+    # Get registry ID with retry (Harbor API may take a moment after registry creation)
+    local reg_id="" retry=0
+    while [[ -z "$reg_id" || "$reg_id" == "null" ]] && [[ $retry -lt 5 ]]; do
+      reg_id=$(kubectl exec -n harbor "$harbor_core_pod" -- \
+        curl -s -u "$auth" "${harbor_api}/registries" 2>/dev/null | \
+        jq -r ".[] | select(.name==\"${project}\") | .id" 2>/dev/null || echo "")
+      if [[ -z "$reg_id" || "$reg_id" == "null" ]]; then
+        retry=$((retry + 1))
+        sleep 3
+      fi
+    done
 
     if [[ -n "$reg_id" && "$reg_id" != "null" ]]; then
       # Create proxy cache project (409 = already exists → ignore)
-      kubectl exec -n harbor "$harbor_core_pod" -- \
+      local result
+      result=$(kubectl exec -n harbor "$harbor_core_pod" -- \
         curl -s -u "$auth" -X POST "${harbor_api}/projects" \
         -H "Content-Type: application/json" \
-        -d "{\"project_name\":\"${project}\",\"registry_id\":${reg_id},\"public\":true,\"metadata\":{\"public\":\"true\"}}" >/dev/null 2>&1 || true
-      log_ok "Proxy cache project: ${project} (registry_id=${reg_id})"
+        -d "{\"project_name\":\"${project}\",\"registry_id\":${reg_id},\"public\":true,\"metadata\":{\"public\":\"true\"}}" 2>&1 || true)
+      if echo "$result" | grep -q "errors" 2>/dev/null && ! echo "$result" | grep -q "409" 2>/dev/null; then
+        log_warn "Proxy cache project creation may have failed for ${project}: ${result}"
+      else
+        log_ok "Proxy cache project: ${project} (registry_id=${reg_id})"
+      fi
     else
-      log_warn "Could not get registry ID for ${project}, skipping proxy cache project"
+      log_error "Could not get registry ID for ${project} after 5 retries — proxy cache project NOT created"
     fi
   done
 
