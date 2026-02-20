@@ -24,7 +24,7 @@ expose:
     ports:
       httpPort: 80
 
-externalURL: https://harbor.example.com
+externalURL: https://harbor.CHANGEME_DOMAIN
 
 # --- Admin ---
 harborAdminPassword: "CHANGEME_HARBOR_ADMIN_PASSWORD"
