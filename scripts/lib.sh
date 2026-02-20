@@ -98,8 +98,25 @@ validate_airgapped_prereqs() {
   log_info "Validating airgapped prerequisites..."
   local errors=0
 
+  if [[ -z "${BOOTSTRAP_REGISTRY:-}" ]]; then
+    log_error "AIRGAPPED=true but BOOTSTRAP_REGISTRY is not set"
+    log_error "  A pre-existing registry is required for cluster bootstrap (Phases 0-3)"
+    log_error "  Set BOOTSTRAP_REGISTRY to the hostname[:port] of your bootstrap registry"
+    errors=$((errors + 1))
+  fi
+
   if [[ -z "${UPSTREAM_PROXY_REGISTRY:-}" ]]; then
     log_error "AIRGAPPED=true but UPSTREAM_PROXY_REGISTRY is not set"
+    log_info "  Tip: In most airgapped deployments, UPSTREAM_PROXY_REGISTRY == BOOTSTRAP_REGISTRY"
+    errors=$((errors + 1))
+  fi
+
+  # Check Terraform provider filesystem mirror
+  if [[ -f "$HOME/.terraformrc" ]] && grep -q "filesystem_mirror" "$HOME/.terraformrc" 2>/dev/null; then
+    log_ok "Terraform provider filesystem mirror configured"
+  else
+    log_error "Terraform provider filesystem mirror not configured"
+    log_error "  Create ~/.terraformrc with a filesystem_mirror block pointing to your local providers"
     errors=$((errors + 1))
   fi
 
@@ -988,6 +1005,10 @@ generate_or_load_env() {
   # Airgapped mode
   : "${AIRGAPPED:=false}"
   : "${UPSTREAM_PROXY_REGISTRY:=}"
+  : "${BOOTSTRAP_REGISTRY:=}"
+  : "${BOOTSTRAP_REGISTRY_CA_PEM:=}"
+  : "${BOOTSTRAP_REGISTRY_USERNAME:=}"
+  : "${BOOTSTRAP_REGISTRY_PASSWORD:=}"
 
   # Git base URL for ArgoCD service repos (airgapped: internal Gitea/GitLab)
   : "${GIT_BASE_URL:=}"
@@ -1117,7 +1138,8 @@ generate_or_load_env() {
 
   # Export for subshells
   export DEPLOY_UPTIME_KUMA DEPLOY_LIBRENMS
-  export AIRGAPPED UPSTREAM_PROXY_REGISTRY
+  export AIRGAPPED UPSTREAM_PROXY_REGISTRY BOOTSTRAP_REGISTRY
+  export BOOTSTRAP_REGISTRY_CA_PEM BOOTSTRAP_REGISTRY_USERNAME BOOTSTRAP_REGISTRY_PASSWORD
   export KEYCLOAK_BOOTSTRAP_CLIENT_SECRET KEYCLOAK_DB_PASSWORD
   export MATTERMOST_DB_PASSWORD MATTERMOST_MINIO_ROOT_USER MATTERMOST_MINIO_ROOT_PASSWORD
   export HARBOR_REDIS_PASSWORD HARBOR_ADMIN_PASSWORD HARBOR_MINIO_SECRET_KEY HARBOR_DB_PASSWORD
@@ -1151,8 +1173,12 @@ generate_or_load_env() {
   # Bridge airgapped vars to Terraform
   if [[ "${AIRGAPPED}" == "true" ]]; then
     export TF_VAR_airgapped=true
-    [[ -n "${PRIVATE_ROCKY_REPO_URL:-}" ]] && export TF_VAR_private_rocky_repo_url="$PRIVATE_ROCKY_REPO_URL"
-    [[ -n "${PRIVATE_RKE2_REPO_URL:-}" ]]  && export TF_VAR_private_rke2_repo_url="$PRIVATE_RKE2_REPO_URL"
+    [[ -n "${BOOTSTRAP_REGISTRY:-}" ]]         && export TF_VAR_bootstrap_registry="$BOOTSTRAP_REGISTRY"
+    [[ -n "${BOOTSTRAP_REGISTRY_CA_PEM:-}" ]]  && export TF_VAR_bootstrap_registry_ca_pem="$BOOTSTRAP_REGISTRY_CA_PEM"
+    [[ -n "${BOOTSTRAP_REGISTRY_USERNAME:-}" ]] && export TF_VAR_bootstrap_registry_username="$BOOTSTRAP_REGISTRY_USERNAME"
+    [[ -n "${BOOTSTRAP_REGISTRY_PASSWORD:-}" ]] && export TF_VAR_bootstrap_registry_password="$BOOTSTRAP_REGISTRY_PASSWORD"
+    [[ -n "${PRIVATE_ROCKY_REPO_URL:-}" ]]     && export TF_VAR_private_rocky_repo_url="$PRIVATE_ROCKY_REPO_URL"
+    [[ -n "${PRIVATE_RKE2_REPO_URL:-}" ]]      && export TF_VAR_private_rke2_repo_url="$PRIVATE_RKE2_REPO_URL"
   fi
 
   # Save to .env (only if newly generated or updated)
@@ -1168,6 +1194,12 @@ DEPLOY_LIBRENMS="${DEPLOY_LIBRENMS}"
 # Airgapped mode — when true, Harbor proxy-cache uses UPSTREAM_PROXY_REGISTRY
 AIRGAPPED="${AIRGAPPED}"
 UPSTREAM_PROXY_REGISTRY="${UPSTREAM_PROXY_REGISTRY}"
+
+# Bootstrap registry — pre-existing external registry for Phases 0-3 (required when AIRGAPPED=true)
+BOOTSTRAP_REGISTRY="${BOOTSTRAP_REGISTRY}"
+BOOTSTRAP_REGISTRY_CA_PEM="${BOOTSTRAP_REGISTRY_CA_PEM}"
+BOOTSTRAP_REGISTRY_USERNAME="${BOOTSTRAP_REGISTRY_USERNAME}"
+BOOTSTRAP_REGISTRY_PASSWORD="${BOOTSTRAP_REGISTRY_PASSWORD}"
 
 # Git base URL for ArgoCD service repos (airgapped: internal Gitea/GitLab)
 GIT_BASE_URL="${GIT_BASE_URL}"
@@ -1613,10 +1645,18 @@ configure_rancher_registries() {
   local patch_file
   patch_file=$(mktemp /tmp/registries-patch-XXXXXX.json)
 
+  # In airgapped mode, also transition system-default-registry from bootstrap to Harbor
+  local sdr_patch=""
+  if [[ "${AIRGAPPED:-false}" == "true" ]]; then
+    sdr_patch="\"machineGlobalConfig\": { \"system-default-registry\": \"${harbor_fqdn}\" },"
+    log_info "Airgapped: transitioning system-default-registry to ${harbor_fqdn}"
+  fi
+
   cat > "$patch_file" <<PATCHEOF
 {
   "spec": {
     "rkeConfig": {
+      ${sdr_patch}
       "registries": {
         "configs": {
           "${harbor_fqdn}": {

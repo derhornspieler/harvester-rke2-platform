@@ -294,7 +294,7 @@ resource "rancher2_cluster_v2" "rke2" {
         "kube-scheduler-arg"          = ["bind-address=0.0.0.0"]
         "kube-controller-manager-arg" = ["bind-address=0.0.0.0"]
       },
-      var.airgapped ? { "system-default-registry" = "harbor.${var.domain}" } : {}
+      var.airgapped && var.bootstrap_registry != "" ? { "system-default-registry" = var.bootstrap_registry } : {}
     ))
 
     # -----------------------------------------------------------------

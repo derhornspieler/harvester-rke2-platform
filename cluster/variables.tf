@@ -371,3 +371,30 @@ variable "private_ca_pem" {
   default     = ""
   sensitive   = true
 }
+
+# --- Airgapped Bootstrap Registry ---
+variable "bootstrap_registry" {
+  description = "Pre-existing container registry for airgapped bootstrap (used as system-default-registry). Must contain RKE2 system images."
+  type        = string
+  default     = ""
+}
+
+variable "bootstrap_registry_ca_pem" {
+  description = "PEM-encoded CA cert for bootstrap registry TLS (if different from private_ca_pem)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "bootstrap_registry_username" {
+  description = "Username for bootstrap registry authentication"
+  type        = string
+  default     = ""
+}
+
+variable "bootstrap_registry_password" {
+  description = "Password for bootstrap registry authentication"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
