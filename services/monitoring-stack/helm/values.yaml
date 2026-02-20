@@ -1,6 +1,6 @@
 # kube-prometheus-stack Helm values
 # Migrated from raw kustomize manifests to Operator-based deployment
-# Domain substitution: _subst_changeme replaces example.com before helm install
+# Domain substitution: _subst_changeme replaces CHANGEME_DOMAIN before helm install
 
 ## ---- Prometheus Operator ----
 prometheusOperator:
@@ -131,7 +131,7 @@ grafana:
   adminUser: admin
   adminPassword: "CHANGEME_GRAFANA_ADMIN_PASSWORD"
   env:
-    GF_SERVER_ROOT_URL: https://grafana.example.com/
+    GF_SERVER_ROOT_URL: https://grafana.CHANGEME_DOMAIN/
     GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA: /etc/ssl/certs/vault-root-ca.pem
     GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /tmp/dashboards/Home/home-overview.json
   resources:

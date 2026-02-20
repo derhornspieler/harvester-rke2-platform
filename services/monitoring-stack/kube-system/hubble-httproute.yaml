@@ -11,7 +11,7 @@ spec:
       namespace: kube-system
       sectionName: https
   hostnames:
-    - "hubble.example.com"
+    - "hubble.CHANGEME_DOMAIN"
   rules:
     # oauth2-proxy callback — no auth middleware
     - matches:

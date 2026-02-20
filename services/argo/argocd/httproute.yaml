@@ -11,7 +11,7 @@ spec:
       namespace: argocd
       sectionName: https
   hostnames:
-    - "argo.example.com"
+    - "argo.CHANGEME_DOMAIN"
   rules:
     - matches:
         - path:

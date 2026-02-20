@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:derhornspieler/svc-example-kasm.git
+    repoURL: git@github.com:derhornspieler/svc-CHANGEME_DOMAIN_DASHED-kasm.git
     targetRevision: main
     path: .
   destination:

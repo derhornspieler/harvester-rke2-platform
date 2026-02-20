@@ -291,7 +291,7 @@ data:
           "id": 7,
           "options": {
             "mode": "markdown",
-            "content": "### Manage Alerts\n\n[Alertmanager UI](https://alertmanager.example.com) | [Create Silence](https://alertmanager.example.com/#/silences/new) | [View Silences](https://alertmanager.example.com/#/silences) | [Prometheus Alerts](https://prometheus.example.com/alerts) | [Back to Cluster Home](/d/home-overview/cluster-home?orgId=1)\n\n**To clear/reset alerts:** Alerts resolve automatically when the underlying condition clears. To immediately suppress an alert, click **Create Silence** above to open Alertmanager and create a silence matching the alert by name, severity, or label. Silences can be time-limited (e.g. during maintenance) or removed later from **View Silences**."
+            "content": "### Manage Alerts\n\n[Alertmanager UI](https://alertmanager.CHANGEME_DOMAIN) | [Create Silence](https://alertmanager.CHANGEME_DOMAIN/#/silences/new) | [View Silences](https://alertmanager.CHANGEME_DOMAIN/#/silences) | [Prometheus Alerts](https://prometheus.CHANGEME_DOMAIN/alerts) | [Back to Cluster Home](/d/home-overview/cluster-home?orgId=1)\n\n**To clear/reset alerts:** Alerts resolve automatically when the underlying condition clears. To immediately suppress an alert, click **Create Silence** above to open Alertmanager and create a silence matching the alert by name, severity, or label. Silences can be time-limited (e.g. during maintenance) or removed later from **View Silences**."
           }
         }
       ],

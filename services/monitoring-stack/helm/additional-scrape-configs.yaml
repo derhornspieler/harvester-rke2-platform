@@ -1,7 +1,7 @@
 # Additional scrape configs for kube-prometheus-stack
 # These jobs use node/pod SD patterns that don't map cleanly to ServiceMonitors.
 # Created as a Secret (key: scrape-configs.yaml) by deploy-cluster.sh phase 3.
-# Domain substitution: _subst_changeme replaces example.com before Secret creation.
+# Domain substitution: _subst_changeme replaces CHANGEME_DOMAIN before Secret creation.
 
 # 1. etcd (non-standard HTTP metrics port 2381 on control-plane nodes)
 - job_name: "etcd"

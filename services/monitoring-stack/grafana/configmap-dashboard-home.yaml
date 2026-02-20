@@ -1080,7 +1080,7 @@ data:
                       "links": [
                             {
                                   "title": "Prometheus UI",
-                                  "url": "https://prometheus.example.com",
+                                  "url": "https://prometheus.CHANGEME_DOMAIN",
                                   "targetBlank": true
                             }
                       ],
@@ -1130,7 +1130,7 @@ data:
                                   "links": [
                                         {
                                               "title": "Prometheus UI",
-                                              "url": "https://prometheus.example.com",
+                                              "url": "https://prometheus.CHANGEME_DOMAIN",
                                               "targetBlank": true
                                         }
                                   ]
@@ -1264,7 +1264,7 @@ data:
                       "links": [
                             {
                                   "title": "Alertmanager UI",
-                                  "url": "https://alertmanager.example.com",
+                                  "url": "https://alertmanager.CHANGEME_DOMAIN",
                                   "targetBlank": true
                             }
                       ],
@@ -1314,7 +1314,7 @@ data:
                                   "links": [
                                         {
                                               "title": "Alertmanager UI",
-                                              "url": "https://alertmanager.example.com",
+                                              "url": "https://alertmanager.CHANGEME_DOMAIN",
                                               "targetBlank": true
                                         }
                                   ]

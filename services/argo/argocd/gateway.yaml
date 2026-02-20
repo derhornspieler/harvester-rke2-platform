@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: argo.example.com
+      hostname: argo.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: argo-example-com-tls
+          - name: argo-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

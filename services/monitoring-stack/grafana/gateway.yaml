@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: grafana.example.com
+      hostname: grafana.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: grafana-example-com-tls
+          - name: grafana-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

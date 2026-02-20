@@ -1,16 +1,16 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: kasm-example-com-tls
+  name: kasm-CHANGEME_DOMAIN_DASHED-tls
   namespace: kasm
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
-  secretName: kasm-example-com-tls
+  secretName: kasm-CHANGEME_DOMAIN_DASHED-tls
   issuerRef:
     name: vault-issuer
     kind: ClusterIssuer
   dnsNames:
-    - kasm.example.com
+    - kasm.CHANGEME_DOMAIN
   duration: 720h
   renewBefore: 168h

@@ -11,7 +11,7 @@ spec:
       namespace: monitoring
       sectionName: https
   hostnames:
-    - "alertmanager.example.com"
+    - "alertmanager.CHANGEME_DOMAIN"
   rules:
     # oauth2-proxy callback — no auth middleware
     - matches:

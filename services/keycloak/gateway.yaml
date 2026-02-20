@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: keycloak.example.com
+      hostname: keycloak.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: keycloak-example-com-tls
+          - name: keycloak-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: librenms.example.com
+      hostname: librenms.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: librenms-example-com-tls
+          - name: librenms-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

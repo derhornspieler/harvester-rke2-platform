@@ -32,7 +32,7 @@ global:
 
   ## ── Hostnames ──────────────────────────────────────────────────────────────
   hosts:
-    domain: example.com
+    domain: CHANGEME_DOMAIN
     https: true
 
   ## ── Gateway API (Traefik) ─────────────────────────────────────────────────
@@ -162,7 +162,7 @@ installCertmanager: false
 ## ── cert-manager issuer ──────────────────────────────────────────────────────
 ## Not used — vault-issuer ClusterIssuer handles TLS via Gateway annotations
 certmanager-issuer:
-  email: admin@example.com
+  email: admin@CHANGEME_DOMAIN
 
 ## ── Disable bundled NGINX ingress (using Traefik) ────────────────────────────
 nginx-ingress:

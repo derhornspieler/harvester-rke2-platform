@@ -11,33 +11,33 @@ spec:
     - name: gitlab-web
       port: 8443
       protocol: HTTPS
-      hostname: "gitlab.example.com"
+      hostname: "gitlab.CHANGEME_DOMAIN"
       tls:
         mode: Terminate
         certificateRefs:
-          - name: gitlab-example-com-tls
+          - name: gitlab-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same
     - name: kas-web
       port: 8443
       protocol: HTTPS
-      hostname: "kas.example.com"
+      hostname: "kas.CHANGEME_DOMAIN"
       tls:
         mode: Terminate
         certificateRefs:
-          - name: kas-example-com-tls
+          - name: kas-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same
     - name: minio-web
       port: 8443
       protocol: HTTPS
-      hostname: "minio.example.com"
+      hostname: "minio.CHANGEME_DOMAIN"
       tls:
         mode: Terminate
         certificateRefs:
-          - name: minio-example-com-tls
+          - name: minio-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

@@ -13,6 +13,8 @@ resources:
   - frontend/service.yaml
   - frontend/configmap.yaml
   - frontend/pdb.yaml
+  - hpa-backend.yaml
+  - hpa-frontend.yaml
   - gateway.yaml
   - httproute.yaml
   - networkpolicy.yaml

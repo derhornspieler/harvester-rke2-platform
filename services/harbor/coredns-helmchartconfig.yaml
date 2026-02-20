@@ -1,15 +1,15 @@
 # CoreDNS HelmChartConfig — Hairpin DNS for In-Cluster OIDC
 #
-# Pods inside the cluster cannot reach service FQDNs (e.g., keycloak.example.com)
+# Pods inside the cluster cannot reach service FQDNs (e.g., keycloak.CHANGEME_DOMAIN)
 # via the Traefik LoadBalancer IP — Cilium L2 does not support hairpin routing.
 #
-# Fix: CoreDNS rewrites *.example.com queries to the Traefik ClusterIP so
+# Fix: CoreDNS rewrites *.CHANGEME_DOMAIN queries to the Traefik ClusterIP so
 # in-cluster OIDC clients (Vault, Grafana, ArgoCD, etc.) can reach Keycloak,
 # and oauth2-proxy instances can perform OIDC authentication.
 #
 # The rewrite + answer auto ensures:
-#   1. DNS query for keycloak.example.com → resolves rke2-traefik ClusterIP
-#   2. Response name is rewritten back to keycloak.example.com
+#   1. DNS query for keycloak.CHANGEME_DOMAIN → resolves rke2-traefik ClusterIP
+#   2. Response name is rewritten back to keycloak.CHANGEME_DOMAIN
 #   3. TLS verification succeeds (cert matches original hostname)
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
@@ -36,7 +36,7 @@ spec:
               ttl 30
           # Hairpin DNS: rewrite *.DOMAIN to Traefik ClusterIP for in-cluster access
           - name: rewrite
-            parameters: stop name exact keycloak.example.com rke2-traefik.kube-system.svc.cluster.local answer auto
+            parameters: stop name exact keycloak.CHANGEME_DOMAIN rke2-traefik.kube-system.svc.cluster.local answer auto
           - name: prometheus
             parameters: 0.0.0.0:9153
           - name: forward

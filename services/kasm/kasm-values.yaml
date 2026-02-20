@@ -5,7 +5,7 @@
 # Prerequisites (deploy before Kasm):
 #   1. CNPG kasm-pg in database namespace (PostgreSQL 14 HA)
 #   2. Traefik timeout increased to 1800s (desktop streaming)
-#   3. cert-manager Certificate for kasm.example.com
+#   3. cert-manager Certificate for kasm.CHANGEME_DOMAIN
 #
 # Install:
 #   helm repo add kasmtech https://helm.kasmweb.com/ && helm repo update
@@ -14,11 +14,11 @@
 #
 # Post-deploy:
 #   - Get admin password: kubectl -n kasm get secret kasm-secrets -o jsonpath='{.data.admin-password}' | base64 -d
-#   - Login: https://kasm.example.com as admin@kasm.local
+#   - Login: https://kasm.CHANGEME_DOMAIN as admin@kasm.local
 #   - Configure Harvester VM Provider in Admin UI > Infrastructure > VM Providers
 
 # --- Public Address ---
-publicAddr: kasm.example.com
+publicAddr: kasm.CHANGEME_DOMAIN
 
 # --- Deployment Size ---
 # small = 1 replica each component, supports 10-15 concurrent sessions
@@ -51,7 +51,7 @@ ingress:
 
 # --- TLS (cert-manager + vault-issuer handles certificate externally) ---
 certificate:
-  secretName: kasm-example-com-tls
+  secretName: kasm-CHANGEME_DOMAIN_DASHED-tls
   certManager:
     enabled: false
 

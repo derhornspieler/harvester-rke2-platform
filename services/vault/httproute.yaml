@@ -11,7 +11,7 @@ spec:
       namespace: vault
       sectionName: https
   hostnames:
-    - "vault.example.com"
+    - "vault.CHANGEME_DOMAIN"
   rules:
     - matches:
         - path:

@@ -4,7 +4,7 @@ metadata:
   name: vault-issuer
 spec:
   vault:
-    path: pki_int/sign/example-dot-com
+    path: pki_int/sign/CHANGEME_DOMAIN_DOT
     server: http://vault.vault.svc.cluster.local:8200
     auth:
       kubernetes:

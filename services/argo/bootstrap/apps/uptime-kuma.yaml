@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:derhornspieler/svc-example-uptime-kuma.git
+    repoURL: git@github.com:derhornspieler/svc-CHANGEME_DOMAIN_DASHED-uptime-kuma.git
     targetRevision: main
     path: .
   destination:

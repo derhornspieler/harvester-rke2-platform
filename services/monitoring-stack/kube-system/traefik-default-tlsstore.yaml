@@ -7,4 +7,4 @@ metadata:
   namespace: kube-system
 spec:
   defaultCertificate:
-    secretName: traefik-example-com-tls
+    secretName: traefik-CHANGEME_DOMAIN_DASHED-tls

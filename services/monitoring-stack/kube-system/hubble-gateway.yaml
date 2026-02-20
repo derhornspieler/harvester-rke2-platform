@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: hubble.example.com
+      hostname: hubble.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: hubble-example-com-tls
+          - name: hubble-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

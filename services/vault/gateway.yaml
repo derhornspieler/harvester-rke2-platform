@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: vault.example.com
+      hostname: vault.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: vault-example-com-tls
+          - name: vault-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

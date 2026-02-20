@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: rollouts.example.com
+      hostname: rollouts.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: rollouts-example-com-tls
+          - name: rollouts-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: mattermost.example.com
+      hostname: mattermost.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: mattermost-example-com-tls
+          - name: mattermost-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

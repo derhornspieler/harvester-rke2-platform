@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:derhornspieler/svc-example-mattermost.git
+    repoURL: git@github.com:derhornspieler/svc-CHANGEME_DOMAIN_DASHED-mattermost.git
     targetRevision: main
     path: .
   destination:

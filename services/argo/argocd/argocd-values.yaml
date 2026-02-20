@@ -18,7 +18,7 @@
 global:
   nodeSelector:
     workload-type: general
-  domain: argo.example.com
+  domain: argo.CHANGEME_DOMAIN
 
 # ArgoCD CM config overrides (OIDC CA trust configured at runtime by setup-keycloak.sh)
 configs:

@@ -21,7 +21,7 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - name: harbor-example-com-tls
+          - name: harbor-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

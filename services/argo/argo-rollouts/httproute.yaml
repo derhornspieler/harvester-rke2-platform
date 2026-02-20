@@ -11,7 +11,7 @@ spec:
       namespace: argo-rollouts
       sectionName: https
   hostnames:
-    - "rollouts.example.com"
+    - "rollouts.CHANGEME_DOMAIN"
   rules:
     # oauth2-proxy callback — no auth middleware
     - matches:

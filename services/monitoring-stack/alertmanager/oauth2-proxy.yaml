@@ -26,11 +26,11 @@ spec:
           args:
             - --provider=keycloak-oidc
             - --client-id=alertmanager-oidc
-            - --oidc-issuer-url=https://keycloak.example.com/realms/CHANGEME_KC_REALM
+            - --oidc-issuer-url=https://keycloak.CHANGEME_DOMAIN/realms/CHANGEME_KC_REALM
             - --oidc-groups-claim=groups
             - --allowed-group=platform-admins
             - --allowed-group=infra-engineers
-            - --redirect-url=https://alertmanager.example.com/oauth2/callback
+            - --redirect-url=https://alertmanager.CHANGEME_DOMAIN/oauth2/callback
             - --upstream=static://202
             - --skip-provider-button=true
             - --cookie-secure=true

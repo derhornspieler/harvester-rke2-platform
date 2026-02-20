@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: prometheus.example.com
+      hostname: prometheus.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: prometheus-example-com-tls
+          - name: prometheus-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

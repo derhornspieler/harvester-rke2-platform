@@ -11,11 +11,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: alertmanager.example.com
+      hostname: alertmanager.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: alertmanager-example-com-tls
+          - name: alertmanager-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

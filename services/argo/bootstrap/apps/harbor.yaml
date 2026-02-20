@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:derhornspieler/svc-example-harbor.git
+    repoURL: git@github.com:derhornspieler/svc-CHANGEME_DOMAIN_DASHED-harbor.git
     targetRevision: main
     path: .
   destination:

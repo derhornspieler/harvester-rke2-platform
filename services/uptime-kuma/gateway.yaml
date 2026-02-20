@@ -17,11 +17,11 @@ spec:
     - name: https
       protocol: HTTPS
       port: 8443
-      hostname: status.example.com
+      hostname: status.CHANGEME_DOMAIN
       tls:
         mode: Terminate
         certificateRefs:
-          - name: status-example-com-tls
+          - name: status-CHANGEME_DOMAIN_DASHED-tls
       allowedRoutes:
         namespaces:
           from: Same

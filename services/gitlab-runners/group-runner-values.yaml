@@ -5,7 +5,7 @@
 replicas: 1
 
 ## GitLab instance URL — runner registers here
-gitlabUrl: https://gitlab.example.com
+gitlabUrl: https://gitlab.CHANGEME_DOMAIN
 
 ## Runner configuration
 runners:

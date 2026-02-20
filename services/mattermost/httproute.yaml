@@ -11,7 +11,7 @@ spec:
       namespace: mattermost
       sectionName: https
   hostnames:
-    - "mattermost.example.com"
+    - "mattermost.CHANGEME_DOMAIN"
   rules:
     - matches:
         - path:

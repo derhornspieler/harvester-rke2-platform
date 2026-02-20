@@ -11,7 +11,7 @@ spec:
       namespace: keycloak
       sectionName: https
   hostnames:
-    - "keycloak.example.com"
+    - "keycloak.CHANGEME_DOMAIN"
   rules:
     - matches:
         - path:

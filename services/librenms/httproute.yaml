@@ -11,7 +11,7 @@ spec:
       namespace: librenms
       sectionName: https
   hostnames:
-    - "librenms.example.com"
+    - "librenms.CHANGEME_DOMAIN"
   rules:
     - matches:
         - path:

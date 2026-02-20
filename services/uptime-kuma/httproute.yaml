@@ -11,7 +11,7 @@ spec:
       namespace: uptime-kuma
       sectionName: https
   hostnames:
-    - "status.example.com"
+    - "status.CHANGEME_DOMAIN"
   rules:
     - matches:
         - path:
