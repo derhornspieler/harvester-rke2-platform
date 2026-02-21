@@ -142,7 +142,7 @@ phase_2_clients() {
   kc_save_secret "rollouts-oidc" "$secret"
 
   # Rancher
-  secret=$(kc_create_client "rancher" "https://${RANCHER_FQDN}/verify-auth" "Rancher")
+  secret=$(kc_create_client "rancher" "https://${RANCHER_FQDN}/*" "Rancher")
   kc_save_secret "rancher" "$secret"
 
   # Identity Portal (public PKCE frontend + confidential backend)
