@@ -2004,6 +2004,35 @@ kubectl exec -n keycloak $POD -- /opt/keycloak/bin/kcadm.sh get clients -r maste
 
 **Escalation**: If Keycloak database is corrupted, escalate to DBA for CNPG recovery.
 
+#### OIDC User Sync Failures in Downstream Services (Harbor, Grafana, GitLab)
+
+**Severity**: P3
+
+**Symptom**: User logs in via Keycloak OIDC but the downstream service rejects them:
+- **Harbor**: `failed to create user record: user X or email Y already exists`
+- **Grafana**: `User sync failed` on the login page
+- **GitLab**: `Email has already been taken`
+
+**Root Cause**: The user was **deleted** from Keycloak and recreated (or Keycloak was redeployed), causing a new OIDC `sub` (subject UUID). The downstream service already has a local user record with the same username/email but a different `sub`, and cannot reconcile them.
+
+**Resolution**:
+1. For **Harbor**: Delete the stale user via the Harbor API, then have the user log in again:
+   ```bash
+   HARBOR_POD=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}')
+   # Find user ID
+   kubectl exec -n harbor $HARBOR_POD -- curl -sf -u "admin:${HARBOR_ADMIN_PASSWORD}" \
+     "http://harbor-core.harbor.svc.cluster.local/api/v2.0/users/search?username=<username>"
+   # Delete by ID
+   kubectl exec -n harbor $HARBOR_POD -- curl -sf -u "admin:${HARBOR_ADMIN_PASSWORD}" -X DELETE \
+     "http://harbor-core.harbor.svc.cluster.local/api/v2.0/users/<id>"
+   ```
+2. For **Grafana**: Already mitigated by `GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP=true` (falls back to email-based matching). If still failing, delete the user via Grafana admin API.
+3. For **GitLab**: Delete or block the old GitLab user, then have them log in again.
+
+**Prevention**: **Never delete users from Keycloak.** Instead, disable the account (`enabled: false`). This preserves the OIDC `sub` UUID so downstream services continue to recognize the user if the account is later re-enabled. See [Keycloak User Management Strategy](../../docs/keycloak-user-management-strategy.md#user-lifecycle-policy-disable-never-delete).
+
+**Escalation**: Not required.
+
 #### Infinispan Cache Issues
 
 **Severity**: P3

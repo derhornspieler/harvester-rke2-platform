@@ -824,6 +824,28 @@ middlewares:
 middlewares: []
 ```
 
+### OIDC Login Fails: "failed to create user record"
+
+**Symptom**: User logs in via Keycloak OIDC and gets `failed to create user record: user X or email Y already exists`.
+
+**Cause**: Harbor's OIDC auto-onboard creates local user records keyed by the OIDC `sub` (subject UUID). If Keycloak was redeployed or the user was deleted and recreated in Keycloak, the `sub` changes but the old username/email still exists in Harbor's database.
+
+**Solution**: Delete the stale Harbor user so auto-onboard can recreate it:
+```bash
+# Find the user ID
+HARBOR_POD=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -n harbor $HARBOR_POD -- \
+  curl -sf -u "admin:${HARBOR_ADMIN_PASSWORD}" \
+  "http://harbor-core.harbor.svc.cluster.local/api/v2.0/users/search?username=alice.morgan"
+
+# Delete by user ID (replace 5 with actual ID)
+kubectl exec -n harbor $HARBOR_POD -- \
+  curl -sf -u "admin:${HARBOR_ADMIN_PASSWORD}" -X DELETE \
+  "http://harbor-core.harbor.svc.cluster.local/api/v2.0/users/5"
+```
+
+**Prevention**: Never delete users from Keycloak. Instead, **disable** the account (`enabled: false`). This preserves the OIDC `sub` UUID, so if the account is re-enabled later, Harbor recognizes the same identity. See [Keycloak User Management Strategy](../../docs/keycloak-user-management-strategy.md#user-lifecycle-policy-disable-never-delete) for full policy.
+
 ### Harbor Dashboard Shows "Unhealthy" Components
 
 **Symptom**: Harbor UI reports "Unhealthy: Unable to connect to external services (PostgreSQL, Redis, MinIO)".

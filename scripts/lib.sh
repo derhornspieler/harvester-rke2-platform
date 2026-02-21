@@ -1518,6 +1518,349 @@ distribute_root_ca() {
 }
 
 # -----------------------------------------------------------------------------
+# Sync Vault Root CA to Rancher / K3K virtual cluster
+# After Phase 2 generates the Vault Root CA, the K3K virtual cluster still has
+# the Harvester CA.  Rancher's OIDC code auto-discovers its CA from the tls-ca
+# secret inside K3K, so it cannot verify Keycloak TLS certs signed by Vault CA.
+# This function:
+#   1. Generates a TLS cert for Rancher FQDN signed by the Vault Root CA
+#   2. Updates the K3K tls-ca secret (cattle-system inside K3K) with Vault Root CA
+#   3. Updates the tls-rancher-ingress secret (outer rancher-k3k namespace)
+#   4. Updates harvester-additional-ca and tls-ca-additional in cattle-system
+#   5. Restarts K3K + Rancher pods to pick up the new CA chain
+#   6. Verifies /cacerts returns the Vault Root CA
+# Must run AFTER Vault PKI (Phase 2) generates root-ca.pem + root-ca-key.pem.
+# -----------------------------------------------------------------------------
+sync_root_ca_to_rancher() {
+  local root_ca_file="${CLUSTER_DIR}/root-ca.pem"
+  local root_ca_key="${CLUSTER_DIR}/root-ca-key.pem"
+  if [[ ! -f "$root_ca_file" || ! -f "$root_ca_key" ]]; then
+    log_warn "Root CA files not found — skipping Rancher CA sync"
+    return 0
+  fi
+
+  local rancher_url rancher_fqdn
+  rancher_url=$(get_rancher_url)
+  rancher_fqdn="${rancher_url#https://}"
+  local root_ca_pem
+  root_ca_pem=$(cat "$root_ca_file")
+
+  local harvester_kc="${CLUSTER_DIR}/kubeconfig-harvester.yaml"
+  if [[ ! -f "$harvester_kc" ]]; then
+    log_warn "Harvester kubeconfig not found — skipping Rancher CA sync"
+    return 0
+  fi
+  local hk="kubectl --kubeconfig=${harvester_kc}"
+
+  log_step "Syncing Vault Root CA to Rancher / K3K virtual cluster..."
+
+  # ── 1. Generate TLS cert for Rancher FQDN signed by Vault Root CA ─────────
+  log_info "Generating TLS cert for ${rancher_fqdn} signed by Vault Root CA..."
+  local tmpdir
+  tmpdir=$(mktemp -d /tmp/rancher-cert-XXXXXX)
+  openssl genrsa -out "${tmpdir}/rancher.key" 4096 2>/dev/null
+  openssl req -new -key "${tmpdir}/rancher.key" \
+    -subj "/CN=${rancher_fqdn}" \
+    -addext "subjectAltName=DNS:${rancher_fqdn}" \
+    -out "${tmpdir}/rancher.csr" 2>/dev/null
+
+  # Sign with Vault Root CA (1 year validity)
+  openssl x509 -req -in "${tmpdir}/rancher.csr" \
+    -CA "$root_ca_file" -CAkey "$root_ca_key" -CAcreateserial \
+    -days 365 -sha256 \
+    -extfile <(printf "subjectAltName=DNS:%s" "$rancher_fqdn") \
+    -out "${tmpdir}/rancher.crt" 2>/dev/null
+
+  # Build chain: leaf + Root CA
+  cat "${tmpdir}/rancher.crt" "$root_ca_file" > "${tmpdir}/rancher-chain.pem"
+  log_ok "Rancher TLS cert generated and signed by Vault Root CA"
+
+  # ── 2. Find the K3K Rancher server pod ────────────────────────────────────
+  local rancher_pod
+  rancher_pod=$($hk get pods -n cattle-system -l app=rancher \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [[ -z "$rancher_pod" ]]; then
+    log_warn "Could not find K3K Rancher server pod — skipping K3K CA update"
+    rm -rf "$tmpdir"
+    return 0
+  fi
+  log_info "K3K Rancher pod: ${rancher_pod}"
+
+  # ── 3. Update tls-ca secret inside K3K (cattle-system) ────────────────────
+  # K3K pod has BusyBox tar so kubectl cp doesn't work; pipe files in via exec
+  log_info "Updating tls-ca secret inside K3K virtual cluster..."
+  $hk exec -n cattle-system "$rancher_pod" -i -- \
+    sh -c 'cat > /tmp/vault-root-ca.pem' < "$root_ca_file"
+  $hk exec -n cattle-system "$rancher_pod" -- \
+    sh -c 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; \
+      kubectl delete secret tls-ca -n cattle-system --ignore-not-found; \
+      kubectl create secret generic tls-ca \
+        --from-file=cacerts.pem=/tmp/vault-root-ca.pem -n cattle-system' 2>/dev/null || \
+    log_warn "Could not update tls-ca inside K3K"
+  log_ok "tls-ca secret updated inside K3K"
+
+  # ── 4. Update tls-rancher-ingress secret (outer rancher-k3k namespace) ────
+  log_info "Updating tls-rancher-ingress in cattle-system..."
+  $hk -n cattle-system delete secret tls-rancher-ingress --ignore-not-found 2>/dev/null || true
+  $hk -n cattle-system create secret tls tls-rancher-ingress \
+    --cert="${tmpdir}/rancher-chain.pem" \
+    --key="${tmpdir}/rancher.key" 2>/dev/null || \
+    log_warn "Could not update tls-rancher-ingress"
+  log_ok "tls-rancher-ingress secret updated"
+
+  # ── 5. Update harvester-additional-ca in cattle-system ────────────────────
+  log_info "Updating harvester-additional-ca in cattle-system..."
+  local ca_b64
+  ca_b64=$(base64 -w0 < "$root_ca_file")
+  $hk -n cattle-system get secret harvester-additional-ca -o json 2>/dev/null \
+    | jq --arg ca "$ca_b64" '.data["ca-additional.pem"] = $ca' \
+    | $hk replace -f - 2>/dev/null || {
+    # Secret doesn't exist — create it
+    $hk -n cattle-system create secret generic harvester-additional-ca \
+      --from-file=ca-additional.pem="$root_ca_file" 2>/dev/null || \
+      log_warn "Could not update harvester-additional-ca"
+  }
+  log_ok "harvester-additional-ca updated"
+
+  # ── 6. Update tls-ca-additional in cattle-system ──────────────────────────
+  log_info "Updating tls-ca-additional in cattle-system..."
+  $hk -n cattle-system get secret tls-ca-additional -o json 2>/dev/null \
+    | jq --arg ca "$ca_b64" '.data["ca-additional.pem"] = $ca' \
+    | $hk replace -f - 2>/dev/null || {
+    $hk -n cattle-system create secret generic tls-ca-additional \
+      --from-file=ca-additional.pem="$root_ca_file" 2>/dev/null || \
+      log_warn "Could not update tls-ca-additional"
+  }
+  log_ok "tls-ca-additional updated"
+
+  # ── 7. Restart K3K + Rancher to pick up new CAs ──────────────────────────
+  log_info "Restarting Rancher inside K3K to pick up new CA..."
+  $hk exec -n cattle-system "$rancher_pod" -- \
+    sh -c 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; \
+      kubectl rollout restart deployment/rancher -n cattle-system' 2>/dev/null || \
+    log_warn "Could not restart Rancher inside K3K"
+
+  log_info "Waiting for Rancher inside K3K to become ready..."
+  sleep 15
+  $hk exec -n cattle-system "$rancher_pod" -- \
+    sh -c 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; \
+      kubectl rollout status deployment/rancher -n cattle-system --timeout=180s' 2>/dev/null || \
+    log_warn "Rancher rollout status timed out (may still be starting)"
+
+  # Restart outer Rancher deployment on Harvester
+  log_info "Restarting outer Rancher deployment..."
+  $hk rollout restart deployment/rancher -n cattle-system 2>/dev/null || true
+  sleep 10
+  $hk rollout status deployment/rancher -n cattle-system --timeout=180s 2>/dev/null || \
+    log_warn "Outer Rancher rollout timed out"
+
+  # ── 8. Verify /cacerts returns Vault Root CA ──────────────────────────────
+  log_info "Verifying /cacerts endpoint..."
+  local retries=0
+  local cacerts_serial=""
+  while [[ $retries -lt 12 ]]; do
+    cacerts_serial=$(curl -sk "${rancher_url}/cacerts" 2>/dev/null \
+      | openssl x509 -noout -serial 2>/dev/null || echo "")
+    if [[ -n "$cacerts_serial" ]]; then
+      break
+    fi
+    retries=$((retries + 1))
+    sleep 10
+  done
+
+  local root_serial
+  root_serial=$(openssl x509 -noout -serial -in "$root_ca_file" 2>/dev/null || echo "")
+  if [[ -n "$cacerts_serial" && "$cacerts_serial" == "$root_serial" ]]; then
+    log_ok "Rancher /cacerts now serves Vault Root CA (${root_serial})"
+  elif [[ -n "$cacerts_serial" ]]; then
+    log_warn "Rancher /cacerts serial: ${cacerts_serial} (expected: ${root_serial})"
+    log_warn "Rancher may need more time to restart — check manually"
+  else
+    log_warn "Could not verify /cacerts — Rancher may still be starting"
+  fi
+
+  rm -rf "$tmpdir"
+  log_ok "Vault Root CA synced to Rancher / K3K"
+}
+
+# -----------------------------------------------------------------------------
+# Sync Vault Root CA into kubeconfig files
+# After sync_root_ca_to_rancher() changes Rancher's TLS cert to be signed by
+# Vault Root CA, all kubeconfigs that route through Rancher's proxy break
+# because their certificate-authority-data still contains the old Harvester CA.
+# This function updates each kubeconfig file with the Vault Root CA.
+# Safe to call at any time — idempotent (skips files already using Vault CA).
+# No cluster access needed — only modifies local YAML files.
+# -----------------------------------------------------------------------------
+sync_vault_ca_to_kubeconfigs() {
+  local root_ca_file="${CLUSTER_DIR}/root-ca.pem"
+  if [[ ! -f "$root_ca_file" ]]; then
+    log_warn "root-ca.pem not found — skipping kubeconfig CA sync"
+    return 0
+  fi
+
+  log_step "Syncing Vault Root CA into kubeconfig files..."
+
+  local vault_ca_b64
+  vault_ca_b64=$(base64 -w0 < "$root_ca_file")
+
+  local kubeconfigs=(
+    "${CLUSTER_DIR}/kubeconfig-harvester.yaml"
+    "${CLUSTER_DIR}/kubeconfig-rke2.yaml"
+    "${CLUSTER_DIR}/kubeconfig-harvester-cloud-cred.yaml"
+  )
+
+  local updated=0
+  for kc in "${kubeconfigs[@]}"; do
+    if [[ ! -f "$kc" ]]; then
+      log_info "  $(basename "$kc") — not found, skipping"
+      continue
+    fi
+
+    # Get the cluster name from the kubeconfig (first cluster entry)
+    local cluster_name
+    cluster_name=$(kubectl config view --kubeconfig="$kc" --raw \
+      -o jsonpath='{.clusters[0].metadata.name}' 2>/dev/null || echo "")
+    if [[ -z "$cluster_name" ]]; then
+      # Fallback: try the .clusters[0].name path
+      cluster_name=$(kubectl config view --kubeconfig="$kc" --raw \
+        -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "")
+    fi
+    if [[ -z "$cluster_name" ]]; then
+      log_warn "  $(basename "$kc") — could not determine cluster name, skipping"
+      continue
+    fi
+
+    # Check if CA already matches Vault Root CA
+    local current_ca_b64
+    current_ca_b64=$(kubectl config view --kubeconfig="$kc" --raw \
+      -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' 2>/dev/null || echo "")
+    if [[ "$current_ca_b64" == "$vault_ca_b64" ]]; then
+      log_ok "  $(basename "$kc") — CA already current"
+      continue
+    fi
+
+    # Create timestamped backup
+    cp "$kc" "${kc}.bak-$(date +%s)"
+
+    # Update the certificate-authority-data using kubectl config set-cluster
+    kubectl config set-cluster "$cluster_name" \
+      --kubeconfig="$kc" \
+      --certificate-authority="$root_ca_file" \
+      --embed-certs=true > /dev/null 2>&1
+
+    updated=$((updated + 1))
+    log_ok "  $(basename "$kc") — updated CA (cluster: ${cluster_name})"
+  done
+
+  if [[ $updated -eq 0 ]]; then
+    log_ok "All kubeconfig CAs already current — no changes needed"
+  else
+    log_ok "Updated ${updated} kubeconfig file(s) with Vault Root CA"
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# Sync Vault Root CA to Harvester cluster agent
+# After Rancher's TLS cert changes to Vault Root CA, the Harvester cluster
+# agent (cattle-cluster-agent) loses connectivity because its CATTLE_CA_CHECKSUM
+# no longer matches what /cacerts serves.
+# This function patches CATTLE_CA_CHECKSUM on the agent deployment so it
+# accepts the new CA, then waits for the cluster to reconnect.
+#
+# IMPORTANT: Uses the default kubeconfig (direct Harvester access), not the
+# proxy kubeconfig (which routes through Rancher and hangs when the agent is
+# disconnected).
+#
+# Checksum is computed from the raw curl output of /cacerts (including any
+# trailing newline) — this matches how Rancher's install.sh computes it.
+# -----------------------------------------------------------------------------
+sync_harvester_cluster_agent_ca() {
+  local root_ca_file="${CLUSTER_DIR}/root-ca.pem"
+
+  if [[ ! -f "$root_ca_file" ]]; then
+    log_warn "root-ca.pem not found — skipping Harvester agent CA sync"
+    return 0
+  fi
+
+  # Use direct Harvester kubeconfig (KUBECONFIG env or ~/.kube/config),
+  # NOT the Rancher proxy kubeconfig which hangs when the agent is disconnected.
+  local hk="kubectl"
+  local rancher_url
+  rancher_url=$(get_rancher_url)
+
+  log_step "Syncing Vault Root CA to Harvester cluster agent..."
+
+  # Verify we can reach Harvester directly
+  if ! $hk get ns cattle-system &>/dev/null; then
+    log_warn "Cannot reach Harvester via default kubeconfig — skipping agent CA sync"
+    return 0
+  fi
+
+  # ── 1. Fetch /cacerts and compute checksum ─────────────────────────────
+  # Hash the raw curl output exactly as Rancher's install.sh does — do NOT
+  # strip whitespace, as the agent validates against the raw /cacerts body.
+  local ca_checksum
+  ca_checksum=$(curl -sk "${rancher_url}/cacerts" 2>/dev/null | sha256sum | awk '{print $1}')
+  if [[ -z "$ca_checksum" || "$ca_checksum" == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]]; then
+    # e3b0c4... is sha256 of empty string
+    log_warn "Could not fetch ${rancher_url}/cacerts — skipping agent CA sync"
+    return 0
+  fi
+  log_info "Rancher /cacerts checksum: ${ca_checksum:0:16}..."
+
+  # ── 2. Update CATTLE_CA_CHECKSUM on cattle-cluster-agent ───────────────
+  local current_checksum
+  current_checksum=$($hk get deployment cattle-cluster-agent -n cattle-system \
+    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CATTLE_CA_CHECKSUM")].value}' \
+    2>/dev/null || echo "")
+
+  if [[ "$current_checksum" == "$ca_checksum" ]]; then
+    log_ok "CATTLE_CA_CHECKSUM already current (${ca_checksum:0:16}...)"
+  else
+    log_info "CATTLE_CA_CHECKSUM drift: agent=${current_checksum:0:16}... /cacerts=${ca_checksum:0:16}..."
+    $hk set env deployment/cattle-cluster-agent -n cattle-system \
+      "CATTLE_CA_CHECKSUM=${ca_checksum}"
+    log_ok "CATTLE_CA_CHECKSUM updated on cattle-cluster-agent"
+  fi
+
+  # ── 3. Wait for agent rollout ──────────────────────────────────────────
+  log_info "Waiting for cattle-cluster-agent rollout..."
+  $hk rollout status deployment/cattle-cluster-agent -n cattle-system --timeout=120s 2>/dev/null || \
+    log_warn "cattle-cluster-agent rollout timed out"
+
+  # Also restart fleet-agent if present
+  $hk rollout restart deployment/fleet-agent -n cattle-fleet-system 2>/dev/null || \
+    $hk rollout restart deployment/fleet-agent -n fleet-system 2>/dev/null || true
+  sleep 5
+
+  # ── 4. Poll Rancher API for Harvester cluster "active" state ───────────
+  local rancher_token harvester_cluster_id
+  rancher_token=$(get_rancher_token)
+  harvester_cluster_id=$(get_harvester_cluster_id)
+
+  log_info "Waiting for Harvester cluster (${harvester_cluster_id}) to reconnect..."
+  local retries=0
+  local max_retries=18  # 18 × 10s = 3 minutes
+  while [[ $retries -lt $max_retries ]]; do
+    local state
+    state=$(curl -sk "${rancher_url}/v3/clusters/${harvester_cluster_id}" \
+      -H "Authorization: Bearer ${rancher_token}" \
+      2>/dev/null | jq -r '.state // empty' 2>/dev/null || echo "")
+    if [[ "$state" == "active" ]]; then
+      log_ok "Harvester cluster is active in Rancher"
+      return 0
+    fi
+    retries=$((retries + 1))
+    log_info "  Cluster state: ${state:-unknown} (attempt ${retries}/${max_retries})..."
+    sleep 10
+  done
+
+  log_warn "Harvester cluster did not reach 'active' state within 3 minutes"
+  log_warn "Current state may still be transitioning — check Rancher UI"
+}
+
+# -----------------------------------------------------------------------------
 # Sync Rancher agent CA checksum (stv-aggregation secret)
 # When the Rancher management cluster's CA changes (k3k migration, cert rotation),
 # the /cacerts endpoint serves a different certificate chain, but the downstream
@@ -1541,14 +1884,12 @@ sync_rancher_agent_ca() {
     return 0
   fi
 
-  # Strip trailing whitespace/newlines from cacerts PEM — a trailing newline
-  # causes checksum mismatch between what install.sh computed and what /cacerts
-  # now serves (the Rancher cacerts setting may include an extra trailing newline)
-  cacerts_pem=$(echo -n "$cacerts_pem" | sed -e 's/[[:space:]]*$//')
-
-  # Compute the sha256 of what /cacerts returns (this is what install.sh checks)
+  # Compute the sha256 of the raw /cacerts output — this matches how
+  # Rancher's install.sh computes the checksum (curl | sha256sum).
+  # Do NOT strip whitespace — the trailing newline from curl is part of
+  # the hash that the agent validates against.
   local actual_hash
-  actual_hash=$(echo -n "$cacerts_pem" | sha256sum | awk '{print $1}')
+  actual_hash=$(curl -sk "${rancher_url}/cacerts" 2>/dev/null | sha256sum | awk '{print $1}')
 
   # Read the current CATTLE_CA_CHECKSUM from the stv-aggregation secret
   local current_hash
@@ -2718,9 +3059,13 @@ kc_bind_grafana() {
     GF_AUTH_GENERIC_OAUTH_AUTH_URL="${oidc_issuer}/protocol/openid-connect/auth?prompt=login" \
     GF_AUTH_GENERIC_OAUTH_TOKEN_URL="${oidc_issuer}/protocol/openid-connect/token" \
     GF_AUTH_GENERIC_OAUTH_API_URL="${oidc_issuer}/protocol/openid-connect/userinfo" \
+    GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH="preferred_username" \
+    GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH="email" \
+    GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH="name" \
     GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH="contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'infra-engineers') && 'Admin' || contains(groups[*], 'network-engineers') && 'Viewer' || contains(groups[*], 'senior-developers') && 'Editor' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'" \
     GF_AUTH_SIGNOUT_REDIRECT_URL="${oidc_issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=https%3A%2F%2Fgrafana.${DOMAIN}%2Flogin" \
     GF_AUTH_GENERIC_OAUTH_TLS_CLIENT_CA="/etc/ssl/certs/vault-root-ca.pem" \
+    GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP="true" \
     2>/dev/null || log_warn "Grafana OIDC binding may need manual configuration"
   log_ok "Grafana OIDC configured"
 }
@@ -2790,6 +3135,34 @@ kc_bind_harbor() {
   harbor_admin_pass="${HARBOR_ADMIN_PASSWORD}"
   harbor_core_pod=$(kubectl -n harbor get pod -l component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
+  # Clean up stale OIDC-provisioned users before (re-)binding.
+  # When Keycloak is redeployed, user sub claims change. Harbor's auto-onboard
+  # then fails with "failed to create user record: user X or email Y already exists"
+  # because it tries to insert a new record for an existing username/email.
+  # Deleting OIDC users (user_id > 1 = non-admin) lets auto-onboard re-create them.
+  if [[ -n "$harbor_core_pod" ]]; then
+    log_info "Cleaning up stale OIDC-provisioned Harbor users..."
+    local users_json
+    users_json=$(kubectl exec -n harbor "$harbor_core_pod" -- \
+      curl -sf -u "admin:${harbor_admin_pass}" \
+      "http://harbor-core.harbor.svc.cluster.local/api/v2.0/users?page_size=100" 2>/dev/null || echo "[]")
+    local oidc_user_ids
+    oidc_user_ids=$(echo "$users_json" | jq -r '.[] | select(.user_id > 1 and .oidc_user_meta != null) | .user_id' 2>/dev/null || echo "")
+    local deleted=0
+    for uid in $oidc_user_ids; do
+      kubectl exec -n harbor "$harbor_core_pod" -- \
+        curl -sf -u "admin:${harbor_admin_pass}" -X DELETE \
+        "http://harbor-core.harbor.svc.cluster.local/api/v2.0/users/${uid}" 2>/dev/null || \
+        log_warn "Could not delete Harbor user ${uid}"
+      deleted=$((deleted + 1))
+    done
+    if [[ $deleted -gt 0 ]]; then
+      log_ok "Deleted ${deleted} stale OIDC user(s) from Harbor"
+    else
+      log_info "No stale OIDC users found"
+    fi
+  fi
+
   if [[ -n "$harbor_core_pod" ]]; then
     kubectl exec -n harbor "$harbor_core_pod" -- \
       curl -sf -u "admin:${harbor_admin_pass}" -X PUT \
@@ -2806,7 +3179,7 @@ kc_bind_harbor() {
         \"oidc_groups_claim\": \"groups\",
         \"oidc_admin_group\": \"platform-admins\",
         \"oidc_verify_cert\": true,
-        \"primary_auth_mode\": true
+        \"primary_auth_mode\": false
       }" 2>/dev/null || log_warn "Harbor OIDC binding failed (configure manually in Harbor UI)"
 
     kubectl -n harbor set env deployment/harbor-core \
@@ -2821,7 +3194,7 @@ kc_bind_harbor() {
   fi
 }
 
-# Bind Rancher to Keycloak OIDC (automated via Rancher v3 API)
+# Bind Rancher to Keycloak OIDC (automated via Rancher v3 API + testAndApply)
 kc_bind_rancher() {
   log_step "Binding Rancher to Keycloak OIDC..."
   local rancher_url rancher_token rancher_secret
@@ -2835,29 +3208,216 @@ kc_bind_rancher() {
     return 0
   fi
 
-  # Enable Keycloak OIDC auth provider via Rancher API
-  local http_code
-  http_code=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
+  # Build the OIDC config payload (reused across steps)
+  local oidc_config
+  oidc_config=$(cat <<CFGEOF
+{
+  "enabled": true,
+  "type": "keyCloakOIDCConfig",
+  "clientId": "rancher",
+  "clientSecret": "${rancher_secret}",
+  "issuer": "${oidc_issuer}",
+  "rancherUrl": "${rancher_url}/verify-auth",
+  "authEndpoint": "${oidc_issuer}/protocol/openid-connect/auth",
+  "tokenEndpoint": "${oidc_issuer}/protocol/openid-connect/token",
+  "scope": "openid profile email",
+  "accessMode": "unrestricted"
+}
+CFGEOF
+)
+
+  # Step 1: Save OIDC config via PUT (pre-populates fields in Rancher UI)
+  local http_code resp_body
+  resp_body=$(mktemp)
+  http_code=$(curl -sk -o "$resp_body" -w "%{http_code}" -X PUT \
     "${rancher_url}/v3/keycloakOIDCConfigs/keycloakoidc" \
     -H "Authorization: Bearer ${rancher_token}" \
     -H "Content-Type: application/json" \
+    -d "$oidc_config" 2>/dev/null)
+
+  if [[ "$http_code" != "200" && "$http_code" != "201" ]]; then
+    log_warn "Rancher OIDC PUT returned HTTP ${http_code}"
+    cat "$resp_body" 2>/dev/null | jq -r '.message // .' 2>/dev/null || true
+  else
+    log_ok "Rancher OIDC config saved via PUT"
+  fi
+  rm -f "$resp_body"
+
+  # Step 2: Call configureTest to validate config and get redirectUrl
+  local test_resp redirect_url
+  test_resp=$(curl -sk -X POST \
+    "${rancher_url}/v3/keyCloakOIDCConfigs/keycloakoidc?action=configureTest" \
+    -H "Authorization: Bearer ${rancher_token}" \
+    -H "Content-Type: application/json" \
+    -d "$oidc_config" 2>/dev/null)
+
+  redirect_url=$(echo "$test_resp" | jq -r '.redirectUrl // empty' 2>/dev/null)
+
+  if [[ -z "$redirect_url" ]]; then
+    log_warn "Rancher configureTest failed — falling back to manual activation"
+    echo "$test_resp" | jq -r '.message // .' 2>/dev/null || true
+    _kc_bind_rancher_manual_fallback "$rancher_url"
+    return 0
+  fi
+  log_ok "Rancher OIDC config validated (configureTest OK)"
+
+  # Step 3: Automated testAndApply — obtain auth code from Keycloak
+  log_info "Attempting automated OIDC activation via testAndApply..."
+  local auth_code
+  auth_code=$(_kc_get_auth_code "$redirect_url" "$oidc_issuer")
+
+  if [[ -z "$auth_code" ]]; then
+    log_warn "Could not obtain auth code from Keycloak — falling back to manual"
+    _kc_bind_rancher_manual_fallback "$rancher_url"
+    return 0
+  fi
+  log_ok "Obtained authorization code from Keycloak"
+
+  # Step 4: Call testAndApply with the auth code
+  # IMPORTANT: Rancher API requires "oidcConfig" key (NOT "keyCloakOIDCConfig")
+  # See: https://github.com/rancher/rancher/issues/48963
+  local apply_resp apply_code
+  apply_resp=$(mktemp)
+  apply_code=$(curl -sk -o "$apply_resp" -w "%{http_code}" -X POST \
+    "${rancher_url}/v3/keyCloakOIDCConfigs/keycloakoidc?action=testAndApply" \
+    -H "Authorization: Bearer ${rancher_token}" \
+    -H "Content-Type: application/json" \
     -d "{
-      \"enabled\": true,
-      \"clientId\": \"rancher\",
-      \"clientSecret\": \"${rancher_secret}\",
-      \"issuer\": \"${oidc_issuer}\",
-      \"rancherUrl\": \"${rancher_url}\",
-      \"authEndpoint\": \"${oidc_issuer}/protocol/openid-connect/auth\",
-      \"accessMode\": \"unrestricted\"
+      \"code\": \"${auth_code}\",
+      \"oidcConfig\": ${oidc_config}
     }" 2>/dev/null)
 
-  if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
-    log_ok "Rancher Keycloak OIDC configured via API"
+  if [[ "$apply_code" == "200" || "$apply_code" == "201" ]]; then
+    # Check if response is empty (Rancher bug: empty 200 = provider disabled)
+    local resp_size
+    resp_size=$(wc -c < "$apply_resp")
+    if [[ "$resp_size" -le 5 ]]; then
+      log_warn "testAndApply returned empty 200 — re-enabling via PUT..."
+      curl -sk -X PUT \
+        "${rancher_url}/v3/keycloakOIDCConfigs/keycloakoidc" \
+        -H "Authorization: Bearer ${rancher_token}" \
+        -H "Content-Type: application/json" \
+        -d "$oidc_config" >/dev/null 2>&1
+      log_ok "OIDC provider re-enabled"
+    else
+      log_ok "Rancher OIDC activated via testAndApply (HTTP ${apply_code})"
+    fi
   else
-    log_warn "Rancher OIDC API returned HTTP ${http_code} — may need manual configuration"
-    log_info "  Navigate to: Users & Authentication > Auth Provider > Keycloak (OIDC)"
-    log_info "  Client ID: rancher, Issuer: ${oidc_issuer}"
+    log_warn "testAndApply returned HTTP ${apply_code}"
+    cat "$apply_resp" 2>/dev/null | jq -r '.message // .' 2>/dev/null || true
+    log_warn "Falling back to manual activation"
+    rm -f "$apply_resp"
+    _kc_bind_rancher_manual_fallback "$rancher_url"
+    return 0
   fi
+  rm -f "$apply_resp"
+
+  # Step 5: Verify login endpoint works
+  log_info "Verifying OIDC login endpoint..."
+  local verify_code
+  verify_code=$(_kc_verify_rancher_oidc "$rancher_url" "$oidc_issuer" "$rancher_secret")
+  if [[ "$verify_code" == "ok" ]]; then
+    log_ok "Rancher Keycloak OIDC fully activated and verified"
+  else
+    log_warn "OIDC verification returned: ${verify_code} — may need manual check"
+  fi
+}
+
+# Get an authorization code from Keycloak by simulating browser login
+_kc_get_auth_code() {
+  local redirect_url="$1" oidc_issuer="$2"
+  local test_user="alice.morgan"
+  local test_pass="TestUser2026!"
+
+  # The redirect_url from configureTest points to Keycloak's auth endpoint
+  # with the correct state/nonce. Follow it to get the login form.
+  local cookie_jar
+  cookie_jar=$(mktemp /tmp/kc-cookies-XXXXXX)
+
+  # Step A: GET the Keycloak login page (follow redirects from Rancher → Keycloak)
+  local login_page
+  login_page=$(curl -sk -L -c "$cookie_jar" -b "$cookie_jar" \
+    -H "User-Agent: Mozilla/5.0" \
+    "$redirect_url" 2>/dev/null)
+
+  # Extract the form action URL from the Keycloak login page
+  local form_action
+  form_action=$(echo "$login_page" | grep -oP 'action="[^"]*"' | head -1 | sed 's/action="//;s/"$//')
+  # Decode HTML entities in the form URL
+  form_action=$(echo "$form_action" | sed 's/&amp;/\&/g')
+
+  if [[ -z "$form_action" ]]; then
+    rm -f "$cookie_jar"
+    echo ""
+    return
+  fi
+
+  # Step B: POST credentials to the login form
+  # Use --max-redirs 0 to capture the redirect Location header with the auth code
+  local login_resp login_headers
+  login_headers=$(mktemp /tmp/kc-headers-XXXXXX)
+  login_resp=$(curl -sk -D "$login_headers" --max-redirs 0 \
+    -c "$cookie_jar" -b "$cookie_jar" \
+    -H "User-Agent: Mozilla/5.0" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "username=${test_user}&password=${test_pass}" \
+    "$form_action" 2>/dev/null || true)
+
+  # Extract the auth code from the Location redirect header
+  local location auth_code
+  location=$(grep -i '^location:' "$login_headers" | head -1 | tr -d '\r')
+  auth_code=$(echo "$location" | grep -oP 'code=([^&]+)' | head -1 | sed 's/code=//')
+
+  rm -f "$cookie_jar" "$login_headers"
+  echo "$auth_code"
+}
+
+# Verify Rancher OIDC works by obtaining a fresh token
+_kc_verify_rancher_oidc() {
+  local rancher_url="$1" oidc_issuer="$2" rancher_secret="$3"
+  local test_user="alice.morgan"
+  local test_pass="TestUser2026!"
+
+  # Direct grant (resource owner password) to verify the OIDC plumbing
+  local token_resp
+  token_resp=$(curl -sk -X POST \
+    "${oidc_issuer}/protocol/openid-connect/token" \
+    -d "grant_type=password" \
+    -d "client_id=rancher" \
+    -d "client_secret=${rancher_secret}" \
+    -d "username=${test_user}" \
+    -d "password=${test_pass}" \
+    -d "scope=openid" 2>/dev/null)
+
+  local access_token
+  access_token=$(echo "$token_resp" | jq -r '.access_token // empty' 2>/dev/null)
+
+  if [[ -n "$access_token" ]]; then
+    # Try the Rancher login endpoint with the token
+    local login_code
+    login_code=$(curl -sk -o /dev/null -w "%{http_code}" -X POST \
+      "${rancher_url}/v3-public/keyCloakOIDCProviders/keycloakoidc?action=login" \
+      -H "Content-Type: application/json" \
+      -d "{\"responseType\": \"token\", \"description\": \"automation-verify\"}" 2>/dev/null)
+    if [[ "$login_code" == "200" || "$login_code" == "201" ]]; then
+      echo "ok"
+    else
+      echo "login-endpoint-${login_code}"
+    fi
+  else
+    echo "token-failed"
+  fi
+}
+
+# Fallback: print manual activation instructions
+_kc_bind_rancher_manual_fallback() {
+  local rancher_url="$1"
+  echo ""
+  log_warn "Rancher OIDC requires one-time interactive activation:"
+  log_info "  1. Go to ${rancher_url} → Users & Authentication → Auth Provider"
+  log_info "  2. Select 'Keycloak (OIDC)' — fields are pre-populated"
+  log_info "  3. Click 'Enable' to complete the interactive login test"
+  echo ""
 }
 
 # Create K8s secret for an oauth2-proxy instance from oidc-client-secrets.json

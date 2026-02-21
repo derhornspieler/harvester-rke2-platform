@@ -252,6 +252,12 @@ phase_1_foundation() {
   # Label all worker nodes (Rancher does NOT propagate workload-type labels from machine pool config)
   label_unlabeled_nodes
 
+  # If Phase 2 already ran (root-ca.pem exists), ensure kubeconfigs have Vault CA
+  # This handles --from 1 re-runs after Rancher TLS was switched to Vault Root CA
+  if [[ -f "${CLUSTER_DIR}/root-ca.pem" ]]; then
+    sync_vault_ca_to_kubeconfigs
+  fi
+
   # Sync Rancher agent CA checksum (prevents system-agent-upgrader failures after
   # Rancher management cluster CA changes — k3k migration, cert rotation, etc.)
   log_step "Syncing Rancher agent CA checksum..."
@@ -787,6 +793,15 @@ POLICY
   # Distribute Root CA to service namespaces BEFORE monitoring (Grafana needs it)
   log_step "Distributing Root CA to service namespaces..."
   distribute_root_ca
+
+  # Sync Vault Root CA to Rancher / K3K so Rancher trusts Vault-signed certs (OIDC)
+  sync_root_ca_to_rancher
+
+  # Fix kubeconfigs — Rancher now serves Vault Root CA, old CA in kubeconfigs is invalid
+  sync_vault_ca_to_kubeconfigs
+
+  # Reconnect Harvester cluster agent to Rancher with new CA
+  sync_harvester_cluster_agent_ca
 
   # Restart Traefik to pick up real vault-root-ca (services need it for OIDC TLS)
   log_step "Restarting Traefik to pick up Root CA..."
@@ -1433,8 +1448,10 @@ phase_5_keycloak_auth() {
   secret=$(kc_create_client "harbor" "https://harbor.${DOMAIN}/c/oidc/callback" "Harbor Registry")
   kc_save_secret "harbor" "$secret"
 
-  # Rancher
-  secret=$(kc_create_client "rancher" "https://${RANCHER_FQDN}/*" "Rancher")
+  # Rancher — use actual Rancher URL from tfvars (may differ from RANCHER_FQDN)
+  local _rancher_url
+  _rancher_url=$(get_rancher_url)
+  secret=$(kc_create_client "rancher" "${_rancher_url}/verify-auth,${_rancher_url}/*" "Rancher")
   kc_save_secret "rancher" "$secret"
 
   # oauth2-proxy clients (one per protected service)

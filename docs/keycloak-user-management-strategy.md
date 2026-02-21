@@ -149,6 +149,74 @@ User ──► Keycloak (OIDC) ──► Rancher / ArgoCD / GitLab / etc.
 
 ---
 
+## User Lifecycle Policy: Disable, Never Delete
+
+> **Policy**: When a user leaves the organization or no longer needs access,
+> **disable** their Keycloak account (`enabled: false`). Do **not** delete it.
+
+### Why disable instead of delete?
+
+Several downstream services (Harbor, GitLab, Mattermost) create local user
+records when a user first logs in via OIDC. These records are keyed by the
+OIDC `sub` (subject) claim — a UUID that Keycloak assigns to each user at
+creation time. If a user is **deleted** from Keycloak and later recreated
+(e.g., rehire, contractor return), Keycloak assigns a **new UUID**. The
+downstream services then see a "new" OIDC identity but find the old
+username/email already exists in their database, causing login failures:
+
+| Service | Error on UUID mismatch | Recovery |
+|---------|----------------------|----------|
+| **Harbor** | `failed to create user record: user X or email Y already exists` | Admin must delete the Harbor user via UI/API before the user can log in again |
+| **Grafana** | `User sync failed` (login page) | Requires `GF_AUTH_OAUTH_ALLOW_INSECURE_EMAIL_LOOKUP=true` (already configured) to fall back to email matching |
+| **GitLab** | `Email has already been taken` | Admin must delete or reassign the GitLab account |
+| **Mattermost** | Duplicate email conflict | Admin must deactivate the old Mattermost account |
+
+**Disabling** the Keycloak account avoids all of these problems:
+- The `sub` UUID is preserved — if the account is re-enabled later, all
+  downstream services recognize the same identity
+- A disabled user cannot obtain tokens, so access is effectively revoked
+- Audit trails remain intact (login history, group memberships, role assignments)
+- Compliance frameworks (SOC 2, ISO 27001) generally require retaining
+  identity records for audit purposes anyway
+
+### How to disable a user
+
+**Keycloak Admin Console:**
+1. Navigate to Users → search for the user
+2. Click the user → toggle **Enabled** to **Off**
+3. Click **Save**
+
+**Keycloak Admin API:**
+```bash
+# Get admin token
+KC_TOKEN=$(curl -s -X POST "https://keycloak.${DOMAIN}/realms/master/protocol/openid-connect/token" \
+  -d "grant_type=client_credentials&client_id=admin-cli&client_secret=${KC_ADMIN_SECRET}" \
+  | jq -r '.access_token')
+
+# Disable user by ID
+curl -s -X PUT "https://keycloak.${DOMAIN}/admin/realms/${REALM}/users/${USER_ID}" \
+  -H "Authorization: Bearer ${KC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+```
+
+**Identity Portal** (if deployed): Admins can disable users from the admin
+panel without direct Keycloak access.
+
+### When deletion IS appropriate
+
+Delete a Keycloak user only when required by data-purge regulations (GDPR
+"right to erasure", etc.). In that case, also purge the user from all
+downstream services:
+
+1. Delete from Harbor: `curl -X DELETE /api/v2.0/users/{id}`
+2. Delete/block from GitLab: `curl -X DELETE /api/v4/users/{id}`
+3. Deactivate from Mattermost: `mmctl user deactivate {email}`
+4. Delete from Grafana: `curl -X DELETE /api/admin/users/{id}`
+5. Then delete from Keycloak
+
+---
+
 ## Operational Comparison: Help Desk / NOC vs DevOps
 
 This is the core tension. Who creates and manages user accounts day-to-day?
