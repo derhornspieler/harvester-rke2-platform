@@ -9,7 +9,7 @@ terraform {
 
     harvester = {
       source  = "harvester/harvester"
-      version = "~> 0.6"
+      version = "~> 1.7"
     }
   }
 
